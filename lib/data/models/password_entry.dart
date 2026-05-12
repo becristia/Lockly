@@ -1,12 +1,12 @@
 class PasswordEntry {
-  const PasswordEntry({
+  PasswordEntry({
     required this.title,
     required this.website,
     required this.username,
     required this.password,
     required this.notes,
-    required this.tags,
-  });
+    required List<String> tags,
+  }) : tags = List.unmodifiable(tags);
 
   final String title;
   final String website;
@@ -21,7 +21,7 @@ class PasswordEntry {
     'username': username,
     'password': password,
     'notes': notes,
-    'tags': tags,
+    'tags': List<String>.unmodifiable(tags),
   };
 
   factory PasswordEntry.fromJson(Map<String, Object?> json) {

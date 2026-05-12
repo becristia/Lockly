@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 
 class VaultMeta {
-  const VaultMeta({
+  VaultMeta({
     required this.id,
     required this.version,
     required this.kdf,
@@ -18,7 +18,9 @@ class VaultMeta {
     this.encryptedDekByBiometric,
     this.encryptedDekByBiometricNonce,
     this.encryptedDekByBiometricMac,
-  });
+  }) {
+    _validateConstructorKdfConsistency(kdf: kdf, kdfParams: kdfParams);
+  }
 
   final String id;
   final int version;
@@ -35,27 +37,32 @@ class VaultMeta {
   final String? encryptedDekByBiometricNonce;
   final String? encryptedDekByBiometricMac;
 
-  Map<String, Object?> toDb() => {
-    'id': id,
-    'version': version,
-    'kdf': kdf,
-    'kdf_params': jsonEncode(kdfParams.toJson()),
-    'salt': salt,
-    'encrypted_dek_by_master': encryptedDekByMaster,
-    'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
-    'encrypted_dek_by_master_mac': encryptedDekByMasterMac,
-    'encrypted_dek_by_biometric': encryptedDekByBiometric,
-    'encrypted_dek_by_biometric_nonce': encryptedDekByBiometricNonce,
-    'encrypted_dek_by_biometric_mac': encryptedDekByBiometricMac,
-    'biometric_enabled': biometricEnabled ? 1 : 0,
-    'created_at': createdAt,
-    'updated_at': updatedAt,
-  };
+  Map<String, Object?> toDb() {
+    _validateSerializableKdfConsistency(kdf: kdf, kdfParams: kdfParams);
+
+    return {
+      'id': id,
+      'version': version,
+      'kdf': kdf,
+      'kdf_params': jsonEncode(kdfParams.toJson()),
+      'salt': salt,
+      'encrypted_dek_by_master': encryptedDekByMaster,
+      'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
+      'encrypted_dek_by_master_mac': encryptedDekByMasterMac,
+      'encrypted_dek_by_biometric': encryptedDekByBiometric,
+      'encrypted_dek_by_biometric_nonce': encryptedDekByBiometricNonce,
+      'encrypted_dek_by_biometric_mac': encryptedDekByBiometricMac,
+      'biometric_enabled': biometricEnabled ? 1 : 0,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+    };
+  }
 
   factory VaultMeta.fromDb(Map<String, Object?> row) {
     final kdf = row['kdf'] as String;
     final kdfParams = _parseKdfParams(row['kdf_params']);
-    _validateKdfConsistency(kdf: kdf, kdfParams: kdfParams);
+    _validateDbKdfConsistency(kdf: kdf, kdfParams: kdfParams);
+    final biometricEnabled = _parseBiometricEnabled(row['biometric_enabled']);
 
     return VaultMeta(
       id: row['id'] as String,
@@ -71,7 +78,7 @@ class VaultMeta {
           row['encrypted_dek_by_biometric_nonce'] as String?,
       encryptedDekByBiometricMac:
           row['encrypted_dek_by_biometric_mac'] as String?,
-      biometricEnabled: row['biometric_enabled'] == 1,
+      biometricEnabled: biometricEnabled,
       createdAt: row['created_at'] as int,
       updatedAt: row['updated_at'] as int,
     );
@@ -82,7 +89,7 @@ class VaultMeta {
       throw const FormatException('Invalid kdf_params: expected JSON text');
     }
 
-    final decodedValue;
+    final Object? decodedValue;
     try {
       decodedValue = jsonDecode(rawValue);
     } on FormatException catch (error) {
@@ -113,14 +120,73 @@ class VaultMeta {
     return KdfParams.fromJson(json);
   }
 
-  static void _validateKdfConsistency({
+  static bool _hasMatchingKdf({
     required String kdf,
     required KdfParams kdfParams,
   }) {
-    if (kdf != kdfParams.name) {
+    return kdf == kdfParams.name;
+  }
+
+  static void _validateConstructorKdfConsistency({
+    required String kdf,
+    required KdfParams kdfParams,
+  }) {
+    if (_hasMatchingKdf(kdf: kdf, kdfParams: kdfParams)) {
+      return;
+    }
+
+    throw ArgumentError.value(
+      kdf,
+      'kdf',
+      _kdfMismatchMessage(
+        kdf: kdf,
+        expectedFieldName: 'kdfParams.name',
+        expectedValue: kdfParams.name,
+      ),
+    );
+  }
+
+  static void _validateSerializableKdfConsistency({
+    required String kdf,
+    required KdfParams kdfParams,
+  }) {
+    if (_hasMatchingKdf(kdf: kdf, kdfParams: kdfParams)) {
+      return;
+    }
+
+    throw StateError(
+      'Invalid vault meta: ${_kdfMismatchMessage(kdf: kdf, expectedFieldName: 'kdfParams.name', expectedValue: kdfParams.name)}',
+    );
+  }
+
+  static void _validateDbKdfConsistency({
+    required String kdf,
+    required KdfParams kdfParams,
+  }) {
+    if (_hasMatchingKdf(kdf: kdf, kdfParams: kdfParams)) {
+      return;
+    }
+
+    throw FormatException(
+      'Invalid vault_meta row: ${_kdfMismatchMessage(kdf: kdf, expectedFieldName: 'kdf_params.name', expectedValue: kdfParams.name)}',
+    );
+  }
+
+  static bool _parseBiometricEnabled(Object? rawValue) {
+    if (rawValue is! int || (rawValue != 0 && rawValue != 1)) {
       throw FormatException(
-        'Invalid vault_meta row: kdf "$kdf" does not match kdf_params.name "${kdfParams.name}"',
+        'Invalid biometric_enabled: expected integer 0 or 1',
       );
     }
+
+    return rawValue == 1;
+  }
+
+  static String _kdfMismatchMessage({
+    required String kdf,
+    required String expectedFieldName,
+    required String expectedValue,
+  }) {
+    return 'kdf "$kdf" does not match $expectedFieldName "$expectedValue"';
   }
 }

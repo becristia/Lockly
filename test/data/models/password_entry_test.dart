@@ -60,22 +60,29 @@ void main() {
     );
   });
 
-  test('password entry preserves the provided tags list', () {
-    final sourceTags = <String>['dev', 'important'];
-    final entry = PasswordEntry(
-      title: 'GitHub',
-      website: 'https://github.com',
-      username: 'user@example.com',
-      password: 'secret-password',
-      notes: 'recovery codes stored offline',
-      tags: sourceTags,
-    );
+  test(
+    'password entry copies tags defensively and keeps serialized output stable',
+    () {
+      final sourceTags = <String>['dev', 'important'];
+      final entry = PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'recovery codes stored offline',
+        tags: sourceTags,
+      );
 
-    sourceTags.add('mutated');
+      final encodedBeforeMutation = jsonEncode(entry.toJson());
 
-    expect(identical(entry.tags, sourceTags), isTrue);
-    expect(entry.tags, ['dev', 'important', 'mutated']);
-  });
+      sourceTags.add('mutated');
+
+      expect(identical(entry.tags, sourceTags), isFalse);
+      expect(entry.tags, ['dev', 'important']);
+      expect(jsonEncode(entry.toJson()), encodedBeforeMutation);
+      expect(() => entry.tags.add('blocked'), throwsUnsupportedError);
+    },
+  );
 
   test('encrypted vault item round-trips through DB mapping', () {
     const item = EncryptedVaultItem(
@@ -176,6 +183,31 @@ void main() {
     );
   });
 
+  test('vault meta rejects mismatched kdf and kdf params name in memory', () {
+    expect(
+      () => VaultMeta(
+        id: 'vault-1',
+        version: 1,
+        kdf: 'argon2id',
+        kdfParams: KdfParams.pbkdf2(iterations: 180000, bits: 256),
+        salt: 'base64-salt',
+        encryptedDekByMaster: 'encrypted-master',
+        encryptedDekByMasterNonce: 'master-nonce',
+        encryptedDekByMasterMac: 'master-mac',
+        biometricEnabled: false,
+        createdAt: 1715550000,
+        updatedAt: 1715551111,
+      ),
+      throwsA(
+        isA<ArgumentError>().having(
+          (error) => error.message.toString(),
+          'message',
+          allOf(contains('kdf'), contains('kdfParams.name')),
+        ),
+      ),
+    );
+  });
+
   test('vault meta rejects malformed kdf params json text', () {
     expect(
       () => VaultMeta.fromDb(
@@ -196,6 +228,22 @@ void main() {
 
     expect(decoded.biometricEnabled, isFalse);
   });
+
+  test(
+    'vault meta rejects biometric_enabled values other than zero or one',
+    () {
+      expect(
+        () => VaultMeta.fromDb(_vaultMetaRow(biometricEnabled: 2)),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message.toString(),
+            'message',
+            contains('biometric_enabled'),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 Map<String, Object?> _vaultMetaRow({
