@@ -79,47 +79,57 @@ class VaultService {
     final now = DateTime.now().millisecondsSinceEpoch;
     final salt = _random.bytes(16);
     final kdfParams = KdfParams.pbkdf2();
-    final kek = await _kdf.deriveKey(
-      password: masterPassword,
-      salt: salt,
-      params: kdfParams,
-    );
-    final dek = _random.bytes(32);
-    final encryptedDek = await _crypto.encryptBytes(key: kek, plaintext: dek);
-    final meta = VaultMeta(
-      id: _uuid.v4(),
-      version: 1,
-      kdf: kdfParams.name,
-      kdfParams: kdfParams,
-      salt: b64(salt),
-      encryptedDekByMaster: b64(encryptedDek.ciphertext),
-      encryptedDekByMasterNonce: b64(encryptedDek.nonce),
-      encryptedDekByMasterMac: b64(encryptedDek.mac),
-      biometricEnabled: false,
-      createdAt: now,
-      updatedAt: now,
-      encryptedDekByBiometric: null,
-      encryptedDekByBiometricNonce: null,
-      encryptedDekByBiometricMac: null,
-    );
+    Uint8List? kek;
+    Uint8List? dek;
+    try {
+      kek = await _kdf.deriveKey(
+        password: masterPassword,
+        salt: salt,
+        params: kdfParams,
+      );
+      dek = _random.bytes(32);
+      final encryptedDek = await _crypto.encryptBytes(key: kek, plaintext: dek);
+      final meta = VaultMeta(
+        id: _uuid.v4(),
+        version: 1,
+        kdf: kdfParams.name,
+        kdfParams: kdfParams,
+        salt: b64(salt),
+        encryptedDekByMaster: b64(encryptedDek.ciphertext),
+        encryptedDekByMasterNonce: b64(encryptedDek.nonce),
+        encryptedDekByMasterMac: b64(encryptedDek.mac),
+        biometricEnabled: false,
+        createdAt: now,
+        updatedAt: now,
+        encryptedDekByBiometric: null,
+        encryptedDekByBiometricNonce: null,
+        encryptedDekByBiometricMac: null,
+      );
 
-    await repository.transaction((txn) async {
-      await txn.metaDao.save(meta);
-      await txn.settingsDao.setValue('clipboard_clear_seconds', '30');
-    });
-    _session.lock();
+      await repository.transaction((txn) async {
+        await txn.metaDao.save(meta);
+        await txn.settingsDao.setValue('clipboard_clear_seconds', '30');
+      });
+      _session.lock();
+    } finally {
+      _zeroBytes(kek);
+      _zeroBytes(dek);
+    }
   }
 
   Future<VaultSession> unlock({required String masterPassword}) async {
     final meta = await _requireVaultMeta();
+    Uint8List? dek;
 
     try {
-      final dek = await _decryptDek(meta: meta, password: masterPassword);
+      dek = await _decryptDek(meta: meta, password: masterPassword);
       _session.unlock(dek);
       return _session;
     } on CryptoException {
       _session.lock();
       throw const VaultUnlockException('Invalid master password');
+    } finally {
+      _zeroBytes(dek);
     }
   }
 
@@ -128,37 +138,44 @@ class VaultService {
     required String newPassword,
   }) async {
     final meta = await _requireVaultMeta();
-    final dek = await _decryptDekWithUnlockError(
-      meta: meta,
-      password: oldPassword,
-    );
-    final newSalt = _random.bytes(16);
-    final newKek = await _kdf.deriveKey(
-      password: newPassword,
-      salt: newSalt,
-      params: meta.kdfParams,
-    );
-    final wrappedDek = await _crypto.encryptBytes(key: newKek, plaintext: dek);
-    final updatedAt = DateTime.now().millisecondsSinceEpoch;
-    final updatedMeta = VaultMeta(
-      id: meta.id,
-      version: meta.version,
-      kdf: meta.kdf,
-      kdfParams: meta.kdfParams,
-      salt: b64(newSalt),
-      encryptedDekByMaster: b64(wrappedDek.ciphertext),
-      encryptedDekByMasterNonce: b64(wrappedDek.nonce),
-      encryptedDekByMasterMac: b64(wrappedDek.mac),
-      biometricEnabled: false,
-      createdAt: meta.createdAt,
-      updatedAt: updatedAt,
-      encryptedDekByBiometric: null,
-      encryptedDekByBiometricNonce: null,
-      encryptedDekByBiometricMac: null,
-    );
+    Uint8List? dek;
+    Uint8List? newKek;
+    try {
+      dek = await _decryptDekWithUnlockError(meta: meta, password: oldPassword);
+      final newSalt = _random.bytes(16);
+      newKek = await _kdf.deriveKey(
+        password: newPassword,
+        salt: newSalt,
+        params: meta.kdfParams,
+      );
+      final wrappedDek = await _crypto.encryptBytes(
+        key: newKek,
+        plaintext: dek,
+      );
+      final updatedAt = DateTime.now().millisecondsSinceEpoch;
+      final updatedMeta = VaultMeta(
+        id: meta.id,
+        version: meta.version,
+        kdf: meta.kdf,
+        kdfParams: meta.kdfParams,
+        salt: b64(newSalt),
+        encryptedDekByMaster: b64(wrappedDek.ciphertext),
+        encryptedDekByMasterNonce: b64(wrappedDek.nonce),
+        encryptedDekByMasterMac: b64(wrappedDek.mac),
+        biometricEnabled: false,
+        createdAt: meta.createdAt,
+        updatedAt: updatedAt,
+        encryptedDekByBiometric: null,
+        encryptedDekByBiometricNonce: null,
+        encryptedDekByBiometricMac: null,
+      );
 
-    await repository.transaction((txn) => txn.metaDao.save(updatedMeta));
-    _session.unlock(dek);
+      await repository.transaction((txn) => txn.metaDao.save(updatedMeta));
+      _session.unlock(dek);
+    } finally {
+      _zeroBytes(newKek);
+      _zeroBytes(dek);
+    }
   }
 
   Future<String> createItem(PasswordEntry entry) async {
@@ -219,7 +236,10 @@ class VaultService {
       createdAt: existing.createdAt,
       updatedAt: DateTime.now().millisecondsSinceEpoch,
     );
-    await repository.itemsDao.upsert(updatedItem);
+    final updated = await repository.itemsDao.updateActive(updatedItem);
+    if (!updated) {
+      throw VaultItemNotFoundException(id);
+    }
   }
 
   Future<void> deleteItem(String id) async {
@@ -247,19 +267,24 @@ class VaultService {
     required VaultMeta meta,
     required String password,
   }) async {
-    final kek = await _kdf.deriveKey(
-      password: password,
-      salt: fromB64(meta.salt),
-      params: meta.kdfParams,
-    );
-    return _crypto.decryptBytes(
-      key: kek,
-      payload: EncryptedPayload(
-        nonce: fromB64(meta.encryptedDekByMasterNonce),
-        ciphertext: fromB64(meta.encryptedDekByMaster),
-        mac: fromB64(meta.encryptedDekByMasterMac),
-      ),
-    );
+    Uint8List? kek;
+    try {
+      kek = await _kdf.deriveKey(
+        password: password,
+        salt: fromB64(meta.salt),
+        params: meta.kdfParams,
+      );
+      return await _crypto.decryptBytes(
+        key: kek,
+        payload: EncryptedPayload(
+          nonce: fromB64(meta.encryptedDekByMasterNonce),
+          ciphertext: fromB64(meta.encryptedDekByMaster),
+          mac: fromB64(meta.encryptedDekByMasterMac),
+        ),
+      );
+    } finally {
+      _zeroBytes(kek);
+    }
   }
 
   Future<Uint8List> _decryptDekWithUnlockError({
@@ -333,5 +358,12 @@ class VaultService {
     ];
 
     return searchableValues.any((value) => value.toLowerCase().contains(query));
+  }
+
+  void _zeroBytes(Uint8List? bytes) {
+    if (bytes == null) {
+      return;
+    }
+    bytes.fillRange(0, bytes.length, 0);
   }
 }

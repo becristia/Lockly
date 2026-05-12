@@ -9,6 +9,7 @@ import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -223,6 +224,59 @@ void main() {
   });
 
   test(
+    'updateItem throws not found when the row is deleted after read and before write',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+      final itemsDao = _DeleteDuringUpdateVaultItemsDao(db);
+      final service = VaultService(
+        repository: VaultRepository(
+          metaDao: VaultMetaDao(db),
+          itemsDao: itemsDao,
+          settingsDao: SettingsDao(db),
+        ),
+        random: SecureRandom(),
+        kdf: KdfService(),
+        crypto: CryptoService(random: SecureRandom()),
+      );
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+
+      final id = await service.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: ['dev'],
+        ),
+      );
+      itemsDao.targetId = id;
+
+      expect(
+        () => service.updateItem(
+          id,
+          PasswordEntry(
+            title: 'Updated',
+            website: 'https://github.com',
+            username: 'updated-user',
+            password: 'updated-password',
+            notes: 'updated-note',
+            tags: ['updated'],
+          ),
+        ),
+        throwsA(isA<VaultItemNotFoundException>()),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      final rawRows = await itemsDao.rawRowsForTest();
+      expect(rawRows, hasLength(1));
+      expect(rawRows.single['deleted_at'], isNotNull);
+    },
+  );
+
+  test(
     'list update and delete operate on decrypted active items with in-memory query filtering',
     () async {
       final service = await buildService();
@@ -278,4 +332,24 @@ void main() {
       expect(remainingItems.map((item) => item.id), [githubId]);
     },
   );
+}
+
+class _DeleteDuringUpdateVaultItemsDao extends VaultItemsDao {
+  _DeleteDuringUpdateVaultItemsDao(super.db);
+
+  String? targetId;
+  bool _deletedDuringUpdate = false;
+
+  @override
+  Future<EncryptedVaultItem?> byId(String id) async {
+    final item = await super.byId(id);
+    if (!_deletedDuringUpdate &&
+        targetId == id &&
+        item != null &&
+        item.deletedAt == null) {
+      _deletedDuringUpdate = true;
+      Future.microtask(() => softDelete(id, item.updatedAt + 1));
+    }
+    return item;
+  }
 }

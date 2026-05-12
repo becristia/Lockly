@@ -37,28 +37,44 @@ class VaultSession {
   }
 
   void ensureUnlocked() {
-    _requireDekCopy();
+    if (_dek == null) {
+      throw const VaultLockedException('Vault is locked');
+    }
   }
 
   Future<EncryptedPayload> encrypt({
     required CryptoService crypto,
     required List<int> plaintext,
-  }) {
-    return crypto.encryptBytes(key: _requireDekCopy(), plaintext: plaintext);
+  }) async {
+    final key = _copyDek();
+    try {
+      return await crypto.encryptBytes(key: key, plaintext: plaintext);
+    } finally {
+      _zero(key);
+    }
   }
 
   Future<Uint8List> decrypt({
     required CryptoService crypto,
     required EncryptedPayload payload,
-  }) {
-    return crypto.decryptBytes(key: _requireDekCopy(), payload: payload);
+  }) async {
+    final key = _copyDek();
+    try {
+      return await crypto.decryptBytes(key: key, payload: payload);
+    } finally {
+      _zero(key);
+    }
   }
 
-  Uint8List _requireDekCopy() {
+  Uint8List _copyDek() {
     final dek = _dek;
     if (dek == null) {
       throw const VaultLockedException('Vault is locked');
     }
     return Uint8List.fromList(dek);
+  }
+
+  void _zero(Uint8List value) {
+    value.fillRange(0, value.length, 0);
   }
 }

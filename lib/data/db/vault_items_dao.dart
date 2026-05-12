@@ -44,6 +44,27 @@ class VaultItemsDao {
     return _db.query('vault_items');
   }
 
+  Future<bool> updateActive(EncryptedVaultItem item) async {
+    final affectedRows = await _db.update(
+      'vault_items',
+      {
+        'nonce': item.nonce,
+        'ciphertext': item.ciphertext,
+        'mac': item.mac,
+        'updated_at': item.updatedAt,
+      },
+      where: 'id = ? AND deleted_at IS NULL',
+      whereArgs: [item.id],
+    );
+    if (affectedRows > 1) {
+      throw StateError(
+        'Expected to update at most one active vault_items row for id "${item.id}", but updated $affectedRows rows.',
+      );
+    }
+
+    return affectedRows == 1;
+  }
+
   Future<void> softDelete(String id, int deletedAt) async {
     final affectedRows = await _db.update(
       'vault_items',
