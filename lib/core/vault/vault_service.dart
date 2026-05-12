@@ -162,6 +162,7 @@ class VaultService {
   }
 
   Future<String> createItem(PasswordEntry entry) async {
+    _ensureUnlocked();
     final now = DateTime.now().millisecondsSinceEpoch;
     final id = _uuid.v4();
     final encryptedItem = await _encryptEntry(
@@ -176,15 +177,13 @@ class VaultService {
   }
 
   Future<PasswordEntry> getItem(String id) async {
-    final encryptedItem = await repository.itemsDao.byId(id);
-    if (encryptedItem == null || encryptedItem.deletedAt != null) {
-      throw VaultItemNotFoundException(id);
-    }
-
+    _ensureUnlocked();
+    final encryptedItem = await _requireActiveItem(id);
     return _decryptItem(encryptedItem);
   }
 
   Future<List<VaultListItem>> listItems({String query = ''}) async {
+    _ensureUnlocked();
     final normalizedQuery = query.trim().toLowerCase();
     final items = await repository.itemsDao.activeItems();
     final results = <VaultListItem>[];
@@ -212,11 +211,8 @@ class VaultService {
   }
 
   Future<void> updateItem(String id, PasswordEntry entry) async {
-    final existing = await repository.itemsDao.byId(id);
-    if (existing == null || existing.deletedAt != null) {
-      throw VaultItemNotFoundException(id);
-    }
-
+    _ensureUnlocked();
+    final existing = await _requireActiveItem(id);
     final updatedItem = await _encryptEntry(
       id: id,
       entry: entry,
@@ -226,11 +222,17 @@ class VaultService {
     await repository.itemsDao.upsert(updatedItem);
   }
 
-  Future<void> deleteItem(String id) {
-    return repository.itemsDao.softDelete(
-      id,
-      DateTime.now().millisecondsSinceEpoch,
-    );
+  Future<void> deleteItem(String id) async {
+    _ensureUnlocked();
+    await _requireActiveItem(id);
+    try {
+      await repository.itemsDao.softDelete(
+        id,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+    } on StateError {
+      throw VaultItemNotFoundException(id);
+    }
   }
 
   Future<VaultMeta> _requireVaultMeta() async {
@@ -271,14 +273,26 @@ class VaultService {
     }
   }
 
+  void _ensureUnlocked() {
+    _session.ensureUnlocked();
+  }
+
+  Future<EncryptedVaultItem> _requireActiveItem(String id) async {
+    final encryptedItem = await repository.itemsDao.byId(id);
+    if (encryptedItem == null || encryptedItem.deletedAt != null) {
+      throw VaultItemNotFoundException(id);
+    }
+    return encryptedItem;
+  }
+
   Future<EncryptedVaultItem> _encryptEntry({
     required String id,
     required PasswordEntry entry,
     required int createdAt,
     required int updatedAt,
   }) async {
-    final encryptedPayload = await _crypto.encryptBytes(
-      key: _session.dek,
+    final encryptedPayload = await _session.encrypt(
+      crypto: _crypto,
       plaintext: utf8.encode(jsonEncode(entry.toJson())),
     );
 
@@ -293,8 +307,8 @@ class VaultService {
   }
 
   Future<PasswordEntry> _decryptItem(EncryptedVaultItem item) async {
-    final clearBytes = await _crypto.decryptBytes(
-      key: _session.dek,
+    final clearBytes = await _session.decrypt(
+      crypto: _crypto,
       payload: EncryptedPayload(
         nonce: fromB64(item.nonce),
         ciphertext: fromB64(item.ciphertext),

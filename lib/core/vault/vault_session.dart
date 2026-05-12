@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:secure_box/core/crypto/crypto_service.dart';
+
 class VaultLockedException implements Exception {
   const VaultLockedException(this.message);
 
@@ -13,14 +15,6 @@ class VaultSession {
   Uint8List? _dek;
 
   bool get isUnlocked => _dek != null;
-
-  Uint8List get dek {
-    final dek = _dek;
-    if (dek == null) {
-      throw const VaultLockedException('Vault is locked');
-    }
-    return Uint8List.fromList(dek);
-  }
 
   void unlock(Uint8List dek) {
     if (dek.length != 32) {
@@ -40,5 +34,31 @@ class VaultSession {
       dek.fillRange(0, dek.length, 0);
     }
     _dek = null;
+  }
+
+  void ensureUnlocked() {
+    _requireDekCopy();
+  }
+
+  Future<EncryptedPayload> encrypt({
+    required CryptoService crypto,
+    required List<int> plaintext,
+  }) {
+    return crypto.encryptBytes(key: _requireDekCopy(), plaintext: plaintext);
+  }
+
+  Future<Uint8List> decrypt({
+    required CryptoService crypto,
+    required EncryptedPayload payload,
+  }) {
+    return crypto.decryptBytes(key: _requireDekCopy(), payload: payload);
+  }
+
+  Uint8List _requireDekCopy() {
+    final dek = _dek;
+    if (dek == null) {
+      throw const VaultLockedException('Vault is locked');
+    }
+    return Uint8List.fromList(dek);
   }
 }

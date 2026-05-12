@@ -3,6 +3,7 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
+import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
@@ -92,6 +93,132 @@ void main() {
     expect(
       (await service.unlock(masterPassword: 'new-master')).isUnlocked,
       isTrue,
+    );
+  });
+
+  test('locked item operations fail with VaultLockedException', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    final session = await service.unlock(masterPassword: 'master-passphrase');
+
+    final existingId = await service.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: ['dev'],
+      ),
+    );
+
+    session.lock();
+
+    expect(
+      () => service.createItem(
+        PasswordEntry(
+          title: 'Locked',
+          website: 'https://locked.example',
+          username: 'locked-user',
+          password: 'locked-password',
+          notes: 'locked-note',
+          tags: ['locked'],
+        ),
+      ),
+      throwsA(isA<VaultLockedException>()),
+    );
+    expect(
+      () => service.getItem(existingId),
+      throwsA(isA<VaultLockedException>()),
+    );
+    expect(() => service.listItems(), throwsA(isA<VaultLockedException>()));
+    expect(
+      () => service.updateItem(
+        existingId,
+        PasswordEntry(
+          title: 'Updated',
+          website: 'https://github.com',
+          username: 'updated-user',
+          password: 'updated-password',
+          notes: 'updated-note',
+          tags: ['updated'],
+        ),
+      ),
+      throwsA(isA<VaultLockedException>()),
+    );
+    expect(
+      () => service.deleteItem(existingId),
+      throwsA(isA<VaultLockedException>()),
+    );
+  });
+
+  test(
+    'password rotation preserves readability of preexisting items after relock',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'old-master');
+      final session = await service.unlock(masterPassword: 'old-master');
+      final id = await service.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: ['dev'],
+        ),
+      );
+
+      await service.changeMasterPassword(
+        oldPassword: 'old-master',
+        newPassword: 'new-master',
+      );
+
+      session.lock();
+      await service.unlock(masterPassword: 'new-master');
+
+      final entry = await service.getItem(id);
+      expect(entry.title, 'GitHub');
+      expect(entry.password, 'secret-password');
+      expect(entry.notes, 'private note');
+    },
+  );
+
+  test('stale update and delete throw VaultItemNotFoundException', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+
+    final id = await service.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: ['dev'],
+      ),
+    );
+
+    await service.deleteItem(id);
+
+    expect(
+      () => service.updateItem(
+        id,
+        PasswordEntry(
+          title: 'Updated',
+          website: 'https://github.com',
+          username: 'updated-user',
+          password: 'updated-password',
+          notes: 'updated-note',
+          tags: ['updated'],
+        ),
+      ),
+      throwsA(isA<VaultItemNotFoundException>()),
+    );
+    expect(
+      () => service.deleteItem(id),
+      throwsA(isA<VaultItemNotFoundException>()),
     );
   });
 
