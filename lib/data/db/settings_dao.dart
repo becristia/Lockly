@@ -3,7 +3,7 @@ import 'package:sqflite/sqflite.dart';
 class SettingsDao {
   SettingsDao(this._db);
 
-  final Database _db;
+  final DatabaseExecutor _db;
 
   Future<void> setValue(String key, String value) async {
     await _db.insert('settings', {

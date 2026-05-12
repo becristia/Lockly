@@ -91,6 +91,35 @@ void main() {
     expect(storedDeletedItem?.updatedAt, deletedAt);
   });
 
+  test('daos can be used inside a database transaction', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+    final item = EncryptedVaultItem(
+      id: 'txn-item',
+      nonce: 'txn-nonce',
+      ciphertext: 'txn-ciphertext',
+      mac: 'txn-mac',
+      createdAt: 1747000000000,
+      updatedAt: 1747000000000,
+    );
+    final meta = _buildVaultMeta(
+      biometricEnabled: false,
+      encryptedDekByBiometric: null,
+      encryptedDekByBiometricNonce: null,
+      encryptedDekByBiometricMac: null,
+    );
+
+    await db.transaction((txn) async {
+      await SettingsDao(txn).setValue('clipboard_clear_seconds', '45');
+      await VaultMetaDao(txn).save(meta);
+      await VaultItemsDao(txn).upsert(item);
+    });
+
+    expect(await SettingsDao(db).getValue('clipboard_clear_seconds'), '45');
+    expect((await VaultMetaDao(db).get())!.toDb(), meta.toDb());
+    expect((await VaultItemsDao(db).byId(item.id))!.toDb(), item.toDb());
+  });
+
   test('settings can be saved and read', () async {
     final db = await AppDatabase.openInMemory();
     addTearDown(db.close);
@@ -225,6 +254,37 @@ void main() {
     );
   });
 
+  test('soft delete fails when the item is already deleted', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+    final dao = VaultItemsDao(db);
+    final createdAt = DateTime.utc(2026, 5, 12).millisecondsSinceEpoch;
+    final firstDeletedAt = createdAt + 1000;
+    final secondDeletedAt = createdAt + 2000;
+    final item = EncryptedVaultItem(
+      id: 'deleted-once',
+      nonce: 'nonce-value',
+      ciphertext: 'ciphertext-value',
+      mac: 'mac-value',
+      createdAt: createdAt,
+      updatedAt: createdAt,
+    );
+
+    await dao.upsert(item);
+    await dao.softDelete(item.id, firstDeletedAt);
+
+    expect(
+      () => dao.softDelete(item.id, secondDeletedAt),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.toString(),
+          'message',
+          contains('vault_items'),
+        ),
+      ),
+    );
+  });
+
   test('clearing biometric DEK requires an existing singleton row', () async {
     final db = await AppDatabase.openInMemory();
     addTearDown(db.close);
@@ -241,6 +301,36 @@ void main() {
       ),
     );
   });
+
+  test(
+    'clearing biometric DEK fails when biometric unlock is already cleared',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+      final dao = VaultMetaDao(db);
+      final meta = _buildVaultMeta(
+        biometricEnabled: true,
+        encryptedDekByBiometric: 'encrypted-biometric-dek',
+        encryptedDekByBiometricNonce: 'biometric-nonce',
+        encryptedDekByBiometricMac: 'biometric-mac',
+        updatedAt: 1747000000000,
+      );
+
+      await dao.save(meta);
+      await dao.clearBiometricDek(1747000001111);
+
+      expect(
+        () => dao.clearBiometricDek(1747000002222),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.toString(),
+            'message',
+            contains('vault_meta'),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 VaultMeta _buildVaultMeta({

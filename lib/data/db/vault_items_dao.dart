@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 class VaultItemsDao {
   VaultItemsDao(this._db);
 
-  final Database _db;
+  final DatabaseExecutor _db;
 
   Future<void> upsert(EncryptedVaultItem item) async {
     await _db.insert(
@@ -42,7 +42,7 @@ class VaultItemsDao {
     final affectedRows = await _db.update(
       'vault_items',
       {'updated_at': deletedAt, 'deleted_at': deletedAt},
-      where: 'id = ?',
+      where: 'id = ? AND deleted_at IS NULL',
       whereArgs: [id],
     );
     if (affectedRows != 1) {
