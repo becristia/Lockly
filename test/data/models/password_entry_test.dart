@@ -107,6 +107,27 @@ void main() {
     expect(decoded.deletedAt, item.deletedAt);
   });
 
+  test('encrypted vault item rejects malformed DB rows', () {
+    expect(
+      () => EncryptedVaultItem.fromDb({
+        'id': 'item-1',
+        'nonce': 123,
+        'ciphertext': 'base64-ciphertext',
+        'mac': 'base64-mac',
+        'created_at': 1715550000,
+        'updated_at': 1715551111,
+        'deleted_at': null,
+      }),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('nonce'),
+        ),
+      ),
+    );
+  });
+
   test(
     'vault meta round-trips kdf params and biometric flag through DB mapping',
     () {
@@ -208,6 +229,37 @@ void main() {
     );
   });
 
+  test(
+    'vault meta rejects biometricEnabled true without biometric DEK tuple in memory',
+    () {
+      expect(
+        () => VaultMeta(
+          id: 'vault-1',
+          version: 1,
+          kdf: 'pbkdf2-hmac-sha256',
+          kdfParams: KdfParams.pbkdf2(iterations: 180000, bits: 256),
+          salt: 'base64-salt',
+          encryptedDekByMaster: 'encrypted-master',
+          encryptedDekByMasterNonce: 'master-nonce',
+          encryptedDekByMasterMac: 'master-mac',
+          biometricEnabled: true,
+          createdAt: 1715550000,
+          updatedAt: 1715551111,
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message.toString(),
+            'message',
+            allOf(
+              contains('biometricEnabled'),
+              contains('encryptedDekByBiometric'),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
   test('vault meta rejects malformed kdf params json text', () {
     expect(
       () => VaultMeta.fromDb(
@@ -244,12 +296,41 @@ void main() {
       );
     },
   );
+
+  test(
+    'vault meta rejects biometric_enabled zero with persisted biometric DEK tuple from DB',
+    () {
+      expect(
+        () => VaultMeta.fromDb(
+          _vaultMetaRow(
+            biometricEnabled: 0,
+            encryptedDekByBiometric: 'encrypted-bio',
+            encryptedDekByBiometricNonce: 'bio-nonce',
+            encryptedDekByBiometricMac: 'bio-mac',
+          ),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message.toString(),
+            'message',
+            allOf(
+              contains('biometric_enabled'),
+              contains('encrypted_dek_by_biometric'),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 Map<String, Object?> _vaultMetaRow({
   String kdf = 'pbkdf2-hmac-sha256',
   String? kdfParams,
-  int biometricEnabled = 1,
+  int biometricEnabled = 0,
+  String? encryptedDekByBiometric,
+  String? encryptedDekByBiometricNonce,
+  String? encryptedDekByBiometricMac,
 }) {
   return {
     'id': 'vault-1',
@@ -260,9 +341,9 @@ Map<String, Object?> _vaultMetaRow({
     'encrypted_dek_by_master': 'encrypted-master',
     'encrypted_dek_by_master_nonce': 'master-nonce',
     'encrypted_dek_by_master_mac': 'master-mac',
-    'encrypted_dek_by_biometric': null,
-    'encrypted_dek_by_biometric_nonce': null,
-    'encrypted_dek_by_biometric_mac': null,
+    'encrypted_dek_by_biometric': encryptedDekByBiometric,
+    'encrypted_dek_by_biometric_nonce': encryptedDekByBiometricNonce,
+    'encrypted_dek_by_biometric_mac': encryptedDekByBiometricMac,
     'biometric_enabled': biometricEnabled,
     'created_at': 1715550000,
     'updated_at': 1715551111,

@@ -29,13 +29,43 @@ class EncryptedVaultItem {
 
   factory EncryptedVaultItem.fromDb(Map<String, Object?> row) {
     return EncryptedVaultItem(
-      id: row['id'] as String,
-      nonce: row['nonce'] as String,
-      ciphertext: row['ciphertext'] as String,
-      mac: row['mac'] as String,
-      createdAt: row['created_at'] as int,
-      updatedAt: row['updated_at'] as int,
-      deletedAt: row['deleted_at'] as int?,
+      id: _readRequiredString(row, 'id'),
+      nonce: _readRequiredString(row, 'nonce'),
+      ciphertext: _readRequiredString(row, 'ciphertext'),
+      mac: _readRequiredString(row, 'mac'),
+      createdAt: _readRequiredInt(row, 'created_at'),
+      updatedAt: _readRequiredInt(row, 'updated_at'),
+      deletedAt: _readNullableInt(row, 'deleted_at'),
     );
+  }
+
+  static String _readRequiredString(Map<String, Object?> row, String field) {
+    final value = row[field];
+    if (value is! String) {
+      throw FormatException('Invalid "$field": expected a string');
+    }
+
+    return value;
+  }
+
+  static int _readRequiredInt(Map<String, Object?> row, String field) {
+    final value = row[field];
+    if (value is! int) {
+      throw FormatException('Invalid "$field": expected an int');
+    }
+
+    return value;
+  }
+
+  static int? _readNullableInt(Map<String, Object?> row, String field) {
+    final value = row[field];
+    if (value == null) {
+      return null;
+    }
+    if (value is! int) {
+      throw FormatException('Invalid "$field": expected an int or null');
+    }
+
+    return value;
   }
 }
