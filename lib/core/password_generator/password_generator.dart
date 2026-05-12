@@ -30,13 +30,13 @@ class PasswordGeneratorOptions {
 }
 
 class PasswordGenerator {
-  PasswordGenerator() : _random = Random.secure();
+  PasswordGenerator({Random? random}) : _random = random ?? Random.secure();
 
   static const String _lowercase = 'abcdefghijklmnopqrstuvwxyz';
   static const String _uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   static const String _numbers = '0123456789';
   static const String _symbols = r'@#$%^&*()-_=+[]{};:,.<>?';
-  static const String _confusing = '0Oo1lI';
+  static const String _confusing = 'Oo1lI';
 
   final Random _random;
 

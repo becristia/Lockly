@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/password_generator/password_generator.dart';
 
@@ -41,4 +43,37 @@ void main() {
       throwsA(isA<PasswordGeneratorException>()),
     );
   });
+
+  test('exclude confusing characters still allows zero for numeric output', () {
+    final generator = PasswordGenerator(random: _FixedRandom(0));
+
+    final password = generator.generate(
+      const PasswordGeneratorOptions(
+        length: 1,
+        lowercase: false,
+        uppercase: false,
+        numbers: true,
+        symbols: false,
+        excludeConfusing: true,
+        requireEverySelectedClass: true,
+      ),
+    );
+
+    expect(password, '0');
+  });
+}
+
+class _FixedRandom implements Random {
+  _FixedRandom(this._value);
+
+  final int _value;
+
+  @override
+  bool nextBool() => _value.isEven;
+
+  @override
+  double nextDouble() => _value.toDouble();
+
+  @override
+  int nextInt(int max) => _value % max;
 }
