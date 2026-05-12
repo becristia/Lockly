@@ -34,6 +34,7 @@ class CryptoService {
     required Uint8List key,
     required List<int> plaintext,
   }) async {
+    _validateKey(key);
     final nonce = _random.nonce12();
     final box = await _algorithm.encrypt(
       plaintext,
@@ -51,6 +52,7 @@ class CryptoService {
     required Uint8List key,
     required EncryptedPayload payload,
   }) async {
+    _validateKey(key);
     try {
       final clear = await _algorithm.decrypt(
         SecretBox(
@@ -63,6 +65,12 @@ class CryptoService {
       return Uint8List.fromList(clear);
     } on SecretBoxAuthenticationError {
       throw const CryptoException('Authentication failed');
+    }
+  }
+
+  void _validateKey(Uint8List key) {
+    if (key.length != 32) {
+      throw const CryptoException('Key must be 32 bytes for AES-256-GCM');
     }
   }
 }
