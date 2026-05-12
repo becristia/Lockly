@@ -71,16 +71,24 @@ class VaultMeta {
   }
 
   factory VaultMeta.fromDb(Map<String, Object?> row) {
-    final kdf = row['kdf'] as String;
+    final kdf = _readRequiredString(row, 'kdf');
     final kdfParams = _parseKdfParams(row['kdf_params']);
     _validateDbKdfConsistency(kdf: kdf, kdfParams: kdfParams);
-    final biometricEnabled = _parseBiometricEnabled(row['biometric_enabled']);
-    final encryptedDekByBiometric =
-        row['encrypted_dek_by_biometric'] as String?;
-    final encryptedDekByBiometricNonce =
-        row['encrypted_dek_by_biometric_nonce'] as String?;
-    final encryptedDekByBiometricMac =
-        row['encrypted_dek_by_biometric_mac'] as String?;
+    final biometricEnabled = _parseBiometricEnabled(
+      _readRequiredInt(row, 'biometric_enabled'),
+    );
+    final encryptedDekByBiometric = _readNullableString(
+      row,
+      'encrypted_dek_by_biometric',
+    );
+    final encryptedDekByBiometricNonce = _readNullableString(
+      row,
+      'encrypted_dek_by_biometric_nonce',
+    );
+    final encryptedDekByBiometricMac = _readNullableString(
+      row,
+      'encrypted_dek_by_biometric_mac',
+    );
     _validateDbBiometricState(
       biometricEnabled: biometricEnabled,
       encryptedDekByBiometric: encryptedDekByBiometric,
@@ -89,21 +97,57 @@ class VaultMeta {
     );
 
     return VaultMeta(
-      id: row['id'] as String,
-      version: row['version'] as int,
+      id: _readRequiredString(row, 'id'),
+      version: _readRequiredInt(row, 'version'),
       kdf: kdf,
       kdfParams: kdfParams,
-      salt: row['salt'] as String,
-      encryptedDekByMaster: row['encrypted_dek_by_master'] as String,
-      encryptedDekByMasterNonce: row['encrypted_dek_by_master_nonce'] as String,
-      encryptedDekByMasterMac: row['encrypted_dek_by_master_mac'] as String,
+      salt: _readRequiredString(row, 'salt'),
+      encryptedDekByMaster: _readRequiredString(row, 'encrypted_dek_by_master'),
+      encryptedDekByMasterNonce: _readRequiredString(
+        row,
+        'encrypted_dek_by_master_nonce',
+      ),
+      encryptedDekByMasterMac: _readRequiredString(
+        row,
+        'encrypted_dek_by_master_mac',
+      ),
       encryptedDekByBiometric: encryptedDekByBiometric,
       encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
       encryptedDekByBiometricMac: encryptedDekByBiometricMac,
       biometricEnabled: biometricEnabled,
-      createdAt: row['created_at'] as int,
-      updatedAt: row['updated_at'] as int,
+      createdAt: _readRequiredInt(row, 'created_at'),
+      updatedAt: _readRequiredInt(row, 'updated_at'),
     );
+  }
+
+  static String _readRequiredString(Map<String, Object?> row, String field) {
+    final value = row[field];
+    if (value is! String) {
+      throw FormatException('Invalid "$field": expected a string');
+    }
+
+    return value;
+  }
+
+  static String? _readNullableString(Map<String, Object?> row, String field) {
+    final value = row[field];
+    if (value == null) {
+      return null;
+    }
+    if (value is! String) {
+      throw FormatException('Invalid "$field": expected a string or null');
+    }
+
+    return value;
+  }
+
+  static int _readRequiredInt(Map<String, Object?> row, String field) {
+    final value = row[field];
+    if (value is! int) {
+      throw FormatException('Invalid "$field": expected an int');
+    }
+
+    return value;
   }
 
   static KdfParams _parseKdfParams(Object? rawValue) {

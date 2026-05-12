@@ -275,6 +275,32 @@ void main() {
     );
   });
 
+  test('vault meta rejects malformed required DB column types', () {
+    final malformedIdRow = _vaultMetaRow()..['id'] = 123;
+    final malformedVersionRow = _vaultMetaRow()..['version'] = '1';
+
+    expect(
+      () => VaultMeta.fromDb(malformedIdRow),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message.toString(),
+          'message',
+          contains('id'),
+        ),
+      ),
+    );
+    expect(
+      () => VaultMeta.fromDb(malformedVersionRow),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message.toString(),
+          'message',
+          contains('version'),
+        ),
+      ),
+    );
+  });
+
   test('vault meta decodes biometric_enabled zero as false', () {
     final decoded = VaultMeta.fromDb(_vaultMetaRow(biometricEnabled: 0));
 
@@ -322,6 +348,26 @@ void main() {
       );
     },
   );
+
+  test('vault meta rejects malformed optional biometric tuple field types', () {
+    final malformedBiometricFieldRow = _vaultMetaRow(
+      biometricEnabled: 1,
+      encryptedDekByBiometric: 'encrypted-bio',
+      encryptedDekByBiometricNonce: 'bio-nonce',
+      encryptedDekByBiometricMac: 'bio-mac',
+    )..['encrypted_dek_by_biometric_nonce'] = 123;
+
+    expect(
+      () => VaultMeta.fromDb(malformedBiometricFieldRow),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message.toString(),
+          'message',
+          contains('encrypted_dek_by_biometric_nonce'),
+        ),
+      ),
+    );
+  });
 }
 
 Map<String, Object?> _vaultMetaRow({
