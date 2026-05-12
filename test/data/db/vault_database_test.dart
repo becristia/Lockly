@@ -119,6 +119,68 @@ void main() {
     expect((await dao.get())!.toDb(), meta.toDb());
   });
 
+  test('vault meta save preserves a single persisted row', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+    final dao = VaultMetaDao(db);
+    final firstMeta = _buildVaultMeta(
+      id: 'vault-1',
+      biometricEnabled: false,
+      encryptedDekByBiometric: null,
+      encryptedDekByBiometricNonce: null,
+      encryptedDekByBiometricMac: null,
+      updatedAt: 1747000000000,
+    );
+    final secondMeta = _buildVaultMeta(
+      id: 'vault-2',
+      biometricEnabled: true,
+      encryptedDekByBiometric: 'encrypted-biometric-dek',
+      encryptedDekByBiometricNonce: 'biometric-nonce',
+      encryptedDekByBiometricMac: 'biometric-mac',
+      updatedAt: 1747000001111,
+    );
+
+    await dao.save(firstMeta);
+    await dao.save(secondMeta);
+
+    final rows = await db.query('vault_meta');
+    final storedMeta = await dao.get();
+
+    expect(rows, hasLength(1));
+    expect(storedMeta, isNotNull);
+    expect(storedMeta!.toDb(), secondMeta.toDb());
+  });
+
+  test(
+    'vault meta table rejects a second row outside dao replace semantics',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+      final firstMeta = _buildVaultMeta(
+        id: 'vault-1',
+        biometricEnabled: false,
+        encryptedDekByBiometric: null,
+        encryptedDekByBiometricNonce: null,
+        encryptedDekByBiometricMac: null,
+      );
+      final secondMeta = _buildVaultMeta(
+        id: 'vault-2',
+        biometricEnabled: false,
+        encryptedDekByBiometric: null,
+        encryptedDekByBiometricNonce: null,
+        encryptedDekByBiometricMac: null,
+      );
+
+      await db.insert('vault_meta', firstMeta.toDb());
+
+      expect(
+        () => db.insert('vault_meta', secondMeta.toDb()),
+        throwsA(isA<DatabaseException>()),
+      );
+      expect(await db.query('vault_meta'), hasLength(1));
+    },
+  );
+
   test('clearing biometric DEK disables biometric unlock state', () async {
     final db = await AppDatabase.openInMemory();
     addTearDown(db.close);
@@ -145,9 +207,44 @@ void main() {
     expect(clearedMeta.updatedAt, clearedAt);
     expect(clearedMeta.encryptedDekByMaster, initialMeta.encryptedDekByMaster);
   });
+
+  test('soft delete requires an existing item row', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+    final dao = VaultItemsDao(db);
+
+    expect(
+      () => dao.softDelete('missing-item', 1747000009999),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.toString(),
+          'message',
+          contains('vault_items'),
+        ),
+      ),
+    );
+  });
+
+  test('clearing biometric DEK requires an existing singleton row', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+    final dao = VaultMetaDao(db);
+
+    expect(
+      () => dao.clearBiometricDek(1747000009999),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.toString(),
+          'message',
+          contains('vault_meta'),
+        ),
+      ),
+    );
+  });
 }
 
 VaultMeta _buildVaultMeta({
+  String id = 'vault-1',
   required bool biometricEnabled,
   required String? encryptedDekByBiometric,
   required String? encryptedDekByBiometricNonce,
@@ -156,7 +253,7 @@ VaultMeta _buildVaultMeta({
   int updatedAt = 1747000000000,
 }) {
   return VaultMeta(
-    id: 'vault-1',
+    id: id,
     version: 1,
     kdf: 'pbkdf2-hmac-sha256',
     kdfParams: KdfParams.pbkdf2(iterations: 120000, bits: 256),

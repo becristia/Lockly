@@ -1,3 +1,4 @@
+import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -27,12 +28,22 @@ class VaultMetaDao {
   }
 
   Future<void> clearBiometricDek(int updatedAt) async {
-    await _db.update('vault_meta', {
-      'encrypted_dek_by_biometric': null,
-      'encrypted_dek_by_biometric_nonce': null,
-      'encrypted_dek_by_biometric_mac': null,
-      'biometric_enabled': 0,
-      'updated_at': updatedAt,
-    });
+    final affectedRows = await _db.update(
+      'vault_meta',
+      {
+        'encrypted_dek_by_biometric': null,
+        'encrypted_dek_by_biometric_nonce': null,
+        'encrypted_dek_by_biometric_mac': null,
+        'biometric_enabled': 0,
+        'updated_at': updatedAt,
+      },
+      where: 'singleton_key = ?',
+      whereArgs: [AppDatabase.vaultMetaSingletonKey],
+    );
+    if (affectedRows != 1) {
+      throw StateError(
+        'Expected to clear biometric DEK from exactly one vault_meta row, but updated $affectedRows rows.',
+      );
+    }
   }
 }

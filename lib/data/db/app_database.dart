@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const int schemaVersion = 1;
+  static const int vaultMetaSingletonKey = 1;
 
   static Future<Database> open(String path) {
     return _openDatabase(path);
@@ -18,6 +19,9 @@ class AppDatabase {
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE vault_meta (
+            singleton_key INTEGER NOT NULL DEFAULT 1
+              CHECK (singleton_key = ${AppDatabase.vaultMetaSingletonKey})
+              UNIQUE,
             id TEXT PRIMARY KEY,
             version INTEGER NOT NULL,
             kdf TEXT NOT NULL,
@@ -44,6 +48,10 @@ class AppDatabase {
             updated_at INTEGER NOT NULL,
             deleted_at INTEGER
           )
+        ''');
+        await db.execute('''
+          CREATE INDEX vault_items_active_idx
+          ON vault_items (deleted_at, updated_at DESC, created_at DESC)
         ''');
         await db.execute('''
           CREATE TABLE settings (

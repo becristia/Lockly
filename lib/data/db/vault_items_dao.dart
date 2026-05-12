@@ -39,11 +39,16 @@ class VaultItemsDao {
   }
 
   Future<void> softDelete(String id, int deletedAt) async {
-    await _db.update(
+    final affectedRows = await _db.update(
       'vault_items',
       {'updated_at': deletedAt, 'deleted_at': deletedAt},
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (affectedRows != 1) {
+      throw StateError(
+        'Expected to soft-delete exactly one vault_items row for id "$id", but updated $affectedRows rows.',
+      );
+    }
   }
 }
