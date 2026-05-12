@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 class PasswordGeneratorException implements Exception {
   const PasswordGeneratorException(this.message);
 
@@ -30,13 +32,20 @@ class PasswordGeneratorOptions {
 }
 
 class PasswordGenerator {
-  PasswordGenerator({Random? random}) : _random = random ?? Random.secure();
+  PasswordGenerator() : this._(Random.secure());
+
+  @visibleForTesting
+  factory PasswordGenerator.forTesting({required Random random}) {
+    return PasswordGenerator._(random);
+  }
 
   static const String _lowercase = 'abcdefghijklmnopqrstuvwxyz';
   static const String _uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   static const String _numbers = '0123456789';
   static const String _symbols = r'@#$%^&*()-_=+[]{};:,.<>?';
   static const String _confusing = 'Oo1lI';
+
+  PasswordGenerator._(this._random);
 
   final Random _random;
 
