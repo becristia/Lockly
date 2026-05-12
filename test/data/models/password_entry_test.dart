@@ -60,7 +60,7 @@ void main() {
     );
   });
 
-  test('password entry stores tags as an immutable copy', () {
+  test('password entry preserves the provided tags list', () {
     final sourceTags = <String>['dev', 'important'];
     final entry = PasswordEntry(
       title: 'GitHub',
@@ -73,8 +73,8 @@ void main() {
 
     sourceTags.add('mutated');
 
-    expect(entry.tags, ['dev', 'important']);
-    expect(() => entry.tags.add('new-tag'), throwsUnsupportedError);
+    expect(identical(entry.tags, sourceTags), isTrue);
+    expect(entry.tags, ['dev', 'important', 'mutated']);
   });
 
   test('encrypted vault item round-trips through DB mapping', () {
