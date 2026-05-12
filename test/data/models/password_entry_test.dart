@@ -155,24 +155,68 @@ void main() {
     },
   );
 
+  test('vault meta rejects mismatched kdf and kdf params name from DB', () {
+    expect(
+      () => VaultMeta.fromDb(
+        _vaultMetaRow(
+          kdfParams: jsonEncode({
+            'name': 'argon2id',
+            'iterations': 180000,
+            'bits': 256,
+          }),
+        ),
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message.toString(),
+          'message',
+          allOf(contains('kdf'), contains('kdf_params.name')),
+        ),
+      ),
+    );
+  });
+
+  test('vault meta rejects malformed kdf params json text', () {
+    expect(
+      () => VaultMeta.fromDb(
+        _vaultMetaRow(kdfParams: '{"name": "pbkdf2-hmac-sha256"'),
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message.toString(),
+          'message',
+          contains('kdf_params'),
+        ),
+      ),
+    );
+  });
+
   test('vault meta decodes biometric_enabled zero as false', () {
-    final decoded = VaultMeta.fromDb({
-      'id': 'vault-1',
-      'version': 1,
-      'kdf': 'pbkdf2-hmac-sha256',
-      'kdf_params': jsonEncode(KdfParams.pbkdf2().toJson()),
-      'salt': 'base64-salt',
-      'encrypted_dek_by_master': 'encrypted-master',
-      'encrypted_dek_by_master_nonce': 'master-nonce',
-      'encrypted_dek_by_master_mac': 'master-mac',
-      'encrypted_dek_by_biometric': null,
-      'encrypted_dek_by_biometric_nonce': null,
-      'encrypted_dek_by_biometric_mac': null,
-      'biometric_enabled': 0,
-      'created_at': 1715550000,
-      'updated_at': 1715551111,
-    });
+    final decoded = VaultMeta.fromDb(_vaultMetaRow(biometricEnabled: 0));
 
     expect(decoded.biometricEnabled, isFalse);
   });
+}
+
+Map<String, Object?> _vaultMetaRow({
+  String kdf = 'pbkdf2-hmac-sha256',
+  String? kdfParams,
+  int biometricEnabled = 1,
+}) {
+  return {
+    'id': 'vault-1',
+    'version': 1,
+    'kdf': kdf,
+    'kdf_params': kdfParams ?? jsonEncode(KdfParams.pbkdf2().toJson()),
+    'salt': 'base64-salt',
+    'encrypted_dek_by_master': 'encrypted-master',
+    'encrypted_dek_by_master_nonce': 'master-nonce',
+    'encrypted_dek_by_master_mac': 'master-mac',
+    'encrypted_dek_by_biometric': null,
+    'encrypted_dek_by_biometric_nonce': null,
+    'encrypted_dek_by_biometric_mac': null,
+    'biometric_enabled': biometricEnabled,
+    'created_at': 1715550000,
+    'updated_at': 1715551111,
+  };
 }

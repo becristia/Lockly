@@ -53,15 +53,15 @@ class VaultMeta {
   };
 
   factory VaultMeta.fromDb(Map<String, Object?> row) {
-    final decodedKdfParams = jsonDecode(row['kdf_params'] as String);
+    final kdf = row['kdf'] as String;
+    final kdfParams = _parseKdfParams(row['kdf_params']);
+    _validateKdfConsistency(kdf: kdf, kdfParams: kdfParams);
 
     return VaultMeta(
       id: row['id'] as String,
       version: row['version'] as int,
-      kdf: row['kdf'] as String,
-      kdfParams: KdfParams.fromJson(
-        Map<String, Object?>.from(decodedKdfParams as Map<Object?, Object?>),
-      ),
+      kdf: kdf,
+      kdfParams: kdfParams,
       salt: row['salt'] as String,
       encryptedDekByMaster: row['encrypted_dek_by_master'] as String,
       encryptedDekByMasterNonce: row['encrypted_dek_by_master_nonce'] as String,
@@ -75,5 +75,52 @@ class VaultMeta {
       createdAt: row['created_at'] as int,
       updatedAt: row['updated_at'] as int,
     );
+  }
+
+  static KdfParams _parseKdfParams(Object? rawValue) {
+    if (rawValue is! String) {
+      throw const FormatException('Invalid kdf_params: expected JSON text');
+    }
+
+    final decodedValue;
+    try {
+      decodedValue = jsonDecode(rawValue);
+    } on FormatException catch (error) {
+      throw FormatException(
+        'Invalid kdf_params JSON text: ${error.message}',
+        rawValue,
+        error.offset,
+      );
+    }
+
+    if (decodedValue is! Map<Object?, Object?>) {
+      throw FormatException(
+        'Invalid kdf_params JSON text: expected an object',
+        rawValue,
+      );
+    }
+
+    final json = Map<String, Object?>.from(decodedValue);
+    if (json['name'] is! String ||
+        json['iterations'] is! int ||
+        json['bits'] is! int) {
+      throw FormatException(
+        'Invalid kdf_params JSON object: expected string name and integer iterations/bits',
+        rawValue,
+      );
+    }
+
+    return KdfParams.fromJson(json);
+  }
+
+  static void _validateKdfConsistency({
+    required String kdf,
+    required KdfParams kdfParams,
+  }) {
+    if (kdf != kdfParams.name) {
+      throw FormatException(
+        'Invalid vault_meta row: kdf "$kdf" does not match kdf_params.name "${kdfParams.name}"',
+      );
+    }
   }
 }
