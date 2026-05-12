@@ -6,6 +6,8 @@ class VaultItemsDao {
 
   final DatabaseExecutor _db;
 
+  DatabaseExecutor get executor => _db;
+
   Future<void> upsert(EncryptedVaultItem item) async {
     await _db.insert(
       'vault_items',
@@ -36,6 +38,10 @@ class VaultItemsDao {
     }
 
     return EncryptedVaultItem.fromDb(rows.single);
+  }
+
+  Future<List<Map<String, Object?>>> rawRowsForTest() async {
+    return _db.query('vault_items');
   }
 
   Future<void> softDelete(String id, int deletedAt) async {

@@ -7,6 +7,8 @@ class VaultMetaDao {
 
   final DatabaseExecutor _db;
 
+  DatabaseExecutor get executor => _db;
+
   Future<void> save(VaultMeta meta) async {
     await _db.insert(
       'vault_meta',

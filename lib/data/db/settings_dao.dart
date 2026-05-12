@@ -5,6 +5,8 @@ class SettingsDao {
 
   final DatabaseExecutor _db;
 
+  DatabaseExecutor get executor => _db;
+
   Future<void> setValue(String key, String value) async {
     await _db.insert('settings', {
       'key': key,
