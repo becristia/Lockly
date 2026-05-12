@@ -1,4 +1,5 @@
 .superpowers
+.worktrees/
 # Miscellaneous
 *.class
 *.lock
