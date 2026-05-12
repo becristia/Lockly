@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:secure_box/core/crypto/kdf_service.dart';
+
 class VaultMeta {
   const VaultMeta({
     required this.id,
@@ -19,7 +23,7 @@ class VaultMeta {
   final String id;
   final int version;
   final String kdf;
-  final String kdfParams;
+  final KdfParams kdfParams;
   final String salt;
   final String encryptedDekByMaster;
   final String encryptedDekByMasterNonce;
@@ -35,7 +39,7 @@ class VaultMeta {
     'id': id,
     'version': version,
     'kdf': kdf,
-    'kdf_params': kdfParams,
+    'kdf_params': jsonEncode(kdfParams.toJson()),
     'salt': salt,
     'encrypted_dek_by_master': encryptedDekByMaster,
     'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
@@ -49,11 +53,15 @@ class VaultMeta {
   };
 
   factory VaultMeta.fromDb(Map<String, Object?> row) {
+    final decodedKdfParams = jsonDecode(row['kdf_params'] as String);
+
     return VaultMeta(
       id: row['id'] as String,
       version: row['version'] as int,
       kdf: row['kdf'] as String,
-      kdfParams: row['kdf_params'] as String,
+      kdfParams: KdfParams.fromJson(
+        Map<String, Object?>.from(decodedKdfParams as Map<Object?, Object?>),
+      ),
       salt: row['salt'] as String,
       encryptedDekByMaster: row['encrypted_dek_by_master'] as String,
       encryptedDekByMasterNonce: row['encrypted_dek_by_master_nonce'] as String,

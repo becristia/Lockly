@@ -1,12 +1,12 @@
 class PasswordEntry {
-  const PasswordEntry({
+  PasswordEntry({
     required this.title,
     required this.website,
     required this.username,
     required this.password,
     required this.notes,
-    required this.tags,
-  });
+    required List<String> tags,
+  }) : tags = List.unmodifiable(tags);
 
   final String title;
   final String website;
@@ -21,19 +21,58 @@ class PasswordEntry {
     'username': username,
     'password': password,
     'notes': notes,
-    'tags': tags,
+    'tags': List<String>.from(tags, growable: false),
   };
 
   factory PasswordEntry.fromJson(Map<String, Object?> json) {
     return PasswordEntry(
-      title: json['title'] as String? ?? '',
-      website: json['website'] as String? ?? '',
-      username: json['username'] as String? ?? '',
-      password: json['password'] as String? ?? '',
-      notes: json['notes'] as String? ?? '',
-      tags: (json['tags'] as List<dynamic>? ?? const <dynamic>[])
-          .map((value) => value.toString())
-          .toList(growable: false),
+      title: _readRequiredString(json, 'title'),
+      website: _readRequiredString(json, 'website'),
+      username: _readRequiredString(json, 'username'),
+      password: _readRequiredString(json, 'password'),
+      notes: _readRequiredString(json, 'notes'),
+      tags: _readRequiredStringList(json, 'tags'),
     );
+  }
+
+  static String _readRequiredString(Map<String, Object?> json, String field) {
+    if (!json.containsKey(field)) {
+      throw FormatException('Missing required field: $field');
+    }
+
+    final value = json[field];
+    if (value is! String) {
+      throw FormatException('Invalid "$field": expected a string');
+    }
+
+    return value;
+  }
+
+  static List<String> _readRequiredStringList(
+    Map<String, Object?> json,
+    String field,
+  ) {
+    if (!json.containsKey(field)) {
+      throw FormatException('Missing required field: $field');
+    }
+
+    final value = json[field];
+    if (value is! List<Object?>) {
+      throw FormatException('Invalid "$field": expected a list of strings');
+    }
+
+    return value
+        .asMap()
+        .entries
+        .map((entry) {
+          final tag = entry.value;
+          if (tag is! String) {
+            throw FormatException(
+              'Invalid "$field" entry at index ${entry.key}: expected a string',
+            );
+          }
+          return tag;
+        })
+        .toList(growable: false);
   }
 }
