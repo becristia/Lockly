@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 
 void main() {
   testWidgets('fresh app shows setup page with recovery warning', (
@@ -57,5 +59,40 @@ void main() {
 
     expect(find.text('解锁密码库'), findsOneWidget);
     expect(find.text('密码生成器'), findsNothing);
+  });
+
+  testWidgets('text entry activity resets the auto-lock timer', (
+    tester,
+  ) async {
+    final services = AppServices(
+      hasVault: true,
+      autoLockTimeout: const Duration(milliseconds: 300),
+      initialShellState: AppShellState.unlocked,
+    );
+    addTearDown(services.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ActivityTextFormField(
+            onActivity: services.recordActivity,
+            decoration: const InputDecoration(labelText: '主密码'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(ActivityTextFormField));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(find.byType(ActivityTextFormField), 'a');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(services.shellState.value, AppShellState.unlocked);
+
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(services.shellState.value, AppShellState.locked);
   });
 }

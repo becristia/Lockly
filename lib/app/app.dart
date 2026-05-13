@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
+import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 import 'package:secure_box/shared/widgets/secure_scaffold.dart';
 
 class SecureBoxApp extends StatefulWidget {
@@ -71,17 +72,19 @@ class _SecureBoxAppState extends State<SecureBoxApp> {
 
   Widget _buildPageForRoute(String routeName) {
     return switch (routeName) {
-      AppServices.routeSetup => const _SetupPlaceholderPage(),
+      AppServices.routeSetup => _SetupPlaceholderPage(services: widget.services),
       AppServices.routeVault => const _VaultPlaceholderPage(),
       AppServices.routeGenerator => const _GeneratorPlaceholderPage(),
       AppServices.routeSettings => const _SettingsPlaceholderPage(),
-      _ => const _UnlockPlaceholderPage(),
+      _ => _UnlockPlaceholderPage(services: widget.services),
     };
   }
 }
 
 class _SetupPlaceholderPage extends StatelessWidget {
-  const _SetupPlaceholderPage();
+  const _SetupPlaceholderPage({required this.services});
+
+  final AppServices services;
 
   @override
   Widget build(BuildContext context) {
@@ -91,12 +94,14 @@ class _SetupPlaceholderPage extends StatelessWidget {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextFormField(
+          ActivityTextFormField(
+            onActivity: services.recordActivity,
             obscureText: true,
             decoration: const InputDecoration(labelText: '主密码'),
           ),
           const SizedBox(height: 12),
-          TextFormField(
+          ActivityTextFormField(
+            onActivity: services.recordActivity,
             obscureText: true,
             decoration: const InputDecoration(labelText: '确认主密码'),
           ),
@@ -113,7 +118,9 @@ class _SetupPlaceholderPage extends StatelessWidget {
 }
 
 class _UnlockPlaceholderPage extends StatelessWidget {
-  const _UnlockPlaceholderPage();
+  const _UnlockPlaceholderPage({required this.services});
+
+  final AppServices services;
 
   @override
   Widget build(BuildContext context) {
@@ -123,7 +130,8 @@ class _UnlockPlaceholderPage extends StatelessWidget {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextFormField(
+          ActivityTextFormField(
+            onActivity: services.recordActivity,
             obscureText: true,
             decoration: const InputDecoration(labelText: '主密码'),
           ),
