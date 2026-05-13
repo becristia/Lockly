@@ -10,25 +10,27 @@ class ClipboardService {
   final Duration clearPasswordAfter;
   Timer? _clearTimer;
 
-  Future<void> copyUsername(String username) async {
+  Future<bool> copyUsername(String username) async {
     final didWrite = await _trySetClipboardData(ClipboardData(text: username));
     if (!didWrite) {
-      return;
+      return false;
     }
 
     _cancelPendingClear();
+    return true;
   }
 
-  Future<void> copyPassword(String password) async {
+  Future<bool> copyPassword(String password) async {
     final didWrite = await _trySetClipboardData(ClipboardData(text: password));
     if (!didWrite) {
-      return;
+      return false;
     }
 
     _cancelPendingClear();
     _clearTimer = Timer(clearPasswordAfter, () {
       unawaited(_clearPasswordIfStillPresent(password));
     });
+    return true;
   }
 
   void dispose() {

@@ -14,6 +14,7 @@ class AppLifecycleGuard with WidgetsBindingObserver {
         _hasLockedSinceResume = false;
         return;
       case AppLifecycleState.inactive:
+        return;
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:

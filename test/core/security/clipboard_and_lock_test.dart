@@ -119,7 +119,7 @@ void main() {
   });
 
   test(
-    'copyUsername swallows Clipboard.setData failures and keeps pending password cleanup',
+    'copyUsername returns false on Clipboard.setData failure and keeps pending password cleanup',
     () {
       fakeAsync((async) {
         final service = ClipboardService(
@@ -129,13 +129,13 @@ void main() {
         async.flushMicrotasks();
 
         failNextSetData = true;
-        Object? copyError;
-        service.copyUsername('user@example.com').catchError((error) {
-          copyError = error;
+        Object? copyResult;
+        (service.copyUsername('user@example.com') as dynamic).then((value) {
+          copyResult = value;
         });
         async.flushMicrotasks();
 
-        expect(copyError, isNull);
+        expect(copyResult, isFalse);
 
         Clipboard.getData(clipboardFormat).then((data) {
           expect(data?.text, 'secret-password');
@@ -152,6 +152,36 @@ void main() {
       });
     },
   );
+
+  test('copyPassword returns false on Clipboard.setData failure', () {
+    fakeAsync((async) {
+      final service = ClipboardService(
+        clearPasswordAfter: const Duration(seconds: 30),
+      );
+      failNextSetData = true;
+
+      Object? copyResult;
+      (service.copyPassword('secret-password') as dynamic).then((value) {
+        copyResult = value;
+      });
+      async.flushMicrotasks();
+
+      expect(copyResult, isFalse);
+
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, isNull);
+      });
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 30));
+      async.flushMicrotasks();
+
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, isNull);
+      });
+      async.flushMicrotasks();
+    });
+  });
 
   test('password cleanup swallows Clipboard.getData failures', () {
     Object? uncaughtError;
@@ -271,7 +301,6 @@ void main() {
       expect(lockCount, 0);
 
       for (final state in const [
-        AppLifecycleState.inactive,
         AppLifecycleState.hidden,
         AppLifecycleState.paused,
         AppLifecycleState.detached,
@@ -287,4 +316,22 @@ void main() {
       expect(lockCount, 2);
     },
   );
+
+  test('app lifecycle guard does not lock on inactive before resumed', () {
+    var lockCount = 0;
+    final service = AutoLockService(
+      timeout: const Duration(minutes: 5),
+      onLock: () => lockCount++,
+    );
+    final guard = AppLifecycleGuard(autoLockService: service);
+
+    guard.didChangeAppLifecycleState(AppLifecycleState.inactive);
+    expect(lockCount, 0);
+
+    guard.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    expect(lockCount, 0);
+
+    guard.didChangeAppLifecycleState(AppLifecycleState.hidden);
+    expect(lockCount, 1);
+  });
 }
