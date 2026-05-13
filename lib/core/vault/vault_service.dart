@@ -73,6 +73,10 @@ class VaultService {
 
   bool get isUnlocked => _session.isUnlocked;
 
+  void lock() {
+    _session.lock();
+  }
+
   Future<void> createVault({required String masterPassword}) async {
     if (await repository.metaDao.get() != null) {
       throw StateError('Vault already exists');

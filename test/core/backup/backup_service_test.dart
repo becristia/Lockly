@@ -471,6 +471,122 @@ void main() {
       );
     },
   );
+
+  test(
+    'importBackup skip with a different envelope succeeds as a no-op while locked when there are no new items',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sharedSourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Remote Shared',
+          website: 'https://shared.example',
+          username: 'remote@example.com',
+          password: 'remote-password',
+          notes: 'from backup',
+          tags: ['shared'],
+        ),
+      );
+      final exportedBackup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final sharedId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local Shared',
+          website: 'https://shared.example',
+          username: 'local@example.com',
+          password: 'local-password',
+          notes: 'local copy',
+          tags: ['shared'],
+        ),
+      );
+      final importedJson = _backupJsonWithItemIdReplacement(
+        backup: exportedBackup,
+        fromId: sharedSourceId,
+        toId: sharedId,
+      );
+      target.vaultService.lock();
+
+      final importedCount = await target.backupService.importBackup(
+        json: importedJson,
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+      );
+
+      expect(importedCount, 0);
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final preserved = await target.vaultService.getItem(sharedId);
+      expect(preserved.password, 'local-password');
+      expect(preserved.notes, 'local copy');
+    },
+  );
+
+  test(
+    'overwrite import clears the active session so later different-envelope imports stay decryptable after relock',
+    () async {
+      final sourceA = await _buildHarness();
+      await sourceA.vaultService.createVault(masterPassword: 'source-a-master');
+      await sourceA.vaultService.unlock(masterPassword: 'source-a-master');
+      final sourceAId = await sourceA.vaultService.createItem(
+        PasswordEntry(
+          title: 'Primary',
+          website: 'https://primary.example',
+          username: 'primary@example.com',
+          password: 'primary-password',
+          notes: 'first backup',
+          tags: ['primary'],
+        ),
+      );
+      final backupA = await sourceA.backupService.exportBackup();
+
+      final sourceB = await _buildHarness();
+      await sourceB.vaultService.createVault(masterPassword: 'source-b-master');
+      await sourceB.vaultService.unlock(masterPassword: 'source-b-master');
+      final sourceBId = await sourceB.vaultService.createItem(
+        PasswordEntry(
+          title: 'Secondary',
+          website: 'https://secondary.example',
+          username: 'secondary@example.com',
+          password: 'secondary-password',
+          notes: 'second backup',
+          tags: ['secondary'],
+        ),
+      );
+      final backupB = await sourceB.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+
+      await target.backupService.importBackup(
+        json: backupA.toJson(),
+        masterPassword: 'source-a-master',
+        mode: BackupImportMode.overwrite,
+      );
+
+      expect(target.vaultService.isUnlocked, isFalse);
+
+      await target.vaultService.unlock(masterPassword: 'source-a-master');
+      await target.backupService.importBackup(
+        json: backupB.toJson(),
+        masterPassword: 'source-b-master',
+        mode: BackupImportMode.skip,
+      );
+
+      target.vaultService.lock();
+      await target.vaultService.unlock(masterPassword: 'source-a-master');
+
+      final primary = await target.vaultService.getItem(sourceAId);
+      final secondary = await target.vaultService.getItem(sourceBId);
+      expect(primary.password, 'primary-password');
+      expect(primary.notes, 'first backup');
+      expect(secondary.password, 'secondary-password');
+      expect(secondary.notes, 'second backup');
+    },
+  );
 }
 
 Map<String, Object?> _backupJsonWithItemIdReplacement({

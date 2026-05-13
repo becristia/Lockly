@@ -199,12 +199,6 @@ class BackupService {
           preserveExistingMeta &&
           !_hasSameEncryptionEnvelope(existingMeta, backupMeta);
 
-      if (needsReencryption && !vaultService.isUnlocked) {
-        throw StateError(
-          'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
-        );
-      }
-
       final importedMeta = _buildImportedMeta(
         backup: backup,
         existingMeta: existingMeta,
@@ -220,6 +214,7 @@ class BackupService {
               _buildImportedItem(item, createdAt: now, updatedAt: now),
             );
           }
+          vaultService.lock();
           return backup.items.length;
         case BackupImportMode.skip:
           if (!preserveExistingMeta) {
@@ -235,11 +230,18 @@ class BackupService {
               _buildImportedItem(item, createdAt: now, updatedAt: now),
             );
           }
+          final needsPendingReencryption =
+              needsReencryption && pendingItems.isNotEmpty;
+          if (needsPendingReencryption && !vaultService.isUnlocked) {
+            throw StateError(
+              'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+            );
+          }
           final itemsToInsert = await _prepareImportedItems(
             items: pendingItems,
             backupMeta: backupMeta,
             masterPassword: masterPassword,
-            needsReencryption: needsReencryption,
+            needsReencryption: needsPendingReencryption,
           );
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
@@ -260,11 +262,18 @@ class BackupService {
               ),
             );
           }
+          final needsPendingReencryption =
+              needsReencryption && pendingItems.isNotEmpty;
+          if (needsPendingReencryption && !vaultService.isUnlocked) {
+            throw StateError(
+              'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+            );
+          }
           final itemsToInsert = await _prepareImportedItems(
             items: pendingItems,
             backupMeta: backupMeta,
             masterPassword: masterPassword,
-            needsReencryption: needsReencryption,
+            needsReencryption: needsPendingReencryption,
           );
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
