@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -11,19 +13,31 @@ void main() {
 
   const clipboardFormat = 'text/plain';
   String? clipboardText;
+  var failNextSetData = false;
+  var failNextGetData = false;
 
   setUp(() {
     clipboardText = null;
+    failNextSetData = false;
+    failNextGetData = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (methodCall) async {
           switch (methodCall.method) {
             case 'Clipboard.setData':
+              if (failNextSetData) {
+                failNextSetData = false;
+                throw PlatformException(code: 'set_data_failed');
+              }
               final arguments = Map<String, dynamic>.from(
                 methodCall.arguments as Map,
               );
               clipboardText = arguments['text'] as String?;
               return null;
             case 'Clipboard.getData':
+              if (failNextGetData) {
+                failNextGetData = false;
+                throw PlatformException(code: 'get_data_failed');
+              }
               if (clipboardText == null) {
                 return null;
               }
@@ -104,6 +118,91 @@ void main() {
     });
   });
 
+  test(
+    'copyUsername swallows Clipboard.setData failures and keeps pending password cleanup',
+    () {
+      fakeAsync((async) {
+        final service = ClipboardService(
+          clearPasswordAfter: const Duration(seconds: 30),
+        );
+        service.copyPassword('secret-password');
+        async.flushMicrotasks();
+
+        failNextSetData = true;
+        Object? copyError;
+        service.copyUsername('user@example.com').catchError((error) {
+          copyError = error;
+        });
+        async.flushMicrotasks();
+
+        expect(copyError, isNull);
+
+        Clipboard.getData(clipboardFormat).then((data) {
+          expect(data?.text, 'secret-password');
+        });
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 30));
+        async.flushMicrotasks();
+
+        Clipboard.getData(clipboardFormat).then((data) {
+          expect(data?.text, '');
+        });
+        async.flushMicrotasks();
+      });
+    },
+  );
+
+  test('password cleanup swallows Clipboard.getData failures', () {
+    Object? uncaughtError;
+
+    runZonedGuarded(
+      () {
+        fakeAsync((async) {
+          final service = ClipboardService(
+            clearPasswordAfter: const Duration(seconds: 30),
+          );
+          service.copyPassword('secret-password');
+          async.flushMicrotasks();
+
+          failNextGetData = true;
+          async.elapse(const Duration(seconds: 30));
+          async.flushMicrotasks();
+
+          Clipboard.getData(clipboardFormat).then((data) {
+            expect(data?.text, 'secret-password');
+          });
+          async.flushMicrotasks();
+        });
+      },
+      (error, stackTrace) {
+        uncaughtError = error;
+      },
+    );
+
+    expect(uncaughtError, isNull);
+  });
+
+  test('dispose cancels a pending password clipboard clear', () {
+    fakeAsync((async) {
+      final service = ClipboardService(
+        clearPasswordAfter: const Duration(seconds: 30),
+      );
+      service.copyPassword('secret-password');
+      async.flushMicrotasks();
+
+      service.dispose();
+
+      async.elapse(const Duration(seconds: 30));
+      async.flushMicrotasks();
+
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, 'secret-password');
+      });
+      async.flushMicrotasks();
+    });
+  });
+
   test('auto lock calls lock after inactivity timeout', () {
     fakeAsync((async) {
       var locked = false;
@@ -158,26 +257,34 @@ void main() {
     });
   });
 
-  test('app lifecycle guard locks on non-resumed states', () {
-    var lockCount = 0;
-    final service = AutoLockService(
-      timeout: const Duration(minutes: 5),
-      onLock: () => lockCount++,
-    );
-    final guard = AppLifecycleGuard(autoLockService: service);
+  test(
+    'app lifecycle guard locks once per background cycle and resets on resumed',
+    () {
+      var lockCount = 0;
+      final service = AutoLockService(
+        timeout: const Duration(minutes: 5),
+        onLock: () => lockCount++,
+      );
+      final guard = AppLifecycleGuard(autoLockService: service);
 
-    guard.didChangeAppLifecycleState(AppLifecycleState.resumed);
-    expect(lockCount, 0);
+      guard.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      expect(lockCount, 0);
 
-    for (final state in const [
-      AppLifecycleState.inactive,
-      AppLifecycleState.hidden,
-      AppLifecycleState.paused,
-      AppLifecycleState.detached,
-    ]) {
-      guard.didChangeAppLifecycleState(state);
-    }
+      for (final state in const [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.detached,
+      ]) {
+        guard.didChangeAppLifecycleState(state);
+      }
 
-    expect(lockCount, 4);
-  });
+      expect(lockCount, 1);
+
+      guard.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      guard.didChangeAppLifecycleState(AppLifecycleState.paused);
+
+      expect(lockCount, 2);
+    },
+  );
 }

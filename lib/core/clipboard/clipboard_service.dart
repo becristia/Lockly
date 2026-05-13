@@ -11,13 +11,21 @@ class ClipboardService {
   Timer? _clearTimer;
 
   Future<void> copyUsername(String username) async {
+    final didWrite = await _trySetClipboardData(ClipboardData(text: username));
+    if (!didWrite) {
+      return;
+    }
+
     _cancelPendingClear();
-    await Clipboard.setData(ClipboardData(text: username));
   }
 
   Future<void> copyPassword(String password) async {
+    final didWrite = await _trySetClipboardData(ClipboardData(text: password));
+    if (!didWrite) {
+      return;
+    }
+
     _cancelPendingClear();
-    await Clipboard.setData(ClipboardData(text: password));
     _clearTimer = Timer(clearPasswordAfter, () {
       unawaited(_clearPasswordIfStillPresent(password));
     });
@@ -28,15 +36,37 @@ class ClipboardService {
   }
 
   Future<void> _clearPasswordIfStillPresent(String password) async {
-    final current = await Clipboard.getData(_clipboardFormat);
+    final current = await _tryGetClipboardData();
     if (current?.text != password) {
       return;
     }
-    await Clipboard.setData(const ClipboardData(text: ''));
+
+    await _trySetClipboardData(const ClipboardData(text: ''));
   }
 
   void _cancelPendingClear() {
     _clearTimer?.cancel();
     _clearTimer = null;
+  }
+
+  Future<ClipboardData?> _tryGetClipboardData() async {
+    try {
+      return await Clipboard.getData(_clipboardFormat);
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  Future<bool> _trySetClipboardData(ClipboardData data) async {
+    try {
+      await Clipboard.setData(data);
+      return true;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
   }
 }
