@@ -129,7 +129,7 @@ void main() {
   });
 
   test(
-    'vault meta round-trips kdf params and biometric flag through DB mapping',
+    'vault meta round-trips kdf params and biometric flag without requiring a legacy biometric tuple',
     () {
       final meta = VaultMeta(
         id: 'vault-1',
@@ -140,9 +140,6 @@ void main() {
         encryptedDekByMaster: 'encrypted-master',
         encryptedDekByMasterNonce: 'master-nonce',
         encryptedDekByMasterMac: 'master-mac',
-        encryptedDekByBiometric: 'encrypted-bio',
-        encryptedDekByBiometricNonce: 'bio-nonce',
-        encryptedDekByBiometricMac: 'bio-mac',
         biometricEnabled: true,
         createdAt: 1715550000,
         updatedAt: 1715551111,
@@ -168,15 +165,9 @@ void main() {
       expect(decoded.encryptedDekByMaster, meta.encryptedDekByMaster);
       expect(decoded.encryptedDekByMasterNonce, meta.encryptedDekByMasterNonce);
       expect(decoded.encryptedDekByMasterMac, meta.encryptedDekByMasterMac);
-      expect(decoded.encryptedDekByBiometric, meta.encryptedDekByBiometric);
-      expect(
-        decoded.encryptedDekByBiometricNonce,
-        meta.encryptedDekByBiometricNonce,
-      );
-      expect(
-        decoded.encryptedDekByBiometricMac,
-        meta.encryptedDekByBiometricMac,
-      );
+      expect(decoded.encryptedDekByBiometric, isNull);
+      expect(decoded.encryptedDekByBiometricNonce, isNull);
+      expect(decoded.encryptedDekByBiometricMac, isNull);
       expect(decoded.biometricEnabled, isTrue);
       expect(decoded.createdAt, meta.createdAt);
       expect(decoded.updatedAt, meta.updatedAt);
@@ -230,33 +221,26 @@ void main() {
   });
 
   test(
-    'vault meta rejects biometricEnabled true without biometric DEK tuple in memory',
+    'vault meta allows biometricEnabled true without biometric DEK tuple in memory',
     () {
-      expect(
-        () => VaultMeta(
-          id: 'vault-1',
-          version: 1,
-          kdf: 'pbkdf2-hmac-sha256',
-          kdfParams: KdfParams.pbkdf2(iterations: 180000, bits: 256),
-          salt: 'base64-salt',
-          encryptedDekByMaster: 'encrypted-master',
-          encryptedDekByMasterNonce: 'master-nonce',
-          encryptedDekByMasterMac: 'master-mac',
-          biometricEnabled: true,
-          createdAt: 1715550000,
-          updatedAt: 1715551111,
-        ),
-        throwsA(
-          isA<ArgumentError>().having(
-            (error) => error.message.toString(),
-            'message',
-            allOf(
-              contains('biometricEnabled'),
-              contains('encryptedDekByBiometric'),
-            ),
-          ),
-        ),
+      final meta = VaultMeta(
+        id: 'vault-1',
+        version: 1,
+        kdf: 'pbkdf2-hmac-sha256',
+        kdfParams: KdfParams.pbkdf2(iterations: 180000, bits: 256),
+        salt: 'base64-salt',
+        encryptedDekByMaster: 'encrypted-master',
+        encryptedDekByMasterNonce: 'master-nonce',
+        encryptedDekByMasterMac: 'master-mac',
+        biometricEnabled: true,
+        createdAt: 1715550000,
+        updatedAt: 1715551111,
       );
+
+      expect(meta.biometricEnabled, isTrue);
+      expect(meta.encryptedDekByBiometric, isNull);
+      expect(meta.encryptedDekByBiometricNonce, isNull);
+      expect(meta.encryptedDekByBiometricMac, isNull);
     },
   );
 
@@ -324,28 +308,21 @@ void main() {
   );
 
   test(
-    'vault meta rejects biometric_enabled zero with persisted biometric DEK tuple from DB',
+    'vault meta allows legacy biometric tuple when biometric_enabled is zero',
     () {
-      expect(
-        () => VaultMeta.fromDb(
-          _vaultMetaRow(
-            biometricEnabled: 0,
-            encryptedDekByBiometric: 'encrypted-bio',
-            encryptedDekByBiometricNonce: 'bio-nonce',
-            encryptedDekByBiometricMac: 'bio-mac',
-          ),
-        ),
-        throwsA(
-          isA<FormatException>().having(
-            (error) => error.message.toString(),
-            'message',
-            allOf(
-              contains('biometric_enabled'),
-              contains('encrypted_dek_by_biometric'),
-            ),
-          ),
+      final decoded = VaultMeta.fromDb(
+        _vaultMetaRow(
+          biometricEnabled: 0,
+          encryptedDekByBiometric: 'encrypted-bio',
+          encryptedDekByBiometricNonce: 'bio-nonce',
+          encryptedDekByBiometricMac: 'bio-mac',
         ),
       );
+
+      expect(decoded.biometricEnabled, isFalse);
+      expect(decoded.encryptedDekByBiometric, 'encrypted-bio');
+      expect(decoded.encryptedDekByBiometricNonce, 'bio-nonce');
+      expect(decoded.encryptedDekByBiometricMac, 'bio-mac');
     },
   );
 

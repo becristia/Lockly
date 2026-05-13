@@ -39,11 +39,7 @@ class VaultMetaDao {
         'biometric_enabled': 0,
         'updated_at': updatedAt,
       },
-      where:
-          'singleton_key = ? AND biometric_enabled = 1 AND '
-          'encrypted_dek_by_biometric IS NOT NULL AND '
-          'encrypted_dek_by_biometric_nonce IS NOT NULL AND '
-          'encrypted_dek_by_biometric_mac IS NOT NULL',
+      where: 'singleton_key = ? AND biometric_enabled = 1',
       whereArgs: [AppDatabase.vaultMetaSingletonKey],
     );
     if (affectedRows != 1) {

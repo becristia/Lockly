@@ -137,9 +137,9 @@ void main() {
     final dao = VaultMetaDao(db);
     final meta = _buildVaultMeta(
       biometricEnabled: true,
-      encryptedDekByBiometric: 'encrypted-biometric-dek',
-      encryptedDekByBiometricNonce: 'biometric-nonce',
-      encryptedDekByBiometricMac: 'biometric-mac',
+      encryptedDekByBiometric: null,
+      encryptedDekByBiometricNonce: null,
+      encryptedDekByBiometricMac: null,
     );
 
     await dao.save(meta);
@@ -163,9 +163,9 @@ void main() {
     final secondMeta = _buildVaultMeta(
       id: 'vault-2',
       biometricEnabled: true,
-      encryptedDekByBiometric: 'encrypted-biometric-dek',
-      encryptedDekByBiometricNonce: 'biometric-nonce',
-      encryptedDekByBiometricMac: 'biometric-mac',
+      encryptedDekByBiometric: null,
+      encryptedDekByBiometricNonce: null,
+      encryptedDekByBiometricMac: null,
       updatedAt: 1747000001111,
     );
 
@@ -236,6 +236,35 @@ void main() {
     expect(clearedMeta.updatedAt, clearedAt);
     expect(clearedMeta.encryptedDekByMaster, initialMeta.encryptedDekByMaster);
   });
+
+  test(
+    'clearing biometric DEK also works when biometric is enabled without legacy tuple columns',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+      final dao = VaultMetaDao(db);
+      final initialMeta = _buildVaultMeta(
+        biometricEnabled: true,
+        encryptedDekByBiometric: null,
+        encryptedDekByBiometricNonce: null,
+        encryptedDekByBiometricMac: null,
+        updatedAt: 1747000000000,
+      );
+      final clearedAt = 1747000011111;
+
+      await dao.save(initialMeta);
+      await dao.clearBiometricDek(clearedAt);
+
+      final clearedMeta = await dao.get();
+
+      expect(clearedMeta, isNotNull);
+      expect(clearedMeta!.biometricEnabled, isFalse);
+      expect(clearedMeta.encryptedDekByBiometric, isNull);
+      expect(clearedMeta.encryptedDekByBiometricNonce, isNull);
+      expect(clearedMeta.encryptedDekByBiometricMac, isNull);
+      expect(clearedMeta.updatedAt, clearedAt);
+    },
+  );
 
   test('soft delete requires an existing item row', () async {
     final db = await AppDatabase.openInMemory();

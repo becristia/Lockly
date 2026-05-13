@@ -20,8 +20,7 @@ class VaultMeta {
     this.encryptedDekByBiometricMac,
   }) {
     _validateConstructorKdfConsistency(kdf: kdf, kdfParams: kdfParams);
-    _validateConstructorBiometricState(
-      biometricEnabled: biometricEnabled,
+    _validateConstructorBiometricTuple(
       encryptedDekByBiometric: encryptedDekByBiometric,
       encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
       encryptedDekByBiometricMac: encryptedDekByBiometricMac,
@@ -45,8 +44,7 @@ class VaultMeta {
 
   Map<String, Object?> toDb() {
     _validateSerializableKdfConsistency(kdf: kdf, kdfParams: kdfParams);
-    _validateSerializableBiometricState(
-      biometricEnabled: biometricEnabled,
+    _validateSerializableBiometricTuple(
       encryptedDekByBiometric: encryptedDekByBiometric,
       encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
       encryptedDekByBiometricMac: encryptedDekByBiometricMac,
@@ -89,8 +87,7 @@ class VaultMeta {
       row,
       'encrypted_dek_by_biometric_mac',
     );
-    _validateDbBiometricState(
-      biometricEnabled: biometricEnabled,
+    _validateDbBiometricTuple(
       encryptedDekByBiometric: encryptedDekByBiometric,
       encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
       encryptedDekByBiometricMac: encryptedDekByBiometricMac,
@@ -268,35 +265,29 @@ class VaultMeta {
         encryptedDekByBiometricMac == null;
   }
 
-  static bool _hasValidBiometricState({
-    required bool biometricEnabled,
+  static bool _hasConsistentBiometricTuple({
     required String? encryptedDekByBiometric,
     required String? encryptedDekByBiometricNonce,
     required String? encryptedDekByBiometricMac,
   }) {
-    if (biometricEnabled) {
-      return _hasCompleteBiometricTuple(
-        encryptedDekByBiometric: encryptedDekByBiometric,
-        encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
-        encryptedDekByBiometricMac: encryptedDekByBiometricMac,
-      );
-    }
-
-    return _hasEmptyBiometricTuple(
-      encryptedDekByBiometric: encryptedDekByBiometric,
-      encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
-      encryptedDekByBiometricMac: encryptedDekByBiometricMac,
-    );
+    return _hasCompleteBiometricTuple(
+          encryptedDekByBiometric: encryptedDekByBiometric,
+          encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
+          encryptedDekByBiometricMac: encryptedDekByBiometricMac,
+        ) ||
+        _hasEmptyBiometricTuple(
+          encryptedDekByBiometric: encryptedDekByBiometric,
+          encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
+          encryptedDekByBiometricMac: encryptedDekByBiometricMac,
+        );
   }
 
-  static void _validateConstructorBiometricState({
-    required bool biometricEnabled,
+  static void _validateConstructorBiometricTuple({
     required String? encryptedDekByBiometric,
     required String? encryptedDekByBiometricNonce,
     required String? encryptedDekByBiometricMac,
   }) {
-    if (_hasValidBiometricState(
-      biometricEnabled: biometricEnabled,
+    if (_hasConsistentBiometricTuple(
       encryptedDekByBiometric: encryptedDekByBiometric,
       encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
       encryptedDekByBiometricMac: encryptedDekByBiometricMac,
@@ -305,11 +296,9 @@ class VaultMeta {
     }
 
     throw ArgumentError.value(
-      biometricEnabled,
-      'biometricEnabled',
-      _biometricStateMismatchMessage(
-        biometricEnabledFieldName: 'biometricEnabled',
-        biometricEnabledValue: biometricEnabled,
+      encryptedDekByBiometric,
+      'encryptedDekByBiometric',
+      _biometricTupleMismatchMessage(
         encryptedDekByBiometricFieldName: 'encryptedDekByBiometric',
         encryptedDekByBiometricNonceFieldName: 'encryptedDekByBiometricNonce',
         encryptedDekByBiometricMacFieldName: 'encryptedDekByBiometricMac',
@@ -317,14 +306,12 @@ class VaultMeta {
     );
   }
 
-  static void _validateSerializableBiometricState({
-    required bool biometricEnabled,
+  static void _validateSerializableBiometricTuple({
     required String? encryptedDekByBiometric,
     required String? encryptedDekByBiometricNonce,
     required String? encryptedDekByBiometricMac,
   }) {
-    if (_hasValidBiometricState(
-      biometricEnabled: biometricEnabled,
+    if (_hasConsistentBiometricTuple(
       encryptedDekByBiometric: encryptedDekByBiometric,
       encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
       encryptedDekByBiometricMac: encryptedDekByBiometricMac,
@@ -333,18 +320,16 @@ class VaultMeta {
     }
 
     throw StateError(
-      'Invalid vault meta: ${_biometricStateMismatchMessage(biometricEnabledFieldName: 'biometricEnabled', biometricEnabledValue: biometricEnabled, encryptedDekByBiometricFieldName: 'encryptedDekByBiometric', encryptedDekByBiometricNonceFieldName: 'encryptedDekByBiometricNonce', encryptedDekByBiometricMacFieldName: 'encryptedDekByBiometricMac')}',
+      'Invalid vault meta: ${_biometricTupleMismatchMessage(encryptedDekByBiometricFieldName: 'encryptedDekByBiometric', encryptedDekByBiometricNonceFieldName: 'encryptedDekByBiometricNonce', encryptedDekByBiometricMacFieldName: 'encryptedDekByBiometricMac')}',
     );
   }
 
-  static void _validateDbBiometricState({
-    required bool biometricEnabled,
+  static void _validateDbBiometricTuple({
     required String? encryptedDekByBiometric,
     required String? encryptedDekByBiometricNonce,
     required String? encryptedDekByBiometricMac,
   }) {
-    if (_hasValidBiometricState(
-      biometricEnabled: biometricEnabled,
+    if (_hasConsistentBiometricTuple(
       encryptedDekByBiometric: encryptedDekByBiometric,
       encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
       encryptedDekByBiometricMac: encryptedDekByBiometricMac,
@@ -353,7 +338,7 @@ class VaultMeta {
     }
 
     throw FormatException(
-      'Invalid vault_meta row: ${_biometricStateMismatchMessage(biometricEnabledFieldName: 'biometric_enabled', biometricEnabledValue: biometricEnabled ? 1 : 0, encryptedDekByBiometricFieldName: 'encrypted_dek_by_biometric', encryptedDekByBiometricNonceFieldName: 'encrypted_dek_by_biometric_nonce', encryptedDekByBiometricMacFieldName: 'encrypted_dek_by_biometric_mac')}',
+      'Invalid vault_meta row: ${_biometricTupleMismatchMessage(encryptedDekByBiometricFieldName: 'encrypted_dek_by_biometric', encryptedDekByBiometricNonceFieldName: 'encrypted_dek_by_biometric_nonce', encryptedDekByBiometricMacFieldName: 'encrypted_dek_by_biometric_mac')}',
     );
   }
 
@@ -365,18 +350,11 @@ class VaultMeta {
     return 'kdf "$kdf" does not match $expectedFieldName "$expectedValue"';
   }
 
-  static String _biometricStateMismatchMessage({
-    required String biometricEnabledFieldName,
-    required Object biometricEnabledValue,
+  static String _biometricTupleMismatchMessage({
     required String encryptedDekByBiometricFieldName,
     required String encryptedDekByBiometricNonceFieldName,
     required String encryptedDekByBiometricMacFieldName,
   }) {
-    final requirement =
-        '$encryptedDekByBiometricFieldName, $encryptedDekByBiometricNonceFieldName, and $encryptedDekByBiometricMacFieldName';
-    final expectation =
-        '$biometricEnabledFieldName "$biometricEnabledValue" requires $requirement to all be ${biometricEnabledValue == true || biometricEnabledValue == 1 ? 'present' : 'absent'}';
-
-    return expectation;
+    return '$encryptedDekByBiometricFieldName, $encryptedDekByBiometricNonceFieldName, and $encryptedDekByBiometricMacFieldName must either all be present or all be absent';
   }
 }

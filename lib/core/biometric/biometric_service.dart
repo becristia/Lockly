@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
@@ -33,7 +32,16 @@ abstract class BiometricAuthenticator {
   Future<bool> authenticate();
 }
 
+enum SecureDekReadRequirement {
+  explicitBiometricAuthentication,
+  storeManagedAuthentication,
+}
+
 abstract class SecureDekStore {
+  SecureDekReadRequirement get readRequirement;
+
+  Future<bool> canUseBiometricProtection();
+
   Future<void> writeDek(Uint8List dek);
 
   Future<Uint8List?> readDek();
@@ -65,7 +73,9 @@ class BiometricService {
     if (!await _canAuthenticate()) {
       return const BiometricUnlockResult.fallbackToMasterPassword();
     }
-    if (!await _authenticate()) {
+    if (store.readRequirement ==
+            SecureDekReadRequirement.explicitBiometricAuthentication &&
+        !await _authenticate()) {
       return const BiometricUnlockResult.fallbackToMasterPassword();
     }
 
@@ -83,7 +93,15 @@ class BiometricService {
 
   Future<bool> _canAuthenticate() async {
     try {
-      return await authenticator.canAuthenticate();
+      if (!await authenticator.canAuthenticate()) {
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
+
+    try {
+      return await store.canUseBiometricProtection();
     } catch (_) {
       return false;
     }
@@ -164,6 +182,25 @@ class SecureStorageDekStore implements SecureDekStore {
   final String _key;
 
   @override
+  SecureDekReadRequirement get readRequirement {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return SecureDekReadRequirement.storeManagedAuthentication;
+    }
+
+    return SecureDekReadRequirement.explicitBiometricAuthentication;
+  }
+
+  @override
+  Future<bool> canUseBiometricProtection() async {
+    try {
+      await _storage.containsKey(key: _key);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
   Future<void> writeDek(Uint8List dek) {
     return _storage.write(key: _key, value: b64(Uint8List.fromList(dek)));
   }
@@ -206,6 +243,15 @@ class FakeBiometricAuthenticator implements BiometricAuthenticator {
 
 class MemorySecureDekStore implements SecureDekStore {
   Uint8List? _dek;
+
+  @override
+  SecureDekReadRequirement get readRequirement =>
+      SecureDekReadRequirement.explicitBiometricAuthentication;
+
+  @override
+  Future<bool> canUseBiometricProtection() async {
+    return true;
+  }
 
   @override
   Future<void> writeDek(Uint8List dek) async {
