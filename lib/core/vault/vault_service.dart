@@ -178,6 +178,21 @@ class VaultService {
     }
   }
 
+  Future<void> verifyMasterPassword({
+    required String masterPassword,
+    VaultMeta? meta,
+  }) async {
+    Uint8List? dek;
+    try {
+      dek = await _decryptDekWithUnlockError(
+        meta: meta ?? await _requireVaultMeta(),
+        password: masterPassword,
+      );
+    } finally {
+      _zeroBytes(dek);
+    }
+  }
+
   Future<String> createItem(PasswordEntry entry) async {
     _ensureUnlocked();
     final now = DateTime.now().millisecondsSinceEpoch;

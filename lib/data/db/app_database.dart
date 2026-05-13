@@ -9,12 +9,16 @@ class AppDatabase {
   }
 
   static Future<Database> openInMemory() {
-    return _openDatabase(inMemoryDatabasePath);
+    return _openDatabase(inMemoryDatabasePath, singleInstance: false);
   }
 
-  static Future<Database> _openDatabase(String path) {
+  static Future<Database> _openDatabase(
+    String path, {
+    bool singleInstance = true,
+  }) {
     return openDatabase(
       path,
+      singleInstance: singleInstance,
       version: schemaVersion,
       onCreate: (db, version) async {
         await db.execute('''
