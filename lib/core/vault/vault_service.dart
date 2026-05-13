@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
@@ -77,6 +78,11 @@ class VaultService {
     _session.lock();
   }
 
+  Future<bool> isBiometricUnlockEnabled() async {
+    final meta = await repository.metaDao.get();
+    return meta?.biometricEnabled ?? false;
+  }
+
   Future<void> createVault({required String masterPassword}) async {
     if (await repository.metaDao.get() != null) {
       throw StateError('Vault already exists');
@@ -134,6 +140,72 @@ class VaultService {
     } on CryptoException {
       _session.lock();
       throw const VaultUnlockException('Invalid master password');
+    } finally {
+      _zeroBytes(dek);
+    }
+  }
+
+  Future<bool> unlockWithBiometrics({
+    required BiometricService biometricService,
+  }) async {
+    final meta = await _requireVaultMeta();
+    if (!meta.biometricEnabled) {
+      return false;
+    }
+
+    final result = await biometricService.unlock();
+    final dek = result.dek;
+    if (result.status != BiometricUnlockStatus.unlocked || dek == null) {
+      _session.lock();
+      return false;
+    }
+
+    try {
+      _session.unlock(dek);
+      return true;
+    } finally {
+      _zeroBytes(dek);
+    }
+  }
+
+  Future<void> enableBiometricUnlock({
+    required String masterPassword,
+    required BiometricService biometricService,
+  }) async {
+    final meta = await _requireVaultMeta();
+    Uint8List? dek;
+    var biometricEnabled = false;
+    try {
+      dek = await _decryptDekWithUnlockError(
+        meta: meta,
+        password: masterPassword,
+      );
+      await biometricService.enable(dek);
+      biometricEnabled = true;
+      final updatedAt = DateTime.now().millisecondsSinceEpoch;
+      await repository.metaDao.save(
+        VaultMeta(
+          id: meta.id,
+          version: meta.version,
+          kdf: meta.kdf,
+          kdfParams: meta.kdfParams,
+          salt: meta.salt,
+          encryptedDekByMaster: meta.encryptedDekByMaster,
+          encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
+          encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
+          biometricEnabled: true,
+          createdAt: meta.createdAt,
+          updatedAt: updatedAt,
+          encryptedDekByBiometric: null,
+          encryptedDekByBiometricNonce: null,
+          encryptedDekByBiometricMac: null,
+        ),
+      );
+    } catch (_) {
+      if (biometricEnabled) {
+        await biometricService.disable();
+      }
+      rethrow;
     } finally {
       _zeroBytes(dek);
     }

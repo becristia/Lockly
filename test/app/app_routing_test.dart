@@ -61,9 +61,7 @@ void main() {
     expect(find.text('密码生成器'), findsNothing);
   });
 
-  testWidgets('text entry activity resets the auto-lock timer', (
-    tester,
-  ) async {
+  testWidgets('text entry activity resets the auto-lock timer', (tester) async {
     final services = AppServices(
       hasVault: true,
       autoLockTimeout: const Duration(milliseconds: 300),

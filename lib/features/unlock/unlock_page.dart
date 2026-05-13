@@ -1,0 +1,205 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
+import 'package:secure_box/shared/widgets/secure_scaffold.dart';
+
+class UnlockPage extends StatefulWidget {
+  const UnlockPage({super.key, required this.services});
+
+  final AppServices services;
+
+  @override
+  State<UnlockPage> createState() => _UnlockPageState();
+}
+
+class _UnlockPageState extends State<UnlockPage> {
+  final TextEditingController _passwordController = TextEditingController();
+
+  bool _passwordObscured = true;
+  bool _submitting = false;
+  bool _biometricEnabled = false;
+  String? _errorText;
+  String? _retryMessage;
+  int _failedAttempts = 0;
+  Timer? _retryTimer;
+
+  bool get _isRetryLocked => _retryTimer?.isActive ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadBiometricAvailability());
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SecureScaffold(
+      title: '解锁密码库',
+      subtitle: '输入主密码以解锁本地加密密码库。',
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ActivityTextFormField(
+            controller: _passwordController,
+            onActivity: widget.services.recordActivity,
+            obscureText: _passwordObscured,
+            autofocus: true,
+            enabled: !_submitting && !_isRetryLocked,
+            textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.password],
+            decoration: InputDecoration(
+              labelText: '主密码',
+              errorText: _errorText,
+              suffixIcon: IconButton(
+                tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
+                onPressed: _togglePasswordVisibility,
+                icon: Icon(
+                  _passwordObscured
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+              ),
+            ),
+            onFieldSubmitted: (_) => _submitUnlock(),
+          ),
+          if (_retryMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(_retryMessage!, style: theme.textTheme.bodyMedium),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _submitting || _isRetryLocked ? null : _submitUnlock,
+              child: Text(_submitting ? '解锁中...' : '解锁'),
+            ),
+          ),
+          if (_biometricEnabled) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _submitting ? null : _unlockWithBiometrics,
+                icon: const Icon(Icons.fingerprint_rounded),
+                label: const Text('使用生物识别'),
+              ),
+            ),
+          ],
+        ],
+      ),
+      footer: Text(
+        '连续输错后会短暂延迟重试，以降低暴力尝试风险。',
+        style: theme.textTheme.bodyMedium,
+      ),
+    );
+  }
+
+  Future<void> _loadBiometricAvailability() async {
+    final enabled = await widget.services.isBiometricUnlockEnabled();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _biometricEnabled = enabled;
+    });
+  }
+
+  Future<void> _submitUnlock() async {
+    widget.services.recordActivity();
+    setState(() {
+      _submitting = true;
+      _errorText = null;
+      _retryMessage = _isRetryLocked ? _retryMessage : null;
+    });
+
+    final unlocked = await widget.services.unlockWithMasterPassword(
+      _passwordController.text,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (unlocked) {
+      setState(() {
+        _submitting = false;
+        _failedAttempts = 0;
+        _errorText = null;
+        _retryMessage = null;
+      });
+      return;
+    }
+
+    final nextFailures = _failedAttempts + 1;
+    final delay = _delayForFailures(nextFailures);
+    _retryTimer?.cancel();
+    if (delay > Duration.zero) {
+      _retryTimer = Timer(delay, () {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _retryMessage = null;
+        });
+      });
+    }
+
+    setState(() {
+      _submitting = false;
+      _failedAttempts = nextFailures;
+      _errorText = '主密码不正确';
+      _retryMessage = delay > Duration.zero
+          ? '请等待 ${delay.inSeconds} 秒后重试'
+          : null;
+    });
+  }
+
+  Future<void> _unlockWithBiometrics() async {
+    widget.services.recordActivity();
+    setState(() {
+      _submitting = true;
+      _errorText = null;
+    });
+
+    final unlocked = await widget.services.unlockWithBiometrics();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _submitting = false;
+      if (!unlocked) {
+        _retryMessage = '请使用主密码解锁';
+      }
+    });
+  }
+
+  Duration _delayForFailures(int failures) {
+    if (failures < 2) {
+      return Duration.zero;
+    }
+
+    final seconds = math.min(1 << (failures - 2), 8);
+    return Duration(seconds: seconds);
+  }
+
+  void _togglePasswordVisibility() {
+    widget.services.recordActivity();
+    setState(() {
+      _passwordObscured = !_passwordObscured;
+    });
+  }
+}
