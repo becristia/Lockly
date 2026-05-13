@@ -6,6 +6,43 @@ import 'package:secure_box/features/unlock/unlock_page.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
 
 void main() {
+  group('AppServices', () {
+    test('createVault override still transitions shell state', () async {
+      final services = AppServices(
+        hasVault: false,
+        trackActivity: false,
+        createVaultOverride: (masterPassword, enableBiometric) async {
+          return BiometricSetupResult.notRequested;
+        },
+      );
+      addTearDown(services.dispose);
+
+      final result = await services.createVault(
+        masterPassword: 'very-secure-password',
+        enableBiometric: false,
+      );
+
+      expect(result, BiometricSetupResult.notRequested);
+      expect(services.shellState.value, AppShellState.locked);
+    });
+
+    test('unlock override still transitions shell state', () async {
+      final services = AppServices(
+        hasVault: true,
+        trackActivity: false,
+        unlockOverride: (masterPassword) async => true,
+      );
+      addTearDown(services.dispose);
+
+      final unlocked = await services.unlockWithMasterPassword(
+        'very-secure-password',
+      );
+
+      expect(unlocked, isTrue);
+      expect(services.shellState.value, AppShellState.unlocked);
+    });
+  });
+
   group('SetupPage', () {
     testWidgets('validates mismatched passwords and keeps biometric optional', (
       tester,
@@ -64,6 +101,38 @@ void main() {
       expect(services.fakeLastCreateVaultBiometricEnabled, isTrue);
       expect(services.shellState.value, AppShellState.locked);
     });
+
+    testWidgets('shows notice when biometric enablement fails', (tester) async {
+      final services = AppServices(
+        hasVault: false,
+        trackActivity: false,
+        createVaultOverride: (masterPassword, enableBiometric) async {
+          return BiometricSetupResult.failed;
+        },
+      );
+
+      await _pumpPage(
+        tester,
+        services: services,
+        home: SetupPage(services: services),
+      );
+
+      await tester.tap(find.text('启用生物识别快速解锁'));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '主密码'),
+        'very-secure-password',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '确认主密码'),
+        'very-secure-password',
+      );
+      await tester.tap(find.text('创建密码库'));
+      await tester.pump();
+
+      expect(find.text('密码库已创建，但未能启用生物识别。'), findsOneWidget);
+      expect(services.shellState.value, AppShellState.locked);
+    });
   });
 
   group('UnlockPage', () {
@@ -87,6 +156,35 @@ void main() {
 
       expect(find.text('主密码不正确'), findsOneWidget);
       expect(services.fakeUnlockCalls, 1);
+    });
+
+    testWidgets('recovers from unexpected unlock errors', (tester) async {
+      final services = AppServices(
+        hasVault: true,
+        trackActivity: false,
+        unlockOverride: (masterPassword) async {
+          throw StateError('boom');
+        },
+      );
+
+      await _pumpPage(
+        tester,
+        services: services,
+        home: UnlockPage(services: services),
+      );
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '主密码'),
+        'wrong-password',
+      );
+      await tester.tap(find.text('解锁'));
+      await tester.pump();
+
+      expect(find.text('暂时无法解锁，请重试'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '解锁')).onPressed,
+        isNotNull,
+      );
     });
 
     testWidgets(

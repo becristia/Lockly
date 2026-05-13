@@ -107,7 +107,12 @@ class _UnlockPageState extends State<UnlockPage> {
   }
 
   Future<void> _loadBiometricAvailability() async {
-    final enabled = await widget.services.isBiometricUnlockEnabled();
+    bool enabled;
+    try {
+      enabled = await widget.services.isBiometricUnlockEnabled();
+    } catch (_) {
+      enabled = false;
+    }
     if (!mounted) {
       return;
     }
@@ -125,9 +130,22 @@ class _UnlockPageState extends State<UnlockPage> {
       _retryMessage = _isRetryLocked ? _retryMessage : null;
     });
 
-    final unlocked = await widget.services.unlockWithMasterPassword(
-      _passwordController.text,
-    );
+    final bool unlocked;
+    try {
+      unlocked = await widget.services.unlockWithMasterPassword(
+        _passwordController.text,
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _submitting = false;
+        _errorText = null;
+        _retryMessage = '暂时无法解锁，请重试';
+      });
+      return;
+    }
 
     if (!mounted) {
       return;
@@ -174,7 +192,19 @@ class _UnlockPageState extends State<UnlockPage> {
       _errorText = null;
     });
 
-    final unlocked = await widget.services.unlockWithBiometrics();
+    final bool unlocked;
+    try {
+      unlocked = await widget.services.unlockWithBiometrics();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _submitting = false;
+        _retryMessage = '请使用主密码解锁';
+      });
+      return;
+    }
     if (!mounted) {
       return;
     }

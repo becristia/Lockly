@@ -7,6 +7,8 @@ import 'package:secure_box/core/vault/vault_service.dart';
 
 enum AppShellState { setupRequired, locked, unlocked }
 
+enum BiometricSetupResult { notRequested, enabled, failed }
+
 class AppServices {
   AppServices({
     required bool hasVault,
@@ -16,7 +18,10 @@ class AppServices {
     Duration autoLockTimeout = const Duration(minutes: 2),
     AppShellState? initialShellState,
     GlobalKey<NavigatorState>? navigatorKey,
-    Future<void> Function(String masterPassword, bool enableBiometric)?
+    Future<BiometricSetupResult> Function(
+      String masterPassword,
+      bool enableBiometric,
+    )?
     createVaultOverride,
     Future<bool> Function(String masterPassword)? unlockOverride,
     Future<bool> Function()? biometricEnabledOverride,
@@ -55,7 +60,10 @@ class AppServices {
   final VaultService? _vaultService;
   final BiometricService? _biometricService;
   final ClipboardService? _clipboardService;
-  final Future<void> Function(String masterPassword, bool enableBiometric)?
+  final Future<BiometricSetupResult> Function(
+    String masterPassword,
+    bool enableBiometric,
+  )?
   _createVaultOverride;
   final Future<bool> Function(String masterPassword)? _unlockOverride;
   final Future<bool> Function()? _biometricEnabledOverride;
@@ -88,24 +96,18 @@ class AppServices {
         fakeServices!._fakeCreateVaultCalls += 1;
         fakeServices._fakeLastCreateVaultPassword = masterPassword;
         fakeServices._fakeLastCreateVaultBiometricEnabled = enableBiometric;
-        fakeServices.markVaultCreated();
+        return enableBiometric
+            ? BiometricSetupResult.enabled
+            : BiometricSetupResult.notRequested;
       },
       unlockOverride: (masterPassword) async {
         fakeServices!._fakeUnlockCalls += 1;
-        if (!unlockSucceeds) {
-          return false;
-        }
-        fakeServices.markVaultUnlocked();
-        return true;
+        return unlockSucceeds;
       },
       biometricEnabledOverride: () async => biometricEnabled,
       biometricUnlockOverride: () async {
         fakeServices!._fakeBiometricUnlockCalls += 1;
-        if (!biometricUnlockSucceeds) {
-          return false;
-        }
-        fakeServices.markVaultUnlocked();
-        return true;
+        return biometricUnlockSucceeds;
       },
       trackActivity: false,
     );
@@ -124,36 +126,43 @@ class AppServices {
 
   int get fakeBiometricUnlockCalls => _fakeBiometricUnlockCalls;
 
-  Future<void> createVault({
+  Future<BiometricSetupResult> createVault({
     required String masterPassword,
     required bool enableBiometric,
   }) async {
     final override = _createVaultOverride;
     if (override != null) {
-      await override(masterPassword, enableBiometric);
-      return;
+      final result = await override(masterPassword, enableBiometric);
+      markVaultCreated();
+      return result;
     }
 
     await vaultService.createVault(masterPassword: masterPassword);
+    var biometricResult = BiometricSetupResult.notRequested;
     if (enableBiometric) {
       try {
         await vaultService.enableBiometricUnlock(
           masterPassword: masterPassword,
           biometricService: biometricService,
         );
+        biometricResult = BiometricSetupResult.enabled;
       } catch (_) {
-        // Setup keeps vault creation successful even if optional biometric
-        // enablement is unavailable on the current device.
+        biometricResult = BiometricSetupResult.failed;
       }
     }
 
     markVaultCreated();
+    return biometricResult;
   }
 
   Future<bool> unlockWithMasterPassword(String masterPassword) async {
     final override = _unlockOverride;
     if (override != null) {
-      return override(masterPassword);
+      final unlocked = await override(masterPassword);
+      if (unlocked) {
+        markVaultUnlocked();
+      }
+      return unlocked;
     }
 
     try {
@@ -178,7 +187,11 @@ class AppServices {
   Future<bool> unlockWithBiometrics() async {
     final override = _biometricUnlockOverride;
     if (override != null) {
-      return override();
+      final unlocked = await override();
+      if (unlocked) {
+        markVaultUnlocked();
+      }
+      return unlocked;
     }
 
     final unlocked = await vaultService.unlockWithBiometrics(

@@ -152,10 +152,19 @@ class _SetupPageState extends State<SetupPage> {
     });
 
     try {
-      await widget.services.createVault(
+      final biometricResult = await widget.services.createVault(
         masterPassword: _passwordController.text,
         enableBiometric: _biometricEnabled,
       );
+      if (!mounted) {
+        return;
+      }
+      if (_biometricEnabled &&
+          biometricResult == BiometricSetupResult.failed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('密码库已创建，但未能启用生物识别。')),
+        );
+      }
     } catch (_) {
       if (!mounted) {
         return;
