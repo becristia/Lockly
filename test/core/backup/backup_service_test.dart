@@ -14,6 +14,7 @@ import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/password_entry.dart';
+import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -231,6 +232,74 @@ void main() {
   });
 
   test(
+    'importBackup skip preserves existing vault meta and biometric state while importing from a different vault envelope',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sharedSourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Remote Shared',
+          website: 'https://shared.example',
+          username: 'remote@example.com',
+          password: 'remote-password',
+          notes: 'from backup',
+          tags: ['shared'],
+        ),
+      );
+      final newId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'docs-password',
+          notes: 'new item',
+          tags: ['docs'],
+        ),
+      );
+      final exportedBackup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final sharedId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local Shared',
+          website: 'https://shared.example',
+          username: 'local@example.com',
+          password: 'local-password',
+          notes: 'local copy',
+          tags: ['shared'],
+        ),
+      );
+      final originalMeta = await _setBiometricMeta(target.repository);
+      final importedJson = _backupJsonWithItemIdReplacement(
+        backup: exportedBackup,
+        fromId: sharedSourceId,
+        toId: sharedId,
+      );
+
+      final importedCount = await target.backupService.importBackup(
+        json: importedJson,
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+      );
+
+      final importedMeta = await target.repository.metaDao.get();
+      final preserved = await target.vaultService.getItem(sharedId);
+      final added = await target.vaultService.getItem(newId);
+
+      expect(importedCount, 1);
+      expect(importedMeta, isNotNull);
+      _expectMetaPreserved(importedMeta!, originalMeta);
+      expect(preserved.password, 'local-password');
+      expect(preserved.notes, 'local copy');
+      expect(added.password, 'docs-password');
+      expect(added.notes, 'new item');
+    },
+  );
+
+  test(
     'importBackup merge overwrites duplicates and keeps non-conflicting rows',
     () async {
       final source = await _buildHarness();
@@ -295,6 +364,180 @@ void main() {
       expect(localOnly.password, 'local-password');
     },
   );
+
+  test(
+    'importBackup merge preserves existing vault meta and biometric state while replacing duplicate rows from a different vault envelope',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sharedSourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Remote Shared',
+          website: 'https://shared.example',
+          username: 'remote@example.com',
+          password: 'remote-password',
+          notes: 'updated from backup',
+          tags: ['shared'],
+        ),
+      );
+      final exportedBackup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final sharedId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local Shared',
+          website: 'https://shared.example',
+          username: 'local@example.com',
+          password: 'local-password',
+          notes: 'local copy',
+          tags: ['shared'],
+        ),
+      );
+      final localOnlyId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local Only',
+          website: 'https://local.example',
+          username: 'local-only@example.com',
+          password: 'local-only-password',
+          notes: 'target only',
+          tags: ['local'],
+        ),
+      );
+      final originalMeta = await _setBiometricMeta(target.repository);
+      final importedJson = _backupJsonWithItemIdReplacement(
+        backup: exportedBackup,
+        fromId: sharedSourceId,
+        toId: sharedId,
+      );
+
+      final importedCount = await target.backupService.importBackup(
+        json: importedJson,
+        masterPassword: 'source-master',
+        mode: BackupImportMode.merge,
+      );
+
+      final importedMeta = await target.repository.metaDao.get();
+      final merged = await target.vaultService.getItem(sharedId);
+      final localOnly = await target.vaultService.getItem(localOnlyId);
+
+      expect(importedCount, 1);
+      expect(importedMeta, isNotNull);
+      _expectMetaPreserved(importedMeta!, originalMeta);
+      expect(merged.username, 'remote@example.com');
+      expect(merged.password, 'remote-password');
+      expect(merged.notes, 'updated from backup');
+      expect(localOnly.password, 'local-only-password');
+      expect(localOnly.notes, 'target only');
+    },
+  );
+
+  test(
+    'importBackup skip requires the target vault to be unlocked when re-encryption is needed',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'docs-password',
+          notes: 'new item',
+          tags: ['docs'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+
+      await expectLater(
+        target.backupService.importBackup(
+          json: backup.toJson(),
+          masterPassword: 'source-master',
+          mode: BackupImportMode.skip,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('must already be unlocked'),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Map<String, Object?> _backupJsonWithItemIdReplacement({
+  required VaultBackup backup,
+  required String fromId,
+  required String toId,
+}) {
+  final json = backup.toJson();
+  final items = List<Map<String, Object?>>.from(
+    (json['items']! as List<Object?>).map(
+      (item) => Map<String, Object?>.from(item! as Map<Object?, Object?>),
+    ),
+  );
+  final itemIndex = items.indexWhere((item) => item['id'] == fromId);
+  if (itemIndex == -1) {
+    throw StateError('Expected backup item with id "$fromId"');
+  }
+  items[itemIndex] = {...items[itemIndex], 'id': toId};
+
+  return {...json, 'items': items};
+}
+
+Future<VaultMeta> _setBiometricMeta(VaultRepository repository) async {
+  final meta = (await repository.metaDao.get())!;
+  final updatedMeta = VaultMeta(
+    id: meta.id,
+    version: meta.version,
+    kdf: meta.kdf,
+    kdfParams: meta.kdfParams,
+    salt: meta.salt,
+    encryptedDekByMaster: meta.encryptedDekByMaster,
+    encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
+    encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
+    biometricEnabled: true,
+    createdAt: meta.createdAt,
+    updatedAt: meta.updatedAt,
+    encryptedDekByBiometric: 'encrypted-biometric-dek',
+    encryptedDekByBiometricNonce: 'biometric-nonce',
+    encryptedDekByBiometricMac: 'biometric-mac',
+  );
+  await repository.metaDao.save(updatedMeta);
+  return updatedMeta;
+}
+
+void _expectMetaPreserved(VaultMeta actual, VaultMeta expected) {
+  expect(actual.id, expected.id);
+  expect(actual.version, expected.version);
+  expect(actual.kdf, expected.kdf);
+  expect(actual.kdfParams.name, expected.kdfParams.name);
+  expect(actual.kdfParams.iterations, expected.kdfParams.iterations);
+  expect(actual.kdfParams.bits, expected.kdfParams.bits);
+  expect(actual.salt, expected.salt);
+  expect(actual.encryptedDekByMaster, expected.encryptedDekByMaster);
+  expect(actual.encryptedDekByMasterNonce, expected.encryptedDekByMasterNonce);
+  expect(actual.encryptedDekByMasterMac, expected.encryptedDekByMasterMac);
+  expect(actual.biometricEnabled, expected.biometricEnabled);
+  expect(actual.encryptedDekByBiometric, expected.encryptedDekByBiometric);
+  expect(
+    actual.encryptedDekByBiometricNonce,
+    expected.encryptedDekByBiometricNonce,
+  );
+  expect(
+    actual.encryptedDekByBiometricMac,
+    expected.encryptedDekByBiometricMac,
+  );
+  expect(actual.createdAt, expected.createdAt);
+  expect(actual.updatedAt, expected.updatedAt);
 }
 
 Future<_BackupHarness> _buildHarness() async {

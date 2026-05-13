@@ -71,6 +71,8 @@ class VaultService {
   final VaultSession _session;
   final Uuid _uuid;
 
+  bool get isUnlocked => _session.isUnlocked;
+
   Future<void> createVault({required String masterPassword}) async {
     if (await repository.metaDao.get() != null) {
       throw StateError('Vault already exists');
@@ -190,6 +192,56 @@ class VaultService {
       );
     } finally {
       _zeroBytes(dek);
+    }
+  }
+
+  Future<List<EncryptedVaultItem>> reencryptItemsForCurrentVault({
+    required List<EncryptedVaultItem> items,
+    required VaultMeta sourceMeta,
+    required String sourcePassword,
+  }) async {
+    _ensureUnlocked();
+    Uint8List? sourceDek;
+    try {
+      sourceDek = await _decryptDekWithUnlockError(
+        meta: sourceMeta,
+        password: sourcePassword,
+      );
+      final reencryptedItems = <EncryptedVaultItem>[];
+      for (final item in items) {
+        Uint8List? plaintext;
+        try {
+          plaintext = await _crypto.decryptBytes(
+            key: sourceDek,
+            payload: EncryptedPayload(
+              nonce: fromB64(item.nonce),
+              ciphertext: fromB64(item.ciphertext),
+              mac: fromB64(item.mac),
+            ),
+          );
+          final encryptedPayload = await _session.encrypt(
+            crypto: _crypto,
+            plaintext: plaintext,
+          );
+          reencryptedItems.add(
+            EncryptedVaultItem(
+              id: item.id,
+              nonce: b64(encryptedPayload.nonce),
+              ciphertext: b64(encryptedPayload.ciphertext),
+              mac: b64(encryptedPayload.mac),
+              createdAt: item.createdAt,
+              updatedAt: item.updatedAt,
+              deletedAt: item.deletedAt,
+            ),
+          );
+        } finally {
+          _zeroBytes(plaintext);
+        }
+      }
+
+      return List.unmodifiable(reencryptedItems);
+    } finally {
+      _zeroBytes(sourceDek);
     }
   }
 

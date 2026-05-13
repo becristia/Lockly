@@ -191,15 +191,20 @@ class BackupService {
 
     return repository.transaction((txn) async {
       final existingMeta = await txn.metaDao.get();
-      if (mode != BackupImportMode.overwrite &&
-          existingMeta != null &&
-          !_hasSameEncryptionEnvelope(existingMeta, backupMeta)) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final hasExistingVault = existingMeta != null;
+      final preserveExistingMeta =
+          mode != BackupImportMode.overwrite && hasExistingVault;
+      final needsReencryption =
+          preserveExistingMeta &&
+          !_hasSameEncryptionEnvelope(existingMeta, backupMeta);
+
+      if (needsReencryption && !vaultService.isUnlocked) {
         throw StateError(
-          'Skip and merge imports require the existing vault to use the same encrypted DEK envelope as the backup.',
+          'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
         );
       }
 
-      final now = DateTime.now().millisecondsSinceEpoch;
       final importedMeta = _buildImportedMeta(
         backup: backup,
         existingMeta: existingMeta,
@@ -217,30 +222,52 @@ class BackupService {
           }
           return backup.items.length;
         case BackupImportMode.skip:
-          await txn.metaDao.save(importedMeta);
-          var insertedCount = 0;
+          if (!preserveExistingMeta) {
+            await txn.metaDao.save(importedMeta);
+          }
+          final pendingItems = <EncryptedVaultItem>[];
           for (final item in backup.items) {
             final existingItem = await txn.itemsDao.byId(item.id);
             if (existingItem != null) {
               continue;
             }
-            await txn.itemsDao.upsert(
+            pendingItems.add(
               _buildImportedItem(item, createdAt: now, updatedAt: now),
             );
-            insertedCount++;
           }
-          return insertedCount;
+          final itemsToInsert = await _prepareImportedItems(
+            items: pendingItems,
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsReencryption,
+          );
+          for (final item in itemsToInsert) {
+            await txn.itemsDao.upsert(item);
+          }
+          return itemsToInsert.length;
         case BackupImportMode.merge:
-          await txn.metaDao.save(importedMeta);
+          if (!preserveExistingMeta) {
+            await txn.metaDao.save(importedMeta);
+          }
+          final pendingItems = <EncryptedVaultItem>[];
           for (final item in backup.items) {
             final existingItem = await txn.itemsDao.byId(item.id);
-            await txn.itemsDao.upsert(
+            pendingItems.add(
               _buildImportedItem(
                 item,
                 createdAt: existingItem?.createdAt ?? now,
                 updatedAt: now,
               ),
             );
+          }
+          final itemsToInsert = await _prepareImportedItems(
+            items: pendingItems,
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsReencryption,
+          );
+          for (final item in itemsToInsert) {
+            await txn.itemsDao.upsert(item);
           }
           return backup.items.length;
       }
@@ -301,6 +328,23 @@ class BackupService {
       mac: item.mac,
       createdAt: createdAt,
       updatedAt: updatedAt,
+    );
+  }
+
+  Future<List<EncryptedVaultItem>> _prepareImportedItems({
+    required List<EncryptedVaultItem> items,
+    required VaultMeta backupMeta,
+    required String masterPassword,
+    required bool needsReencryption,
+  }) async {
+    if (!needsReencryption || items.isEmpty) {
+      return items;
+    }
+
+    return vaultService.reencryptItemsForCurrentVault(
+      items: items,
+      sourceMeta: backupMeta,
+      sourcePassword: masterPassword,
     );
   }
 
