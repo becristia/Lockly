@@ -5,26 +5,52 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/password_generator/password_generator.dart';
 
 void main() {
-  test('generated password has exact length and required classes', () {
-    final generator = PasswordGenerator();
+  test(
+    'generated password deterministically includes every selected class',
+    () {
+      final generator = PasswordGenerator.forTesting(
+        random: _SequenceRandom([0, 0, 0, 1, 3, 2, 1]),
+      );
+      final password = generator.generate(
+        const PasswordGeneratorOptions(
+          length: 4,
+          lowercase: true,
+          uppercase: true,
+          numbers: true,
+          symbols: true,
+          excludeConfusing: true,
+          requireEverySelectedClass: true,
+        ),
+      );
+
+      expect(password, 'aA0@');
+      expect(password.length, 4);
+      expect(password, matches(RegExp(r'[a-z]')));
+      expect(password, matches(RegExp(r'[A-Z]')));
+      expect(password, matches(RegExp(r'[0-9]')));
+      expect(password, matches(RegExp(r'[!@#\$%\^&*()\-_=+\[\]{};:,.<>?]')));
+      expect(password.contains(RegExp(r'[Oo1lI]')), isFalse);
+    },
+  );
+
+  test('symbols-only generation can emit the documented exclamation mark', () {
+    final generator = PasswordGenerator.forTesting(
+      random: _SequenceRandom([0]),
+    );
+
     final password = generator.generate(
       const PasswordGeneratorOptions(
-        length: 24,
-        lowercase: true,
-        uppercase: true,
-        numbers: true,
+        length: 1,
+        lowercase: false,
+        uppercase: false,
+        numbers: false,
         symbols: true,
-        excludeConfusing: true,
+        excludeConfusing: false,
         requireEverySelectedClass: true,
       ),
     );
 
-    expect(password.length, 24);
-    expect(password, matches(RegExp(r'[a-z]')));
-    expect(password, matches(RegExp(r'[A-Z]')));
-    expect(password, matches(RegExp(r'[2-9]')));
-    expect(password, matches(RegExp(r'[@#\$%\^&*()\-_=+\[\]{};:,.<>?]')));
-    expect(password.contains(RegExp(r'[Oo1lI]')), isFalse);
+    expect(password, '!');
   });
 
   test('throws when no character classes are selected', () {
@@ -98,11 +124,13 @@ void main() {
   });
 
   test('generated password stays within enabled subset of classes', () {
-    final generator = PasswordGenerator();
+    final generator = PasswordGenerator.forTesting(
+      random: _SequenceRandom([0, 1, 0]),
+    );
 
     final password = generator.generate(
       const PasswordGeneratorOptions(
-        length: 128,
+        length: 2,
         lowercase: true,
         uppercase: false,
         numbers: true,
@@ -112,6 +140,7 @@ void main() {
       ),
     );
 
+    expect(password, '1a');
     expect(password, matches(RegExp(r'^[a-z0-9]+$')));
   });
 
@@ -125,8 +154,67 @@ void main() {
     expect(source, contains('PasswordGenerator.forTesting'));
   });
 
+  test(
+    'exclude confusing characters deterministically strips O o 1 l and I',
+    () {
+      final lowercaseGenerator = PasswordGenerator.forTesting(
+        random: _SequenceRandom([11, 14, 1]),
+      );
+      final uppercaseGenerator = PasswordGenerator.forTesting(
+        random: _SequenceRandom([8, 13, 1]),
+      );
+      final numbersGenerator = PasswordGenerator.forTesting(
+        random: _SequenceRandom([1]),
+      );
+
+      final lowercasePassword = lowercaseGenerator.generate(
+        const PasswordGeneratorOptions(
+          length: 2,
+          lowercase: true,
+          uppercase: false,
+          numbers: false,
+          symbols: false,
+          excludeConfusing: true,
+          requireEverySelectedClass: false,
+        ),
+      );
+      final uppercasePassword = uppercaseGenerator.generate(
+        const PasswordGeneratorOptions(
+          length: 2,
+          lowercase: false,
+          uppercase: true,
+          numbers: false,
+          symbols: false,
+          excludeConfusing: true,
+          requireEverySelectedClass: false,
+        ),
+      );
+      final numbersPassword = numbersGenerator.generate(
+        const PasswordGeneratorOptions(
+          length: 1,
+          lowercase: false,
+          uppercase: false,
+          numbers: true,
+          symbols: false,
+          excludeConfusing: true,
+          requireEverySelectedClass: false,
+        ),
+      );
+
+      expect(lowercasePassword, 'mq');
+      expect(uppercasePassword, 'JP');
+      expect(numbersPassword, '2');
+      expect(
+        '$lowercasePassword$uppercasePassword$numbersPassword',
+        isNot(matches(RegExp(r'[Oo1lI]'))),
+      );
+    },
+  );
+
   test('exclude confusing characters still allows zero for numeric output', () {
-    final generator = PasswordGenerator.forTesting(random: _FixedRandom(0));
+    final generator = PasswordGenerator.forTesting(
+      random: _SequenceRandom([0]),
+    );
 
     final password = generator.generate(
       const PasswordGeneratorOptions(
@@ -144,17 +232,26 @@ void main() {
   });
 }
 
-class _FixedRandom implements Random {
-  _FixedRandom(this._value);
+class _SequenceRandom implements Random {
+  _SequenceRandom(this._values);
 
-  final int _value;
+  final List<int> _values;
+  int _index = 0;
+
+  int _nextValue() {
+    if (_index >= _values.length) {
+      throw StateError('No more deterministic random values available');
+    }
+
+    return _values[_index++];
+  }
 
   @override
-  bool nextBool() => _value.isEven;
+  bool nextBool() => _nextValue().isEven;
 
   @override
-  double nextDouble() => _value.toDouble();
+  double nextDouble() => _nextValue().toDouble();
 
   @override
-  int nextInt(int max) => _value % max;
+  int nextInt(int max) => _nextValue() % max;
 }

@@ -42,7 +42,7 @@ class PasswordGenerator {
   static const String _lowercase = 'abcdefghijklmnopqrstuvwxyz';
   static const String _uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   static const String _numbers = '0123456789';
-  static const String _symbols = r'@#$%^&*()-_=+[]{};:,.<>?';
+  static const String _symbols = r'!@#$%^&*()-_=+[]{};:,.<>?';
   static const String _confusing = 'Oo1lI';
 
   PasswordGenerator._(this._random);
