@@ -14,6 +14,8 @@ class ActivityTextFormField extends StatelessWidget {
     this.onFieldSubmitted,
     this.keyboardType,
     this.autofillHints,
+    this.minLines,
+    this.maxLines = 1,
   });
 
   final VoidCallback onActivity;
@@ -27,6 +29,8 @@ class ActivityTextFormField extends StatelessWidget {
   final ValueChanged<String>? onFieldSubmitted;
   final TextInputType? keyboardType;
   final Iterable<String>? autofillHints;
+  final int? minLines;
+  final int? maxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +45,8 @@ class ActivityTextFormField extends StatelessWidget {
       onFieldSubmitted: onFieldSubmitted,
       keyboardType: keyboardType,
       autofillHints: autofillHints,
+      minLines: minLines,
+      maxLines: maxLines,
       onTap: onActivity,
       onChanged: (_) => onActivity(),
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/features/setup/setup_page.dart';
 import 'package:secure_box/features/unlock/unlock_page.dart';
+import 'package:secure_box/features/vault_list/vault_list_page.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
 import 'package:secure_box/shared/widgets/secure_scaffold.dart';
 
@@ -74,24 +75,11 @@ class _SecureBoxAppState extends State<SecureBoxApp> {
   Widget _buildPageForRoute(String routeName) {
     return switch (routeName) {
       AppServices.routeSetup => SetupPage(services: widget.services),
-      AppServices.routeVault => const _VaultPlaceholderPage(),
+      AppServices.routeVault => VaultListPage(services: widget.services),
       AppServices.routeGenerator => const _GeneratorPlaceholderPage(),
       AppServices.routeSettings => const _SettingsPlaceholderPage(),
       _ => UnlockPage(services: widget.services),
     };
-  }
-}
-
-class _VaultPlaceholderPage extends StatelessWidget {
-  const _VaultPlaceholderPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SecureScaffold(
-      title: '密码库',
-      subtitle: '壳层路由已接通，后续任务会在这里接入密码列表与详情流程。',
-      body: SizedBox.shrink(),
-    );
   }
 }
 
@@ -102,7 +90,7 @@ class _GeneratorPlaceholderPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return const SecureScaffold(
       title: '密码生成器',
-      subtitle: '路由已预留，后续任务会补齐生成规则与保存流程。',
+      subtitle: '此页面的路由已预留，后续任务会补齐生成规则与保存流程。',
       body: SizedBox.shrink(),
     );
   }
