@@ -4,7 +4,28 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 
-enum BiometricUnlockResult { unlocked, fallbackToMasterPassword }
+const _dekLength = 32;
+
+enum BiometricUnlockStatus { unlocked, fallbackToMasterPassword }
+
+class BiometricUnlockResult {
+  const BiometricUnlockResult._({required this.status, this.dek});
+
+  factory BiometricUnlockResult.unlocked(Uint8List dek) {
+    _requireValidDek(dek);
+    return BiometricUnlockResult._(
+      status: BiometricUnlockStatus.unlocked,
+      dek: Uint8List.fromList(dek),
+    );
+  }
+
+  const BiometricUnlockResult.fallbackToMasterPassword()
+    : status = BiometricUnlockStatus.fallbackToMasterPassword,
+      dek = null;
+
+  final BiometricUnlockStatus status;
+  final Uint8List? dek;
+}
 
 abstract class BiometricAuthenticator {
   Future<bool> canAuthenticate();
@@ -27,6 +48,8 @@ class BiometricService {
   final SecureDekStore store;
 
   Future<void> enable(Uint8List dek) async {
+    _requireValidDek(dek);
+
     if (!await _canAuthenticate()) {
       throw StateError('Biometric authentication is unavailable');
     }
@@ -40,22 +63,22 @@ class BiometricService {
 
   Future<BiometricUnlockResult> unlock() async {
     if (!await _canAuthenticate()) {
-      return BiometricUnlockResult.fallbackToMasterPassword;
+      return const BiometricUnlockResult.fallbackToMasterPassword();
     }
     if (!await _authenticate()) {
-      return BiometricUnlockResult.fallbackToMasterPassword;
+      return const BiometricUnlockResult.fallbackToMasterPassword();
     }
 
     try {
       final dek = await store.readDek();
-      if (dek == null) {
-        return BiometricUnlockResult.fallbackToMasterPassword;
+      if (dek == null || dek.length != _dekLength) {
+        return const BiometricUnlockResult.fallbackToMasterPassword();
       }
-    } catch (_) {
-      return BiometricUnlockResult.fallbackToMasterPassword;
-    }
 
-    return BiometricUnlockResult.unlocked;
+      return BiometricUnlockResult.unlocked(dek);
+    } catch (_) {
+      return const BiometricUnlockResult.fallbackToMasterPassword();
+    }
   }
 
   Future<bool> _canAuthenticate() async {
@@ -73,6 +96,22 @@ class BiometricService {
       return false;
     }
   }
+}
+
+bool _isValidDek(Uint8List? dek) {
+  return dek != null && dek.length == _dekLength;
+}
+
+void _requireValidDek(Uint8List dek) {
+  if (_isValidDek(dek)) {
+    return;
+  }
+
+  throw ArgumentError.value(
+    dek.length,
+    'dek',
+    'DEK must be exactly $_dekLength bytes',
+  );
 }
 
 class LocalAuthBiometricAuthenticator implements BiometricAuthenticator {
