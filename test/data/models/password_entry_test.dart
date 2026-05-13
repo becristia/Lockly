@@ -326,6 +326,35 @@ void main() {
     },
   );
 
+  test(
+    'vault meta scrubs legacy biometric tuple when biometric is disabled during serialization',
+    () {
+      final meta = VaultMeta(
+        id: 'vault-1',
+        version: 1,
+        kdf: 'pbkdf2-hmac-sha256',
+        kdfParams: KdfParams.pbkdf2(iterations: 180000, bits: 256),
+        salt: 'base64-salt',
+        encryptedDekByMaster: 'encrypted-master',
+        encryptedDekByMasterNonce: 'master-nonce',
+        encryptedDekByMasterMac: 'master-mac',
+        biometricEnabled: false,
+        createdAt: 1715550000,
+        updatedAt: 1715551111,
+        encryptedDekByBiometric: 'encrypted-bio',
+        encryptedDekByBiometricNonce: 'bio-nonce',
+        encryptedDekByBiometricMac: 'bio-mac',
+      );
+
+      final row = meta.toDb();
+
+      expect(row['biometric_enabled'], 0);
+      expect(row['encrypted_dek_by_biometric'], isNull);
+      expect(row['encrypted_dek_by_biometric_nonce'], isNull);
+      expect(row['encrypted_dek_by_biometric_mac'], isNull);
+    },
+  );
+
   test('vault meta rejects malformed optional biometric tuple field types', () {
     final malformedBiometricFieldRow = _vaultMetaRow(
       biometricEnabled: 1,

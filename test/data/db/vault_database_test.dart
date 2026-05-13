@@ -210,6 +210,36 @@ void main() {
     },
   );
 
+  test(
+    'vault meta save scrubs disabled legacy biometric tuple columns',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+      final dao = VaultMetaDao(db);
+      final meta = _buildVaultMeta(
+        biometricEnabled: false,
+        encryptedDekByBiometric: 'stale-biometric-dek',
+        encryptedDekByBiometricNonce: 'stale-biometric-nonce',
+        encryptedDekByBiometricMac: 'stale-biometric-mac',
+      );
+
+      await dao.save(meta);
+
+      final row = (await db.query('vault_meta')).single;
+      final storedMeta = await dao.get();
+
+      expect(row['biometric_enabled'], 0);
+      expect(row['encrypted_dek_by_biometric'], isNull);
+      expect(row['encrypted_dek_by_biometric_nonce'], isNull);
+      expect(row['encrypted_dek_by_biometric_mac'], isNull);
+      expect(storedMeta, isNotNull);
+      expect(storedMeta!.biometricEnabled, isFalse);
+      expect(storedMeta.encryptedDekByBiometric, isNull);
+      expect(storedMeta.encryptedDekByBiometricNonce, isNull);
+      expect(storedMeta.encryptedDekByBiometricMac, isNull);
+    },
+  );
+
   test('clearing biometric DEK disables biometric unlock state', () async {
     final db = await AppDatabase.openInMemory();
     addTearDown(db.close);

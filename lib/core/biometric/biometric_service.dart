@@ -165,35 +165,33 @@ class LocalAuthBiometricAuthenticator implements BiometricAuthenticator {
 class SecureStorageDekStore implements SecureDekStore {
   SecureStorageDekStore({
     FlutterSecureStorage? storage,
+    AndroidOptions androidOptions = _defaultAndroidOptions,
     String key = _defaultDekKey,
-  }) : _storage =
-           storage ?? const FlutterSecureStorage(aOptions: _androidOptions),
+  }) : _storage = storage ?? FlutterSecureStorage(aOptions: androidOptions),
+       _options = androidOptions,
        _key = key;
 
   static const _defaultDekKey = 'biometric_dek';
-  static const _androidOptions = AndroidOptions.biometric(
-    enforceBiometrics: true,
+  static const _defaultAndroidOptions = AndroidOptions(
     storageNamespace: 'secure_box_biometric',
-    biometricPromptTitle: 'Unlock Secure Box',
-    biometricPromptSubtitle: 'Authenticate to unlock your local vault',
   );
 
   final FlutterSecureStorage _storage;
+  final AndroidOptions _options;
   final String _key;
 
   @override
-  SecureDekReadRequirement get readRequirement {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return SecureDekReadRequirement.storeManagedAuthentication;
-    }
-
-    return SecureDekReadRequirement.explicitBiometricAuthentication;
-  }
+  SecureDekReadRequirement get readRequirement =>
+      SecureDekReadRequirement.explicitBiometricAuthentication;
 
   @override
   Future<bool> canUseBiometricProtection() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+
     try {
-      await _storage.containsKey(key: _key);
+      await _storage.containsKey(key: _key, aOptions: _options);
       return true;
     } catch (_) {
       return false;
@@ -202,12 +200,16 @@ class SecureStorageDekStore implements SecureDekStore {
 
   @override
   Future<void> writeDek(Uint8List dek) {
-    return _storage.write(key: _key, value: b64(Uint8List.fromList(dek)));
+    return _storage.write(
+      key: _key,
+      value: b64(Uint8List.fromList(dek)),
+      aOptions: _options,
+    );
   }
 
   @override
   Future<Uint8List?> readDek() async {
-    final storedValue = await _storage.read(key: _key);
+    final storedValue = await _storage.read(key: _key, aOptions: _options);
     if (storedValue == null) {
       return null;
     }
@@ -217,7 +219,7 @@ class SecureStorageDekStore implements SecureDekStore {
 
   @override
   Future<void> deleteDek() {
-    return _storage.delete(key: _key);
+    return _storage.delete(key: _key, aOptions: _options);
   }
 }
 

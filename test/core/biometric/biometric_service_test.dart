@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 
@@ -163,6 +164,25 @@ void main() {
     expect(result.dek, isNull);
   });
 
+  test(
+    'thrown secure store capability check returns fallback result',
+    () async {
+      final auth = _RecordingBiometricAuthenticator();
+      final store = _TestSecureDekStore(
+        capabilityError: StateError('capability probe failed'),
+        initialDek: Uint8List.fromList(List<int>.filled(32, 5)),
+      );
+      final service = BiometricService(authenticator: auth, store: store);
+
+      final result = await service.unlock();
+
+      expect(result.status, BiometricUnlockStatus.fallbackToMasterPassword);
+      expect(result.dek, isNull);
+      expect(auth.authenticateCalls, 0);
+      expect(store.readCalls, 0);
+    },
+  );
+
   test('store capability unavailable returns fallback result', () async {
     final auth = _RecordingBiometricAuthenticator();
     final store = _TestSecureDekStore(
@@ -180,14 +200,14 @@ void main() {
   });
 
   test(
-    'secure storage store only uses store-managed authentication on Android',
+    'secure storage store requires explicit local auth prompt on Android and iOS',
     () {
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       expect(
         SecureStorageDekStore().readRequirement,
-        SecureDekReadRequirement.storeManagedAuthentication,
+        SecureDekReadRequirement.explicitBiometricAuthentication,
       );
 
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -195,6 +215,50 @@ void main() {
         SecureStorageDekStore().readRequirement,
         SecureDekReadRequirement.explicitBiometricAuthentication,
       );
+    },
+  );
+
+  test(
+    'secure storage capability gate is conservative off Android and skips the storage probe',
+    () async {
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+      final storage = _RecordingFlutterSecureStorage(containsKeyResult: true);
+      final store = SecureStorageDekStore(storage: storage);
+
+      expect(await store.canUseBiometricProtection(), isFalse);
+      expect(storage.containsKeyCalls, 0);
+    },
+  );
+
+  test(
+    'secure storage capability gate probes Android storage support',
+    () async {
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      final storage = _RecordingFlutterSecureStorage(containsKeyResult: true);
+      final store = SecureStorageDekStore(storage: storage);
+
+      expect(await store.canUseBiometricProtection(), isTrue);
+      expect(storage.containsKeyCalls, 1);
+    },
+  );
+
+  test(
+    'secure storage capability gate falls back when Android storage probe throws',
+    () async {
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      final storage = _RecordingFlutterSecureStorage(
+        containsKeyError: StateError('storage unsupported'),
+      );
+      final store = SecureStorageDekStore(storage: storage);
+
+      expect(await store.canUseBiometricProtection(), isFalse);
+      expect(storage.containsKeyCalls, 1);
     },
   );
 }
@@ -240,12 +304,14 @@ class _TestSecureDekStore implements SecureDekStore {
     this.readRequirement =
         SecureDekReadRequirement.explicitBiometricAuthentication,
     Uint8List? initialDek,
+    this.capabilityError,
     this.readError,
   }) : _dek = initialDek == null ? null : Uint8List.fromList(initialDek);
 
   final bool canUseBiometricProtectionResult;
   @override
   final SecureDekReadRequirement readRequirement;
+  final Object? capabilityError;
   final Object? readError;
 
   Uint8List? _dek;
@@ -257,6 +323,10 @@ class _TestSecureDekStore implements SecureDekStore {
   @override
   Future<bool> canUseBiometricProtection() async {
     capabilityCalls += 1;
+    if (capabilityError != null) {
+      throw capabilityError!;
+    }
+
     return canUseBiometricProtectionResult;
   }
 
@@ -285,5 +355,35 @@ class _TestSecureDekStore implements SecureDekStore {
   Future<void> deleteDek() async {
     deleteCalls += 1;
     _dek = null;
+  }
+}
+
+class _RecordingFlutterSecureStorage extends FlutterSecureStorage {
+  _RecordingFlutterSecureStorage({
+    this.containsKeyResult = false,
+    this.containsKeyError,
+  });
+
+  final bool containsKeyResult;
+  final Object? containsKeyError;
+
+  int containsKeyCalls = 0;
+
+  @override
+  Future<bool> containsKey({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    containsKeyCalls += 1;
+    if (containsKeyError != null) {
+      throw containsKeyError!;
+    }
+
+    return containsKeyResult;
   }
 }

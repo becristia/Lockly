@@ -44,10 +44,19 @@ class VaultMeta {
 
   Map<String, Object?> toDb() {
     _validateSerializableKdfConsistency(kdf: kdf, kdfParams: kdfParams);
+    final serializedEncryptedDekByBiometric = biometricEnabled
+        ? encryptedDekByBiometric
+        : null;
+    final serializedEncryptedDekByBiometricNonce = biometricEnabled
+        ? encryptedDekByBiometricNonce
+        : null;
+    final serializedEncryptedDekByBiometricMac = biometricEnabled
+        ? encryptedDekByBiometricMac
+        : null;
     _validateSerializableBiometricTuple(
-      encryptedDekByBiometric: encryptedDekByBiometric,
-      encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
-      encryptedDekByBiometricMac: encryptedDekByBiometricMac,
+      encryptedDekByBiometric: serializedEncryptedDekByBiometric,
+      encryptedDekByBiometricNonce: serializedEncryptedDekByBiometricNonce,
+      encryptedDekByBiometricMac: serializedEncryptedDekByBiometricMac,
     );
 
     return {
@@ -59,9 +68,10 @@ class VaultMeta {
       'encrypted_dek_by_master': encryptedDekByMaster,
       'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
       'encrypted_dek_by_master_mac': encryptedDekByMasterMac,
-      'encrypted_dek_by_biometric': encryptedDekByBiometric,
-      'encrypted_dek_by_biometric_nonce': encryptedDekByBiometricNonce,
-      'encrypted_dek_by_biometric_mac': encryptedDekByBiometricMac,
+      'encrypted_dek_by_biometric': serializedEncryptedDekByBiometric,
+      'encrypted_dek_by_biometric_nonce':
+          serializedEncryptedDekByBiometricNonce,
+      'encrypted_dek_by_biometric_mac': serializedEncryptedDekByBiometricMac,
       'biometric_enabled': biometricEnabled ? 1 : 0,
       'created_at': createdAt,
       'updated_at': updatedAt,
