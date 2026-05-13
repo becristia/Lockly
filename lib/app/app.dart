@@ -13,6 +13,8 @@ class SecureBoxApp extends StatefulWidget {
 }
 
 class _SecureBoxAppState extends State<SecureBoxApp> {
+  final FocusNode _activityFocusNode = FocusNode(debugLabel: 'app-activity');
+
   @override
   void initState() {
     super.initState();
@@ -21,6 +23,7 @@ class _SecureBoxAppState extends State<SecureBoxApp> {
 
   @override
   void dispose() {
+    _activityFocusNode.dispose();
     widget.services.dispose();
     super.dispose();
   }
@@ -32,29 +35,37 @@ class _SecureBoxAppState extends State<SecureBoxApp> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       navigatorKey: widget.services.navigatorKey,
-      onGenerateRoute: (settings) {
-        return MaterialPageRoute<void>(
-          settings: settings,
+      onGenerateInitialRoutes: (initialRouteName) => [
+        MaterialPageRoute<void>(
+          settings: RouteSettings(name: widget.services.currentRouteName),
           builder: (context) =>
-              _buildPageForRoute(settings.name ?? AppServices.routeUnlock),
+              _buildPageForRoute(widget.services.currentRouteName),
+        ),
+      ],
+      onGenerateRoute: (settings) {
+        final routeName = widget.services.resolveRouteName(settings.name);
+        return MaterialPageRoute<void>(
+          settings: RouteSettings(name: routeName),
+          builder: (context) => _buildPageForRoute(routeName),
         );
       },
       builder: (context, child) {
-        return Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => widget.services.recordActivity(),
-          child: child ?? const SizedBox.shrink(),
+        return Focus(
+          focusNode: _activityFocusNode,
+          autofocus: true,
+          onFocusChange: (hasFocus) => widget.services.recordActivity(),
+          onKeyEvent: (node, event) {
+            widget.services.recordActivity();
+            return KeyEventResult.ignored;
+          },
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => widget.services.recordActivity(),
+            onPointerSignal: (_) => widget.services.recordActivity(),
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
-      home: ValueListenableBuilder<AppShellState>(
-        valueListenable: widget.services.shellState,
-        builder: (context, state, _) {
-          return KeyedSubtree(
-            key: ValueKey<String>(widget.services.routeNameFor(state)),
-            child: _buildPageForRoute(widget.services.routeNameFor(state)),
-          );
-        },
-      ),
     );
   }
 

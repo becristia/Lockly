@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const Color _trustBlue = Color(0xFF0B63CE);
-  static const Color _securityGreen = Color(0xFF1F8F5F);
-  static const Color _canvas = Color(0xFFF4F7FB);
+  static const Color _trustBlue = Color(0xFF0369A1);
+  static const Color _secondaryBlue = Color(0xFF0EA5E9);
+  static const Color _securityGreen = Color(0xFF22C55E);
+  static const Color _canvas = Color(0xFFF0F9FF);
   static const Color _surface = Color(0xFFFFFFFF);
-  static const Color _ink = Color(0xFF142033);
-  static const Color _muted = Color(0xFF60708A);
-  static const Color _outline = Color(0xFFD6DFEA);
+  static const Color _ink = Color(0xFF0C4A6E);
+  static const Color _muted = Color(0xFF4B6B82);
+  static const Color _outline = Color(0xFFCAE7F6);
 
   static ThemeData light() {
     final colorScheme =
@@ -15,18 +16,20 @@ class AppTheme {
           seedColor: _trustBlue,
           brightness: Brightness.light,
           primary: _trustBlue,
-          secondary: _securityGreen,
+          secondary: _secondaryBlue,
           surface: _surface,
         ).copyWith(
           primary: _trustBlue,
-          secondary: _securityGreen,
+          secondary: _secondaryBlue,
+          tertiary: _securityGreen,
           surface: _surface,
-          surfaceContainerHighest: const Color(0xFFEAF0F7),
+          surfaceContainerHighest: const Color(0xFFE2F2FB),
           outline: _outline,
-          outlineVariant: const Color(0xFFE1E7F0),
+          outlineVariant: const Color(0xFFD7EDF9),
           onSurface: _ink,
           onPrimary: Colors.white,
           onSecondary: Colors.white,
+          onTertiary: Colors.white,
         );
 
     final base = ThemeData(

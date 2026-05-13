@@ -23,6 +23,7 @@ Future<void> main() async {
 
   final metaDao = VaultMetaDao(database);
   final repository = VaultRepository(
+    database: database,
     metaDao: metaDao,
     itemsDao: VaultItemsDao(database),
     settingsDao: SettingsDao(database),

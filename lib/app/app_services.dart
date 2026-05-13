@@ -30,6 +30,7 @@ class AppServices {
       onLock: lockVault,
     );
     appLifecycleGuard = AppLifecycleGuard(autoLockService: autoLockService);
+    shellState.addListener(_syncNavigatorToShellState);
   }
 
   static const routeSetup = '/setup';
@@ -93,6 +94,20 @@ class AppServices {
     };
   }
 
+  String resolveRouteName(String? requestedRouteName) {
+    final shellRoute = currentRouteName;
+    final requested = requestedRouteName ?? shellRoute;
+    final shell = shellState.value;
+    if (shell != AppShellState.unlocked) {
+      return shellRoute;
+    }
+
+    return switch (requested) {
+      routeVault || routeGenerator || routeSettings => requested,
+      _ => routeVault,
+    };
+  }
+
   void recordActivity() {
     autoLockService.recordActivity();
   }
@@ -121,9 +136,20 @@ class AppServices {
   }
 
   void dispose() {
+    shellState.removeListener(_syncNavigatorToShellState);
     WidgetsBinding.instance.removeObserver(appLifecycleGuard);
     autoLockService.dispose();
     _clipboardService?.dispose();
     shellState.dispose();
+  }
+
+  void _syncNavigatorToShellState() {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) {
+      return;
+    }
+
+    final targetRoute = currentRouteName;
+    navigator.pushNamedAndRemoveUntil(targetRoute, (route) => false);
   }
 }
