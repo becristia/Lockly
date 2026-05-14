@@ -228,6 +228,7 @@ class VaultService {
   Future<void> changeMasterPassword({
     required String oldPassword,
     required String newPassword,
+    Future<void> Function()? beforePersist,
   }) async {
     final meta = await _requireVaultMeta();
     Uint8List? dek;
@@ -262,6 +263,7 @@ class VaultService {
         encryptedDekByBiometricMac: null,
       );
 
+      await beforePersist?.call();
       await repository.transaction((txn) => txn.metaDao.save(updatedMeta));
       _session.unlock(dek);
     } finally {

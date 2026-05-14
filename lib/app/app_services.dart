@@ -434,10 +434,10 @@ class AppServices {
       return override(oldPassword, newPassword);
     }
 
-    await _biometricService?.disable();
     await vaultService.changeMasterPassword(
       oldPassword: oldPassword,
       newPassword: newPassword,
+      beforePersist: _biometricService?.disable,
     );
   }
 
