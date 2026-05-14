@@ -215,11 +215,11 @@ class VaultService {
     required BiometricService biometricService,
   }) async {
     final meta = await _requireVaultMeta();
+    await biometricService.disable();
     if (!meta.biometricEnabled) {
       return;
     }
 
-    await biometricService.disable();
     await repository.metaDao.clearBiometricDek(
       DateTime.now().millisecondsSinceEpoch,
     );

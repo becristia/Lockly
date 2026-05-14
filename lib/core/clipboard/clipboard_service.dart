@@ -9,6 +9,7 @@ class ClipboardService {
 
   Duration clearPasswordAfter;
   Timer? _clearTimer;
+  String? _pendingPasswordClear;
 
   Future<bool> copyUsername(String username) async {
     final didWrite = await _trySetClipboardData(ClipboardData(text: username));
@@ -27,15 +28,19 @@ class ClipboardService {
     }
 
     _cancelPendingClear();
-    _clearTimer = Timer(clearPasswordAfter, () {
-      unawaited(_clearPasswordIfStillPresent(password));
-    });
+    _schedulePasswordClear(password);
     return true;
   }
 
   void updateClearPasswordAfter(Duration value) {
     clearPasswordAfter = value;
-    _cancelPendingClear();
+    final pendingPassword = _pendingPasswordClear;
+    if (pendingPassword == null) {
+      return;
+    }
+
+    _clearTimer?.cancel();
+    _schedulePasswordClear(pendingPassword);
   }
 
   void dispose() {
@@ -43,6 +48,8 @@ class ClipboardService {
   }
 
   Future<void> _clearPasswordIfStillPresent(String password) async {
+    _pendingPasswordClear = null;
+    _clearTimer = null;
     final current = await _tryGetClipboardData();
     if (current?.text != password) {
       return;
@@ -54,6 +61,14 @@ class ClipboardService {
   void _cancelPendingClear() {
     _clearTimer?.cancel();
     _clearTimer = null;
+    _pendingPasswordClear = null;
+  }
+
+  void _schedulePasswordClear(String password) {
+    _pendingPasswordClear = password;
+    _clearTimer = Timer(clearPasswordAfter, () {
+      unawaited(_clearPasswordIfStillPresent(password));
+    });
   }
 
   Future<ClipboardData?> _tryGetClipboardData() async {

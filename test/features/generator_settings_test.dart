@@ -48,5 +48,17 @@ void main() {
     expect(find.text('剪贴板清理'), findsOneWidget);
     expect(find.text('导出加密备份'), findsOneWidget);
     expect(find.text('导入加密备份'), findsOneWidget);
+    expect(find.text('清除本地密码库'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('清除本地密码库'),
+      120,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.tap(find.text('清除本地密码库'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('此操作会删除本机密码库和设置，无法找回。请确认已经导出可用备份。'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '清除'), findsOneWidget);
   });
 }

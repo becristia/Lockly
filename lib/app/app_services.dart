@@ -434,10 +434,11 @@ class AppServices {
       return override(oldPassword, newPassword);
     }
 
-    return vaultService.changeMasterPassword(
+    await vaultService.changeMasterPassword(
       oldPassword: oldPassword,
       newPassword: newPassword,
     );
+    await _biometricService?.disable();
   }
 
   Future<void> enableBiometricUnlock(String masterPassword) async {
@@ -566,6 +567,7 @@ class AppServices {
     }
 
     final repository = vaultService.repository;
+    await _biometricService?.disable();
     await repository.transaction((txn) async {
       await txn.itemsDao.executor.delete('vault_items');
       await txn.metaDao.executor.delete('vault_meta');

@@ -100,6 +100,32 @@ void main() {
     },
   );
 
+  test('updating clipboard timeout preserves pending password cleanup', () {
+    fakeAsync((async) {
+      final service = ClipboardService(
+        clearPasswordAfter: const Duration(seconds: 30),
+      );
+      service.copyPassword('secret-password');
+      async.flushMicrotasks();
+
+      service.updateClearPasswordAfter(const Duration(seconds: 10));
+
+      async.elapse(const Duration(seconds: 9));
+      async.flushMicrotasks();
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, 'secret-password');
+      });
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, '');
+      });
+      async.flushMicrotasks();
+    });
+  });
+
   test('username clipboard does not clear after password timeout', () {
     fakeAsync((async) {
       final service = ClipboardService(

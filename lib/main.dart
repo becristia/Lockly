@@ -23,14 +23,25 @@ Future<void> main() async {
   final database = await AppDatabase.open(databasePath);
 
   final metaDao = VaultMetaDao(database);
+  final settingsDao = SettingsDao(database);
   final repository = VaultRepository(
     database: database,
     metaDao: metaDao,
     itemsDao: VaultItemsDao(database),
-    settingsDao: SettingsDao(database),
+    settingsDao: settingsDao,
   );
   final random = SecureRandom();
   final hasVault = await metaDao.get() != null;
+  final autoLockTimeout = await _readDurationSetting(
+    settingsDao,
+    key: 'auto_lock_seconds',
+    fallback: const Duration(minutes: 2),
+  );
+  final clipboardCleanupTimeout = await _readDurationSetting(
+    settingsDao,
+    key: 'clipboard_clear_seconds',
+    fallback: const Duration(seconds: 30),
+  );
   final vaultService = VaultService(
     repository: repository,
     random: random,
@@ -39,6 +50,7 @@ Future<void> main() async {
   );
   final services = AppServices(
     hasVault: hasVault,
+    autoLockTimeout: autoLockTimeout,
     vaultService: vaultService,
     backupService: BackupService(
       repository: repository,
@@ -50,9 +62,25 @@ Future<void> main() async {
       ),
       store: SecureStorageDekStore(),
     ),
-    clipboardService: ClipboardService(),
+    clipboardService: ClipboardService(
+      clearPasswordAfter: clipboardCleanupTimeout,
+    ),
   );
 
   bindings.addObserver(services.appLifecycleGuard);
   runApp(SecureBoxApp(services: services));
+}
+
+Future<Duration> _readDurationSetting(
+  SettingsDao settingsDao, {
+  required String key,
+  required Duration fallback,
+}) async {
+  final rawValue = await settingsDao.getValue(key);
+  final seconds = rawValue == null ? null : int.tryParse(rawValue);
+  if (seconds == null || seconds <= 0) {
+    return fallback;
+  }
+
+  return Duration(seconds: seconds);
 }
