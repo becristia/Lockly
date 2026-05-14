@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/features/password_generator/password_generator_page.dart';
+import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/features/setup/setup_page.dart';
 import 'package:secure_box/features/unlock/unlock_page.dart';
 import 'package:secure_box/features/vault_list/vault_list_page.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
-import 'package:secure_box/shared/widgets/secure_scaffold.dart';
 
 class SecureBoxApp extends StatefulWidget {
   const SecureBoxApp({super.key, required this.services});
@@ -107,8 +108,10 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     return switch (routeName) {
       AppServices.routeSetup => SetupPage(services: widget.services),
       AppServices.routeVault => VaultListPage(services: widget.services),
-      AppServices.routeGenerator => const _GeneratorPlaceholderPage(),
-      AppServices.routeSettings => const _SettingsPlaceholderPage(),
+      AppServices.routeGenerator => PasswordGeneratorPage(
+        services: widget.services,
+      ),
+      AppServices.routeSettings => SettingsPage(services: widget.services),
       _ => UnlockPage(services: widget.services),
     };
   }
@@ -137,32 +140,6 @@ class _PrivacyCover extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _GeneratorPlaceholderPage extends StatelessWidget {
-  const _GeneratorPlaceholderPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SecureScaffold(
-      title: '密码生成器',
-      subtitle: '此页面的路由已预留，后续任务会补齐生成规则与保存流程。',
-      body: SizedBox.shrink(),
-    );
-  }
-}
-
-class _SettingsPlaceholderPage extends StatelessWidget {
-  const _SettingsPlaceholderPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SecureScaffold(
-      title: '设置',
-      subtitle: '这里将承载主密码修改、生物识别、自动锁定和备份设置。',
-      body: SizedBox.shrink(),
     );
   }
 }

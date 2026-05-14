@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
@@ -30,13 +31,18 @@ Future<void> main() async {
   );
   final random = SecureRandom();
   final hasVault = await metaDao.get() != null;
+  final vaultService = VaultService(
+    repository: repository,
+    random: random,
+    kdf: KdfService(),
+    crypto: CryptoService(random: random),
+  );
   final services = AppServices(
     hasVault: hasVault,
-    vaultService: VaultService(
+    vaultService: vaultService,
+    backupService: BackupService(
       repository: repository,
-      random: random,
-      kdf: KdfService(),
-      crypto: CryptoService(random: random),
+      vaultService: vaultService,
     ),
     biometricService: BiometricService(
       authenticator: LocalAuthBiometricAuthenticator(

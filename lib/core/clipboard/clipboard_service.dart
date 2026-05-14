@@ -7,7 +7,7 @@ class ClipboardService {
 
   static const _clipboardFormat = 'text/plain';
 
-  final Duration clearPasswordAfter;
+  Duration clearPasswordAfter;
   Timer? _clearTimer;
 
   Future<bool> copyUsername(String username) async {
@@ -31,6 +31,11 @@ class ClipboardService {
       unawaited(_clearPasswordIfStillPresent(password));
     });
     return true;
+  }
+
+  void updateClearPasswordAfter(Duration value) {
+    clearPasswordAfter = value;
+    _cancelPendingClear();
   }
 
   void dispose() {

@@ -211,6 +211,20 @@ class VaultService {
     }
   }
 
+  Future<void> disableBiometricUnlock({
+    required BiometricService biometricService,
+  }) async {
+    final meta = await _requireVaultMeta();
+    if (!meta.biometricEnabled) {
+      return;
+    }
+
+    await biometricService.disable();
+    await repository.metaDao.clearBiometricDek(
+      DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
   Future<void> changeMasterPassword({
     required String oldPassword,
     required String newPassword,

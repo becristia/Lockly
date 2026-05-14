@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/security/app_lifecycle_guard.dart';
@@ -14,9 +17,11 @@ class AppServices {
   AppServices({
     required bool hasVault,
     VaultService? vaultService,
+    BackupService? backupService,
     BiometricService? biometricService,
     ClipboardService? clipboardService,
     Duration autoLockTimeout = const Duration(minutes: 2),
+    Duration clipboardCleanupTimeout = const Duration(seconds: 30),
     AppShellState? initialShellState,
     GlobalKey<NavigatorState>? navigatorKey,
     Future<BiometricSetupResult> Function(
@@ -32,9 +37,22 @@ class AppServices {
     Future<String> Function(PasswordEntry entry)? createItemOverride,
     Future<void> Function(String id, PasswordEntry entry)? updateItemOverride,
     Future<void> Function(String id)? deleteItemOverride,
+    Future<void> Function(String oldPassword, String newPassword)?
+    changeMasterPasswordOverride,
+    Future<void> Function(String masterPassword)? enableBiometricOverride,
+    Future<void> Function()? disableBiometricOverride,
+    Future<Duration> Function()? autoLockTimeoutOverride,
+    Future<void> Function(Duration timeout)? setAutoLockTimeoutOverride,
+    Future<Duration> Function()? clipboardCleanupTimeoutOverride,
+    Future<void> Function(Duration timeout)? setClipboardCleanupTimeoutOverride,
+    Future<String> Function()? exportBackupOverride,
+    Future<int> Function(String backupJson, String masterPassword)?
+    importBackupOverride,
+    Future<void> Function()? clearLocalVaultOverride,
     bool trackActivity = true,
   }) : _hasVault = hasVault,
        _vaultService = vaultService,
+       _backupService = backupService,
        _biometricService = biometricService,
        _clipboardService = clipboardService,
        _createVaultOverride = createVaultOverride,
@@ -46,6 +64,18 @@ class AppServices {
        _createItemOverride = createItemOverride,
        _updateItemOverride = updateItemOverride,
        _deleteItemOverride = deleteItemOverride,
+       _changeMasterPasswordOverride = changeMasterPasswordOverride,
+       _enableBiometricOverride = enableBiometricOverride,
+       _disableBiometricOverride = disableBiometricOverride,
+       _autoLockTimeoutOverride = autoLockTimeoutOverride,
+       _setAutoLockTimeoutOverride = setAutoLockTimeoutOverride,
+       _clipboardCleanupTimeoutOverride = clipboardCleanupTimeoutOverride,
+       _setClipboardCleanupTimeoutOverride = setClipboardCleanupTimeoutOverride,
+       _exportBackupOverride = exportBackupOverride,
+       _importBackupOverride = importBackupOverride,
+       _clearLocalVaultOverride = clearLocalVaultOverride,
+       _autoLockTimeout = autoLockTimeout,
+       _clipboardCleanupTimeout = clipboardCleanupTimeout,
        _trackActivity = trackActivity,
        navigatorKey = navigatorKey ?? GlobalKey<NavigatorState>(),
        shellState = ValueNotifier<AppShellState>(
@@ -69,6 +99,7 @@ class AppServices {
   final GlobalKey<NavigatorState> navigatorKey;
   final ValueNotifier<AppShellState> shellState;
   final VaultService? _vaultService;
+  final BackupService? _backupService;
   final BiometricService? _biometricService;
   final ClipboardService? _clipboardService;
   final Future<BiometricSetupResult> Function(
@@ -85,6 +116,21 @@ class AppServices {
   final Future<void> Function(String id, PasswordEntry entry)?
   _updateItemOverride;
   final Future<void> Function(String id)? _deleteItemOverride;
+  final Future<void> Function(String oldPassword, String newPassword)?
+  _changeMasterPasswordOverride;
+  final Future<void> Function(String masterPassword)? _enableBiometricOverride;
+  final Future<void> Function()? _disableBiometricOverride;
+  final Future<Duration> Function()? _autoLockTimeoutOverride;
+  final Future<void> Function(Duration timeout)? _setAutoLockTimeoutOverride;
+  final Future<Duration> Function()? _clipboardCleanupTimeoutOverride;
+  final Future<void> Function(Duration timeout)?
+  _setClipboardCleanupTimeoutOverride;
+  final Future<String> Function()? _exportBackupOverride;
+  final Future<int> Function(String backupJson, String masterPassword)?
+  _importBackupOverride;
+  final Future<void> Function()? _clearLocalVaultOverride;
+  Duration _autoLockTimeout;
+  Duration _clipboardCleanupTimeout;
   final bool _trackActivity;
   late final AutoLockService autoLockService;
   late final AppLifecycleGuard appLifecycleGuard;
@@ -108,6 +154,9 @@ class AppServices {
     final fakeItems = <String, _FakeVaultItem>{};
     var fakeItemCounter = 0;
     var fakeTimestamp = DateTime.now().millisecondsSinceEpoch;
+    var fakeBiometricEnabled = biometricEnabled;
+    var fakeAutoLockTimeout = const Duration(minutes: 2);
+    var fakeClipboardCleanupTimeout = const Duration(seconds: 30);
 
     void seedItems() {
       for (final entry in initialVaultItems) {
@@ -140,7 +189,7 @@ class AppServices {
         fakeServices!._fakeUnlockCalls += 1;
         return unlockSucceeds;
       },
-      biometricEnabledOverride: () async => biometricEnabled,
+      biometricEnabledOverride: () async => fakeBiometricEnabled,
       biometricUnlockOverride: () async {
         fakeServices!._fakeBiometricUnlockCalls += 1;
         return biometricUnlockSucceeds;
@@ -213,6 +262,29 @@ class AppServices {
           updatedAt: fakeTimestamp,
           deletedAt: fakeTimestamp,
         );
+      },
+      changeMasterPasswordOverride: (oldPassword, newPassword) async {},
+      enableBiometricOverride: (masterPassword) async {
+        fakeBiometricEnabled = true;
+      },
+      disableBiometricOverride: () async {
+        fakeBiometricEnabled = false;
+      },
+      autoLockTimeoutOverride: () async => fakeAutoLockTimeout,
+      setAutoLockTimeoutOverride: (timeout) async {
+        fakeAutoLockTimeout = timeout;
+      },
+      clipboardCleanupTimeoutOverride: () async => fakeClipboardCleanupTimeout,
+      setClipboardCleanupTimeoutOverride: (timeout) async {
+        fakeClipboardCleanupTimeout = timeout;
+      },
+      exportBackupOverride: () async =>
+          jsonEncode({'version': 1, 'items': fakeItems.length}),
+      importBackupOverride: (backupJson, masterPassword) async => 0,
+      clearLocalVaultOverride: () async {
+        fakeItems.clear();
+        fakeServices!._hasVault = false;
+        fakeServices.shellState.value = AppShellState.setupRequired;
       },
       trackActivity: false,
     );
@@ -353,6 +425,157 @@ class AppServices {
     return vaultService.deleteItem(id);
   }
 
+  Future<void> changeMasterPassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    final override = _changeMasterPasswordOverride;
+    if (override != null) {
+      return override(oldPassword, newPassword);
+    }
+
+    return vaultService.changeMasterPassword(
+      oldPassword: oldPassword,
+      newPassword: newPassword,
+    );
+  }
+
+  Future<void> enableBiometricUnlock(String masterPassword) async {
+    final override = _enableBiometricOverride;
+    if (override != null) {
+      return override(masterPassword);
+    }
+
+    return vaultService.enableBiometricUnlock(
+      masterPassword: masterPassword,
+      biometricService: biometricService,
+    );
+  }
+
+  Future<void> disableBiometricUnlock() async {
+    final override = _disableBiometricOverride;
+    if (override != null) {
+      return override();
+    }
+
+    return vaultService.disableBiometricUnlock(
+      biometricService: biometricService,
+    );
+  }
+
+  Future<Duration> getAutoLockTimeout() async {
+    final override = _autoLockTimeoutOverride;
+    if (override != null) {
+      _autoLockTimeout = await override();
+      return _autoLockTimeout;
+    }
+
+    final rawValue = await vaultService.repository.settingsDao.getValue(
+      'auto_lock_seconds',
+    );
+    final seconds = rawValue == null ? null : int.tryParse(rawValue);
+    if (seconds != null && seconds > 0) {
+      _autoLockTimeout = Duration(seconds: seconds);
+      autoLockService.updateTimeout(_autoLockTimeout);
+    }
+    return _autoLockTimeout;
+  }
+
+  Future<void> setAutoLockTimeout(Duration timeout) async {
+    final override = _setAutoLockTimeoutOverride;
+    if (override != null) {
+      await override(timeout);
+    } else {
+      await vaultService.repository.settingsDao.setValue(
+        'auto_lock_seconds',
+        timeout.inSeconds.toString(),
+      );
+    }
+    _autoLockTimeout = timeout;
+    autoLockService.updateTimeout(timeout);
+  }
+
+  Future<Duration> getClipboardCleanupTimeout() async {
+    final override = _clipboardCleanupTimeoutOverride;
+    if (override != null) {
+      _clipboardCleanupTimeout = await override();
+      return _clipboardCleanupTimeout;
+    }
+
+    final rawValue = await vaultService.repository.settingsDao.getValue(
+      'clipboard_clear_seconds',
+    );
+    final seconds = rawValue == null ? null : int.tryParse(rawValue);
+    if (seconds != null && seconds > 0) {
+      _clipboardCleanupTimeout = Duration(seconds: seconds);
+      _clipboardService?.updateClearPasswordAfter(_clipboardCleanupTimeout);
+    }
+    return _clipboardCleanupTimeout;
+  }
+
+  Future<void> setClipboardCleanupTimeout(Duration timeout) async {
+    final override = _setClipboardCleanupTimeoutOverride;
+    if (override != null) {
+      await override(timeout);
+    } else {
+      await vaultService.repository.settingsDao.setValue(
+        'clipboard_clear_seconds',
+        timeout.inSeconds.toString(),
+      );
+    }
+    _clipboardCleanupTimeout = timeout;
+    _clipboardService?.updateClearPasswordAfter(timeout);
+  }
+
+  Future<String> exportEncryptedBackupJson() async {
+    final override = _exportBackupOverride;
+    if (override != null) {
+      return override();
+    }
+
+    final backup = await backupService.exportBackup();
+    return const JsonEncoder.withIndent('  ').convert(backup.toJson());
+  }
+
+  Future<int> importEncryptedBackupJson({
+    required String backupJson,
+    required String masterPassword,
+  }) async {
+    final override = _importBackupOverride;
+    if (override != null) {
+      return override(backupJson, masterPassword);
+    }
+
+    final decoded = jsonDecode(backupJson);
+    if (decoded is! Map) {
+      throw const FormatException('备份内容格式不正确');
+    }
+    final importedCount = await backupService.importBackup(
+      json: Map<String, Object?>.from(decoded),
+      masterPassword: masterPassword,
+      mode: BackupImportMode.merge,
+    );
+    _hasVault = true;
+    return importedCount;
+  }
+
+  Future<void> clearLocalVault() async {
+    final override = _clearLocalVaultOverride;
+    if (override != null) {
+      return override();
+    }
+
+    final repository = vaultService.repository;
+    await repository.transaction((txn) async {
+      await txn.itemsDao.executor.delete('vault_items');
+      await txn.metaDao.executor.delete('vault_meta');
+      await txn.settingsDao.executor.delete('settings');
+    });
+    _vaultService?.lock();
+    _hasVault = false;
+    shellState.value = AppShellState.setupRequired;
+  }
+
   Future<bool> copyUsername(String username) {
     return clipboardService.copyUsername(username);
   }
@@ -383,6 +606,14 @@ class AppServices {
     final service = _clipboardService;
     if (service == null) {
       throw StateError('ClipboardService is unavailable in this app context.');
+    }
+    return service;
+  }
+
+  BackupService get backupService {
+    final service = _backupService;
+    if (service == null) {
+      throw StateError('BackupService is unavailable in this app context.');
     }
     return service;
   }

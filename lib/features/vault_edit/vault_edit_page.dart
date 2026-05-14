@@ -5,10 +5,16 @@ import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 
 class VaultEditPage extends StatefulWidget {
-  const VaultEditPage({super.key, required this.services, this.itemId});
+  const VaultEditPage({
+    super.key,
+    required this.services,
+    this.itemId,
+    this.initialPassword,
+  });
 
   final AppServices services;
   final String? itemId;
+  final String? initialPassword;
 
   @override
   State<VaultEditPage> createState() => _VaultEditPageState();
@@ -35,6 +41,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
     super.initState();
     if (_isEditing) {
       _loadExistingItem();
+    } else if (widget.initialPassword != null) {
+      _passwordController.text = widget.initialPassword!;
     }
   }
 
