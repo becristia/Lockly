@@ -19,6 +19,7 @@ class _VaultListPageState extends State<VaultListPage> {
   List<VaultListItem> _items = const <VaultListItem>[];
   bool _isLoading = true;
   String? _errorMessage;
+  int _loadSequence = 0;
 
   @override
   void initState() {
@@ -33,16 +34,16 @@ class _VaultListPageState extends State<VaultListPage> {
   }
 
   Future<void> _loadItems() async {
+    final requestId = ++_loadSequence;
+    final query = _searchController.text;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final items = await widget.services.listVaultItems(
-        query: _searchController.text,
-      );
-      if (!mounted) {
+      final items = await widget.services.listVaultItems(query: query);
+      if (!mounted || requestId != _loadSequence) {
         return;
       }
       setState(() {
@@ -50,7 +51,7 @@ class _VaultListPageState extends State<VaultListPage> {
         _isLoading = false;
       });
     } catch (_) {
-      if (!mounted) {
+      if (!mounted || requestId != _loadSequence) {
         return;
       }
       setState(() {

@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/features/vault_list/vault_list_page.dart';
+import 'package:secure_box/shared/theme/app_theme.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -84,6 +89,78 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('super-secret-123'), findsOneWidget);
+
+      tester.binding.handleAppLifecycleStateChanged(
+        AppLifecycleState.inactive,
+      );
+      await tester.pump();
+
+      expect(find.text('Secure Box'), findsOneWidget);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
     },
   );
+
+  testWidgets('stale search results cannot replace the latest query', (
+    tester,
+  ) async {
+    final broadQuery = Completer<List<VaultListItem>>();
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      trackActivity: false,
+      listItemsOverride: (query) {
+        if (query == 'g') {
+          return broadQuery.future;
+        }
+        if (query == 'gi') {
+          return Future.value([
+            VaultListItem(
+              id: 'github',
+              title: 'GitHub',
+              website: 'https://github.com',
+              username: 'user@example.com',
+              tags: const [],
+              createdAt: 1,
+              updatedAt: 2,
+            ),
+          ]);
+        }
+        return Future.value(const <VaultListItem>[]);
+      },
+    );
+    addTearDown(services.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: VaultListPage(services: services),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.widgetWithText(TextField, '搜索'), 'g');
+    await tester.pump();
+    await tester.enterText(find.widgetWithText(TextField, '搜索'), 'gi');
+    await tester.pumpAndSettle();
+
+    expect(find.text('GitHub'), findsOneWidget);
+
+    broadQuery.complete([
+      VaultListItem(
+        id: 'google',
+        title: 'Google',
+        website: 'https://google.com',
+        username: 'google@example.com',
+        tags: const [],
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    expect(find.text('GitHub'), findsOneWidget);
+    expect(find.text('Google'), findsNothing);
+  });
 }

@@ -15,20 +15,40 @@ class SecureBoxApp extends StatefulWidget {
   State<SecureBoxApp> createState() => _SecureBoxAppState();
 }
 
-class _SecureBoxAppState extends State<SecureBoxApp> {
+class _SecureBoxAppState extends State<SecureBoxApp>
+    with WidgetsBindingObserver {
   final FocusNode _activityFocusNode = FocusNode(debugLabel: 'app-activity');
+  final ValueNotifier<bool> _privacyCoverVisible = ValueNotifier<bool>(false);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.services.recordActivity();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _activityFocusNode.dispose();
+    _privacyCoverVisible.dispose();
     widget.services.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _privacyCoverVisible.value = false;
+        return;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _privacyCoverVisible.value = true;
+        return;
+    }
   }
 
   @override
@@ -65,7 +85,18 @@ class _SecureBoxAppState extends State<SecureBoxApp> {
             behavior: HitTestBehavior.translucent,
             onPointerDown: (_) => widget.services.recordActivity(),
             onPointerSignal: (_) => widget.services.recordActivity(),
-            child: child ?? const SizedBox.shrink(),
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _privacyCoverVisible,
+              builder: (context, coverVisible, _) {
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    child ?? const SizedBox.shrink(),
+                    if (coverVisible) const _PrivacyCover(),
+                  ],
+                );
+              },
+            ),
           ),
         );
       },
@@ -80,6 +111,33 @@ class _SecureBoxAppState extends State<SecureBoxApp> {
       AppServices.routeSettings => const _SettingsPlaceholderPage(),
       _ => UnlockPage(services: widget.services),
     };
+  }
+}
+
+class _PrivacyCover extends StatelessWidget {
+  const _PrivacyCover();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return ColoredBox(
+      color: theme.colorScheme.surface,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 40,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: 12),
+            Text('Secure Box', style: theme.textTheme.titleLarge),
+          ],
+        ),
+      ),
+    );
   }
 }
 
