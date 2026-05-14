@@ -434,11 +434,11 @@ class AppServices {
       return override(oldPassword, newPassword);
     }
 
+    await _biometricService?.disable();
     await vaultService.changeMasterPassword(
       oldPassword: oldPassword,
       newPassword: newPassword,
     );
-    await _biometricService?.disable();
   }
 
   Future<void> enableBiometricUnlock(String masterPassword) async {

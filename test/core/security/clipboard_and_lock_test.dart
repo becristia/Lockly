@@ -126,6 +126,26 @@ void main() {
     });
   });
 
+  test('updating clipboard timeout with same value does not extend cleanup', () {
+    fakeAsync((async) {
+      final service = ClipboardService(
+        clearPasswordAfter: const Duration(seconds: 30),
+      );
+      service.copyPassword('secret-password');
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 29));
+      service.updateClearPasswordAfter(const Duration(seconds: 30));
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, '');
+      });
+      async.flushMicrotasks();
+    });
+  });
+
   test('username clipboard does not clear after password timeout', () {
     fakeAsync((async) {
       final service = ClipboardService(

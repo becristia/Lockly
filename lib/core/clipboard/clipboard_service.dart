@@ -33,6 +33,10 @@ class ClipboardService {
   }
 
   void updateClearPasswordAfter(Duration value) {
+    if (value == clearPasswordAfter) {
+      return;
+    }
+
     clearPasswordAfter = value;
     final pendingPassword = _pendingPasswordClear;
     if (pendingPassword == null) {
