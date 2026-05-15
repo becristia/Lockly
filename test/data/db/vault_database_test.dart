@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
+import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
@@ -221,6 +222,38 @@ void main() {
     expect((await VaultMetaDao(db).get())!.toDb(), meta.toDb());
     expect((await VaultItemsDao(db).byId(item.id))!.toDb(), item.toDb());
   });
+
+  test(
+    'repository transaction wires vault manifest dao to transaction',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+      final repository = VaultRepository(
+        metaDao: VaultMetaDao(db),
+        itemsDao: VaultItemsDao(db),
+        manifestDao: VaultManifestDao(db),
+        settingsDao: SettingsDao(db),
+      );
+      final manifest = VaultManifest(
+        version: 1,
+        epoch: 2,
+        counter: 3,
+        nonce: 'txn-manifest-nonce',
+        ciphertext: 'txn-manifest-ciphertext',
+        mac: 'txn-manifest-mac',
+        updatedAt: 1747000002222,
+      );
+
+      final savedManifest = await repository.transaction((txn) async {
+        await txn.manifestDao.save(manifest);
+        return txn.manifestDao.get();
+      });
+
+      expect(savedManifest, isNotNull);
+      expect(savedManifest!.toDb(), manifest.toDb());
+      expect((await repository.manifestDao.get())!.toDb(), manifest.toDb());
+    },
+  );
 
   test('settings can be saved and read', () async {
     final db = await AppDatabase.openInMemory();

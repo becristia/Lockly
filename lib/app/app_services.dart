@@ -570,6 +570,7 @@ class AppServices {
     await _biometricService?.disable();
     await repository.transaction((txn) async {
       await txn.itemsDao.executor.delete('vault_items');
+      await txn.manifestDao.deleteAll();
       await txn.metaDao.executor.delete('vault_meta');
       await txn.settingsDao.executor.delete('settings');
     });

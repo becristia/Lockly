@@ -15,6 +15,7 @@ import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -133,6 +134,25 @@ void main() {
       );
     },
   );
+
+  test('clear local vault deletes persisted vault manifest', () async {
+    final harness = await _buildBiometricHarness();
+    await harness.vaultService.repository.manifestDao.save(
+      VaultManifest(
+        version: 1,
+        epoch: 1,
+        counter: 1,
+        nonce: 'manifest-nonce',
+        ciphertext: 'manifest-ciphertext',
+        mac: 'manifest-mac',
+        updatedAt: 1747000000000,
+      ),
+    );
+
+    await harness.services.clearLocalVault();
+
+    expect(await harness.vaultService.repository.manifestDao.get(), isNull);
+  });
 }
 
 Future<_BiometricHarness> _buildBiometricHarness() async {
