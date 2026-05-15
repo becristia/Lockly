@@ -200,23 +200,39 @@ void main() {
   });
 
   test(
-    'secure storage store requires explicit local auth prompt on Android and iOS',
+    'secure storage store delegates reads to store-managed authentication',
     () {
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       expect(
         SecureStorageDekStore().readRequirement,
-        SecureDekReadRequirement.explicitBiometricAuthentication,
+        SecureDekReadRequirement.storeManagedAuthentication,
       );
 
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       expect(
         SecureStorageDekStore().readRequirement,
-        SecureDekReadRequirement.explicitBiometricAuthentication,
+        SecureDekReadRequirement.storeManagedAuthentication,
       );
     },
   );
+
+  test('secure storage store uses biometric Android options', () {
+    final options = SecureStorageDekStore.defaultAndroidOptionsForTest;
+    final params = options.toMap();
+
+    expect(params['storageNamespace'], 'secure_box_biometric');
+    expect(params['enforceBiometrics'], 'true');
+    expect(params['biometricPromptTitle'], 'Unlock Secure Box');
+    expect(
+      params['biometricPromptSubtitle'],
+      'Authenticate to unlock your local vault',
+    );
+    expect(params['migrateWithBackup'], 'true');
+    expect(params['keyCipherAlgorithm'], 'AES_GCM_NoPadding');
+    expect(params['storageCipherAlgorithm'], 'AES_GCM_NoPadding');
+  });
 
   test(
     'secure storage capability gate is conservative off Android and skips the storage probe',

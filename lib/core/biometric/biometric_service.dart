@@ -172,9 +172,15 @@ class SecureStorageDekStore implements SecureDekStore {
        _key = key;
 
   static const _defaultDekKey = 'biometric_dek';
-  static const _defaultAndroidOptions = AndroidOptions(
+  static const _defaultAndroidOptions = AndroidOptions.biometric(
     storageNamespace: 'secure_box_biometric',
+    enforceBiometrics: true,
+    biometricPromptTitle: 'Unlock Secure Box',
+    biometricPromptSubtitle: 'Authenticate to unlock your local vault',
+    migrateWithBackup: true,
   );
+  @visibleForTesting
+  static const defaultAndroidOptionsForTest = _defaultAndroidOptions;
 
   final FlutterSecureStorage _storage;
   final AndroidOptions _options;
@@ -182,7 +188,7 @@ class SecureStorageDekStore implements SecureDekStore {
 
   @override
   SecureDekReadRequirement get readRequirement =>
-      SecureDekReadRequirement.explicitBiometricAuthentication;
+      SecureDekReadRequirement.storeManagedAuthentication;
 
   @override
   Future<bool> canUseBiometricProtection() async {
