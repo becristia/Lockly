@@ -26,6 +26,12 @@ class VaultItemsDao {
     return rows.map(EncryptedVaultItem.fromDb).toList(growable: false);
   }
 
+  Future<List<EncryptedVaultItem>> allItemsForManifest() async {
+    final rows = await _db.query('vault_items', orderBy: 'id ASC');
+
+    return rows.map(EncryptedVaultItem.fromDb).toList(growable: false);
+  }
+
   Future<EncryptedVaultItem?> byId(String id) async {
     final rows = await _db.query(
       'vault_items',

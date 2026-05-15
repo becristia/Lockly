@@ -6,6 +6,7 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
@@ -59,11 +60,14 @@ class VaultService {
     required CryptoService crypto,
     VaultSession? session,
     Uuid? uuid,
+    VaultManifestService? manifestService,
   }) : _random = random,
        _kdf = kdf,
        _crypto = crypto,
        _session = session ?? VaultSession(),
-       _uuid = uuid ?? const Uuid();
+       _uuid = uuid ?? const Uuid(),
+       _manifestService =
+           manifestService ?? VaultManifestService(crypto: crypto);
 
   final VaultRepository repository;
   final SecureRandom _random;
@@ -71,6 +75,7 @@ class VaultService {
   final CryptoService _crypto;
   final VaultSession _session;
   final Uuid _uuid;
+  final VaultManifestService _manifestService;
 
   bool get isUnlocked => _session.isUnlocked;
 
@@ -121,6 +126,14 @@ class VaultService {
       await repository.transaction((txn) async {
         await txn.metaDao.save(meta);
         await txn.settingsDao.setValue('clipboard_clear_seconds', '30');
+        final manifest = await _manifestService.createManifest(
+          dek: dek!,
+          meta: meta,
+          items: const [],
+          previous: null,
+          updatedAt: now,
+        );
+        await txn.manifestDao.save(manifest);
       });
       _session.lock();
     } finally {
@@ -135,11 +148,15 @@ class VaultService {
 
     try {
       dek = await _decryptDek(meta: meta, password: masterPassword);
+      await _verifyOrUpgradeManifestAfterMasterUnlock(meta: meta, dek: dek);
       _session.unlock(dek);
       return _session;
     } on CryptoException {
       _session.lock();
       throw const VaultUnlockException('Invalid master password');
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
     } finally {
       _zeroBytes(dek);
     }
@@ -161,8 +178,23 @@ class VaultService {
     }
 
     try {
+      final manifest = await repository.manifestDao.get();
+      if (manifest == null) {
+        _session.lock();
+        return false;
+      }
+      final items = await repository.itemsDao.allItemsForManifest();
+      await _manifestService.verifyManifest(
+        dek: dek,
+        meta: meta,
+        items: items,
+        manifest: manifest,
+      );
       _session.unlock(dek);
       return true;
+    } on VaultIntegrityException {
+      _session.lock();
+      return false;
     } finally {
       _zeroBytes(dek);
     }
@@ -183,24 +215,31 @@ class VaultService {
       await biometricService.enable(dek);
       biometricEnabled = true;
       final updatedAt = DateTime.now().millisecondsSinceEpoch;
-      await repository.metaDao.save(
-        VaultMeta(
-          id: meta.id,
-          version: meta.version,
-          kdf: meta.kdf,
-          kdfParams: meta.kdfParams,
-          salt: meta.salt,
-          encryptedDekByMaster: meta.encryptedDekByMaster,
-          encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
-          encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
-          biometricEnabled: true,
-          createdAt: meta.createdAt,
-          updatedAt: updatedAt,
-          encryptedDekByBiometric: null,
-          encryptedDekByBiometricNonce: null,
-          encryptedDekByBiometricMac: null,
-        ),
+      final updatedMeta = VaultMeta(
+        id: meta.id,
+        version: meta.version,
+        kdf: meta.kdf,
+        kdfParams: meta.kdfParams,
+        salt: meta.salt,
+        encryptedDekByMaster: meta.encryptedDekByMaster,
+        encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
+        encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
+        biometricEnabled: true,
+        createdAt: meta.createdAt,
+        updatedAt: updatedAt,
+        encryptedDekByBiometric: null,
+        encryptedDekByBiometricNonce: null,
+        encryptedDekByBiometricMac: null,
       );
+      await repository.transaction((txn) async {
+        await txn.metaDao.save(updatedMeta);
+        await _saveManifestForCurrentState(
+          txn: txn,
+          dek: dek!,
+          meta: updatedMeta,
+          updatedAt: updatedAt,
+        );
+      });
     } catch (_) {
       if (biometricEnabled) {
         await biometricService.disable();
@@ -265,7 +304,15 @@ class VaultService {
       );
 
       await beforePersist?.call();
-      await repository.transaction((txn) => txn.metaDao.save(updatedMeta));
+      await repository.transaction((txn) async {
+        await txn.metaDao.save(updatedMeta);
+        await _saveManifestForCurrentState(
+          txn: txn,
+          dek: dek!,
+          meta: updatedMeta,
+          updatedAt: updatedAt,
+        );
+      });
       _session.unlock(dek);
     } finally {
       _zeroBytes(newKek);
@@ -456,6 +503,75 @@ class VaultService {
     } on CryptoException {
       throw const VaultUnlockException('Invalid master password');
     }
+  }
+
+  Future<void> _verifyOrUpgradeManifestAfterMasterUnlock({
+    required VaultMeta meta,
+    required Uint8List dek,
+  }) async {
+    final manifest = await repository.manifestDao.get();
+    if (manifest != null) {
+      await _verifyExistingManifest(meta: meta, dek: dek);
+      return;
+    }
+
+    await repository.transaction((txn) async {
+      final existingManifest = await txn.manifestDao.get();
+      final items = await txn.itemsDao.allItemsForManifest();
+      if (existingManifest != null) {
+        await _manifestService.verifyManifest(
+          dek: dek,
+          meta: meta,
+          items: items,
+          manifest: existingManifest,
+        );
+        return;
+      }
+
+      final upgradedManifest = await _manifestService.createManifest(
+        dek: dek,
+        meta: meta,
+        items: items,
+        previous: null,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+      await txn.manifestDao.save(upgradedManifest);
+    });
+  }
+
+  Future<void> _verifyExistingManifest({
+    required VaultMeta meta,
+    required Uint8List dek,
+  }) async {
+    final manifest = await repository.manifestDao.get();
+    if (manifest == null) {
+      throw const VaultIntegrityException();
+    }
+    final items = await repository.itemsDao.allItemsForManifest();
+    await _manifestService.verifyManifest(
+      dek: dek,
+      meta: meta,
+      items: items,
+      manifest: manifest,
+    );
+  }
+
+  Future<void> _saveManifestForCurrentState({
+    required VaultRepository txn,
+    required Uint8List dek,
+    required VaultMeta meta,
+    required int updatedAt,
+  }) async {
+    final previous = await txn.manifestDao.get();
+    final items = await txn.itemsDao.allItemsForManifest();
+    final manifest = await _manifestService.createManifest(
+      dek: dek,
+      meta: meta,
+      items: items,
+      previous: previous,
+      updatedAt: updatedAt,
+    );
+    await txn.manifestDao.save(manifest);
   }
 
   void _ensureUnlocked() {

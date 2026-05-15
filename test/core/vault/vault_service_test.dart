@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
@@ -49,6 +53,147 @@ void main() {
       () => service.unlock(masterPassword: 'wrong-passphrase'),
       throwsA(isA<VaultUnlockException>()),
     );
+  });
+
+  test('new vault creates initial manifest and unlock verifies it', () async {
+    final service = await buildService();
+
+    await service.createVault(masterPassword: 'master-passphrase');
+
+    final manifest = await service.repository.manifestDao.get();
+    expect(manifest, isNotNull);
+    expect(manifest!.epoch, 1);
+    expect(manifest.counter, 1);
+
+    final session = await service.unlock(masterPassword: 'master-passphrase');
+    expect(session.isUnlocked, isTrue);
+  });
+
+  test('unlock fails closed when existing manifest is tampered', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    final manifest = await service.repository.manifestDao.get();
+    await service.repository.manifestDao.save(
+      manifest!.copyWith(mac: manifest.mac.replaceRange(0, 1, 'A')),
+    );
+
+    await expectLater(
+      service.unlock(masterPassword: 'master-passphrase'),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(service.isUnlocked, isFalse);
+  });
+
+  test('legacy vault without manifest upgrades after master unlock', () async {
+    final fixture = await _createLegacyVault(
+      masterPassword: 'master-passphrase',
+    );
+
+    await fixture.service.unlock(masterPassword: 'master-passphrase');
+
+    final manifest = await fixture.service.repository.manifestDao.get();
+    expect(manifest, isNotNull);
+    expect(manifest!.epoch, 1);
+    expect(manifest.counter, 1);
+    expect(fixture.service.isUnlocked, isTrue);
+  });
+
+  test(
+    'wrong master password on legacy vault does not create manifest',
+    () async {
+      final fixture = await _createLegacyVault(
+        masterPassword: 'master-passphrase',
+      );
+
+      await expectLater(
+        fixture.service.unlock(masterPassword: 'wrong-passphrase'),
+        throwsA(isA<VaultUnlockException>()),
+      );
+
+      expect(await fixture.service.repository.manifestDao.get(), isNull);
+      expect(fixture.service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'biometric unlock of legacy vault without manifest fails closed',
+    () async {
+      final fixture = await _createLegacyVault(
+        masterPassword: 'master-passphrase',
+        biometricEnabled: true,
+      );
+      final store = MemorySecureDekStore();
+      await store.writeDek(fixture.dek);
+
+      final unlocked = await fixture.service.unlockWithBiometrics(
+        biometricService: BiometricService(
+          authenticator: FakeBiometricAuthenticator(
+            canAuthenticate: true,
+            succeeds: true,
+          ),
+          store: store,
+        ),
+      );
+
+      expect(unlocked, isFalse);
+      expect(fixture.service.isUnlocked, isFalse);
+      expect(await fixture.service.repository.manifestDao.get(), isNull);
+    },
+  );
+
+  test(
+    'biometric unlock fails closed when existing manifest is tampered',
+    () async {
+      final service = await buildService();
+      final store = MemorySecureDekStore();
+      final biometricService = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: store,
+      );
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.enableBiometricUnlock(
+        masterPassword: 'master-passphrase',
+        biometricService: biometricService,
+      );
+      final manifest = await service.repository.manifestDao.get();
+      await service.repository.manifestDao.save(
+        manifest!.copyWith(mac: manifest.mac.replaceRange(0, 1, 'A')),
+      );
+
+      final unlocked = await service.unlockWithBiometrics(
+        biometricService: biometricService,
+      );
+
+      expect(unlocked, isFalse);
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
+  test('biometric unlock verifies intact manifest before unlocking', () async {
+    final service = await buildService();
+    final store = MemorySecureDekStore();
+    final biometricService = BiometricService(
+      authenticator: FakeBiometricAuthenticator(
+        canAuthenticate: true,
+        succeeds: true,
+      ),
+      store: store,
+    );
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.enableBiometricUnlock(
+      masterPassword: 'master-passphrase',
+      biometricService: biometricService,
+    );
+
+    final unlocked = await service.unlockWithBiometrics(
+      biometricService: biometricService,
+    );
+
+    expect(unlocked, isTrue);
+    expect(service.isUnlocked, isTrue);
   });
 
   test('new vaults use argon2id metadata by default', () async {
@@ -404,6 +549,62 @@ void main() {
       expect(remainingItems.map((item) => item.id), [githubId]);
     },
   );
+}
+
+class _LegacyVaultFixture {
+  _LegacyVaultFixture({required this.service, required this.dek});
+
+  final VaultService service;
+  final Uint8List dek;
+}
+
+Future<_LegacyVaultFixture> _createLegacyVault({
+  required String masterPassword,
+  bool biometricEnabled = false,
+}) async {
+  final db = await AppDatabase.openInMemory();
+  addTearDown(db.close);
+  final service = VaultService(
+    repository: VaultRepository(
+      metaDao: VaultMetaDao(db),
+      itemsDao: VaultItemsDao(db),
+      manifestDao: VaultManifestDao(db),
+      settingsDao: SettingsDao(db),
+    ),
+    random: SecureRandom(),
+    kdf: KdfService(),
+    crypto: CryptoService(random: SecureRandom()),
+  );
+  final now = DateTime.utc(2026, 5, 15).millisecondsSinceEpoch;
+  final salt = SecureRandom().bytes(16);
+  final dek = SecureRandom().bytes(32);
+  final kdfParams = KdfParams.pbkdf2(iterations: 120000, bits: 256);
+  final kek = await KdfService().deriveKey(
+    password: masterPassword,
+    salt: salt,
+    params: kdfParams,
+  );
+  final wrappedDek = await CryptoService(
+    random: SecureRandom(),
+  ).encryptBytes(key: kek, plaintext: dek);
+
+  await service.repository.metaDao.save(
+    VaultMeta(
+      id: 'legacy-vault',
+      version: 1,
+      kdf: kdfParams.name,
+      kdfParams: kdfParams,
+      salt: b64(salt),
+      encryptedDekByMaster: b64(wrappedDek.ciphertext),
+      encryptedDekByMasterNonce: b64(wrappedDek.nonce),
+      encryptedDekByMasterMac: b64(wrappedDek.mac),
+      biometricEnabled: biometricEnabled,
+      createdAt: now,
+      updatedAt: now,
+    ),
+  );
+
+  return _LegacyVaultFixture(service: service, dek: Uint8List.fromList(dek));
 }
 
 class _DeleteDuringUpdateVaultItemsDao extends VaultItemsDao {
