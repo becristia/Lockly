@@ -1,8 +1,9 @@
 import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
   static const int vaultMetaSingletonKey = 1;
+  static const int vaultManifestSingletonKey = 1;
 
   static Future<Database> open(String path) {
     return _openDatabase(path);
@@ -63,7 +64,30 @@ class AppDatabase {
             value TEXT NOT NULL
           )
         ''');
+        await _createVaultManifestTable(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createVaultManifestTable(db);
+        }
       },
     );
+  }
+
+  static Future<void> _createVaultManifestTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE vault_manifest (
+        singleton_key INTEGER NOT NULL DEFAULT 1
+          CHECK (singleton_key = ${AppDatabase.vaultManifestSingletonKey})
+          UNIQUE,
+        version INTEGER NOT NULL,
+        epoch INTEGER NOT NULL,
+        counter INTEGER NOT NULL,
+        nonce TEXT NOT NULL,
+        ciphertext TEXT NOT NULL,
+        mac TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
   }
 }

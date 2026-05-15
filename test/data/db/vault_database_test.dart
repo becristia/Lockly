@@ -2,9 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
+import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
+import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -49,6 +51,106 @@ void main() {
     expect(rows.single.keys, isNot(contains('notes')));
     expect(rows.single.keys, isNot(contains('title')));
     expect(rows.single['ciphertext'], 'ciphertext-value');
+  });
+
+  test(
+    'schema version 2 creates vault manifest without plaintext fields',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+
+      expect(await db.getVersion(), 2);
+
+      final columns = await db.rawQuery('PRAGMA table_info(vault_manifest)');
+      final columnNames = columns.map((column) => column['name']).toSet();
+
+      expect(
+        columnNames,
+        containsAll({
+          'singleton_key',
+          'version',
+          'epoch',
+          'counter',
+          'nonce',
+          'ciphertext',
+          'mac',
+          'updated_at',
+        }),
+      );
+      expect(columnNames, isNot(contains('password')));
+      expect(columnNames, isNot(contains('username')));
+      expect(columnNames, isNot(contains('notes')));
+      expect(columnNames, isNot(contains('title')));
+    },
+  );
+
+  test('vault manifest dao stores exactly one singleton row', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+    final dao = VaultManifestDao(db);
+
+    await dao.save(
+      VaultManifest(
+        version: 1,
+        epoch: 1,
+        counter: 1,
+        nonce: 'nonce-a',
+        ciphertext: 'ciphertext-a',
+        mac: 'mac-a',
+        updatedAt: 1747000000000,
+      ),
+    );
+    await dao.save(
+      VaultManifest(
+        version: 1,
+        epoch: 1,
+        counter: 2,
+        nonce: 'nonce-b',
+        ciphertext: 'ciphertext-b',
+        mac: 'mac-b',
+        updatedAt: 1747000001111,
+      ),
+    );
+
+    final rows = await db.query('vault_manifest');
+    final manifest = await dao.get();
+
+    expect(rows, hasLength(1));
+    expect(manifest, isNotNull);
+    expect(manifest!.counter, 2);
+    expect(manifest.ciphertext, 'ciphertext-b');
+  });
+
+  test('upgrade from schema version 1 creates vault manifest table', () async {
+    final path = await databaseFactoryFfi.getDatabasesPath();
+    final dbPath = '$path/vault_manifest_migration_test.db';
+    await databaseFactoryFfi.deleteDatabase(dbPath);
+    addTearDown(() => databaseFactoryFfi.deleteDatabase(dbPath));
+
+    final oldDb = await databaseFactoryFfi.openDatabase(
+      dbPath,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE settings (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            )
+          ''');
+        },
+      ),
+    );
+    await oldDb.close();
+
+    final upgradedDb = await AppDatabase.open(dbPath);
+    addTearDown(upgradedDb.close);
+
+    expect(await upgradedDb.getVersion(), 2);
+    final columns = await upgradedDb.rawQuery(
+      'PRAGMA table_info(vault_manifest)',
+    );
+    expect(columns.map((column) => column['name']), contains('ciphertext'));
   });
 
   test('vault items can be read, filtered, and soft-deleted', () async {

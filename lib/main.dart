@@ -14,6 +14,7 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
+import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 
 Future<void> main() async {
@@ -28,6 +29,7 @@ Future<void> main() async {
     database: database,
     metaDao: metaDao,
     itemsDao: VaultItemsDao(database),
+    manifestDao: VaultManifestDao(database),
     settingsDao: settingsDao,
   );
   final random = SecureRandom();

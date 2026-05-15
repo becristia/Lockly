@@ -13,6 +13,7 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
+import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
@@ -759,6 +760,7 @@ Future<_BackupHarness> _buildHarness() async {
   final repository = VaultRepository(
     metaDao: VaultMetaDao(db),
     itemsDao: VaultItemsDao(db),
+    manifestDao: VaultManifestDao(db),
     settingsDao: SettingsDao(db),
   );
   final vaultService = VaultService(

@@ -13,6 +13,7 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
+import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -96,7 +97,10 @@ void main() {
     );
 
     expect(harness.store.deleteCount, 0);
-    expect((await harness.vaultService.repository.metaDao.get())?.biometricEnabled, isTrue);
+    expect(
+      (await harness.vaultService.repository.metaDao.get())?.biometricEnabled,
+      isTrue,
+    );
   });
 
   test(
@@ -123,7 +127,10 @@ void main() {
         harness.vaultService.unlock(masterPassword: 'new-master-password'),
         throwsA(isA<VaultUnlockException>()),
       );
-      expect((await harness.vaultService.repository.metaDao.get())?.biometricEnabled, isTrue);
+      expect(
+        (await harness.vaultService.repository.metaDao.get())?.biometricEnabled,
+        isTrue,
+      );
     },
   );
 }
@@ -134,6 +141,7 @@ Future<_BiometricHarness> _buildBiometricHarness() async {
   final repository = VaultRepository(
     metaDao: VaultMetaDao(db),
     itemsDao: VaultItemsDao(db),
+    manifestDao: VaultManifestDao(db),
     settingsDao: SettingsDao(db),
   );
   final random = SecureRandom();

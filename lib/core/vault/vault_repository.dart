@@ -1,5 +1,6 @@
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
+import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -7,12 +8,16 @@ class VaultRepository {
   VaultRepository({
     required this.metaDao,
     required this.itemsDao,
+    required this.manifestDao,
     required this.settingsDao,
     Database? database,
-  }) : _database = database ?? _inferDatabase(metaDao, itemsDao, settingsDao);
+  }) : _database =
+           database ??
+           _inferDatabase(metaDao, itemsDao, manifestDao, settingsDao);
 
   final VaultMetaDao metaDao;
   final VaultItemsDao itemsDao;
+  final VaultManifestDao manifestDao;
   final SettingsDao settingsDao;
   final Database? _database;
 
@@ -29,6 +34,7 @@ class VaultRepository {
         VaultRepository(
           metaDao: VaultMetaDao(txn),
           itemsDao: VaultItemsDao(txn),
+          manifestDao: VaultManifestDao(txn),
           settingsDao: SettingsDao(txn),
         ),
       );
@@ -38,11 +44,13 @@ class VaultRepository {
   static Database? _inferDatabase(
     VaultMetaDao metaDao,
     VaultItemsDao itemsDao,
+    VaultManifestDao manifestDao,
     SettingsDao settingsDao,
   ) {
     final executors = [
       metaDao.executor,
       itemsDao.executor,
+      manifestDao.executor,
       settingsDao.executor,
     ];
 
