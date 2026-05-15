@@ -188,7 +188,7 @@ class SecureStorageDekStore implements SecureDekStore {
 
   @override
   SecureDekReadRequirement get readRequirement =>
-      SecureDekReadRequirement.storeManagedAuthentication;
+      SecureDekReadRequirement.explicitBiometricAuthentication;
 
   @override
   Future<bool> canUseBiometricProtection() async {

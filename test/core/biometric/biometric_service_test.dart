@@ -199,24 +199,21 @@ void main() {
     expect(store.readCalls, 0);
   });
 
-  test(
-    'secure storage store delegates reads to store-managed authentication',
-    () {
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+  test('secure storage store keeps explicit biometric gate before reading', () {
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      expect(
-        SecureStorageDekStore().readRequirement,
-        SecureDekReadRequirement.storeManagedAuthentication,
-      );
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    expect(
+      SecureStorageDekStore().readRequirement,
+      SecureDekReadRequirement.explicitBiometricAuthentication,
+    );
 
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      expect(
-        SecureStorageDekStore().readRequirement,
-        SecureDekReadRequirement.storeManagedAuthentication,
-      );
-    },
-  );
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    expect(
+      SecureStorageDekStore().readRequirement,
+      SecureDekReadRequirement.explicitBiometricAuthentication,
+    );
+  });
 
   test('secure storage store uses biometric Android options', () {
     final options = SecureStorageDekStore.defaultAndroidOptionsForTest;
