@@ -66,6 +66,15 @@ class VaultSession {
     }
   }
 
+  Future<T> withDekCopy<T>(Future<T> Function(Uint8List dek) action) async {
+    final key = _copyDek();
+    try {
+      return await action(key);
+    } finally {
+      _zero(key);
+    }
+  }
+
   Uint8List _copyDek() {
     final dek = _dek;
     if (dek == null) {

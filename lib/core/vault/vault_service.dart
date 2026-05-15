@@ -212,6 +212,7 @@ class VaultService {
         meta: meta,
         password: masterPassword,
       );
+      await _verifyExistingManifest(meta: meta, dek: dek);
       await biometricService.enable(dek);
       biometricEnabled = true;
       final updatedAt = DateTime.now().millisecondsSinceEpoch;
@@ -254,13 +255,43 @@ class VaultService {
     required BiometricService biometricService,
   }) async {
     final meta = await _requireVaultMeta();
-    await biometricService.disable();
     if (!meta.biometricEnabled) {
+      await biometricService.disable();
       return;
     }
 
-    await repository.metaDao.clearBiometricDek(
-      DateTime.now().millisecondsSinceEpoch,
+    await _withDekForBiometricDisable(
+      biometricService: biometricService,
+      action: (dek) async {
+        await _verifyExistingManifest(meta: meta, dek: dek);
+        await biometricService.disable();
+        final updatedAt = DateTime.now().millisecondsSinceEpoch;
+        final updatedMeta = VaultMeta(
+          id: meta.id,
+          version: meta.version,
+          kdf: meta.kdf,
+          kdfParams: meta.kdfParams,
+          salt: meta.salt,
+          encryptedDekByMaster: meta.encryptedDekByMaster,
+          encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
+          encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
+          biometricEnabled: false,
+          createdAt: meta.createdAt,
+          updatedAt: updatedAt,
+          encryptedDekByBiometric: null,
+          encryptedDekByBiometricNonce: null,
+          encryptedDekByBiometricMac: null,
+        );
+        await repository.transaction((txn) async {
+          await txn.metaDao.save(updatedMeta);
+          await _saveManifestForCurrentState(
+            txn: txn,
+            dek: dek,
+            meta: updatedMeta,
+            updatedAt: updatedAt,
+          );
+        });
+      },
     );
   }
 
@@ -274,6 +305,7 @@ class VaultService {
     Uint8List? newKek;
     try {
       dek = await _decryptDekWithUnlockError(meta: meta, password: oldPassword);
+      await _verifyExistingManifest(meta: meta, dek: dek);
       final newSalt = _random.bytes(16);
       final newKdfParams = KdfParams.argon2id();
       newKek = await _kdf.deriveKey(
@@ -572,6 +604,28 @@ class VaultService {
       updatedAt: updatedAt,
     );
     await txn.manifestDao.save(manifest);
+  }
+
+  Future<void> _withDekForBiometricDisable({
+    required BiometricService biometricService,
+    required Future<void> Function(Uint8List dek) action,
+  }) async {
+    if (_session.isUnlocked) {
+      await _session.withDekCopy(action);
+      return;
+    }
+
+    final result = await biometricService.unlock();
+    final dek = result.dek;
+    if (result.status != BiometricUnlockStatus.unlocked || dek == null) {
+      throw const VaultUnlockException('Master password is required');
+    }
+
+    try {
+      await action(dek);
+    } finally {
+      _zeroBytes(dek);
+    }
   }
 
   void _ensureUnlocked() {

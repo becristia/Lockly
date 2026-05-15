@@ -17,6 +17,7 @@ import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/password_entry.dart';
+import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -73,9 +74,7 @@ void main() {
     final service = await buildService();
     await service.createVault(masterPassword: 'master-passphrase');
     final manifest = await service.repository.manifestDao.get();
-    await service.repository.manifestDao.save(
-      manifest!.copyWith(mac: manifest.mac.replaceRange(0, 1, 'A')),
-    );
+    await service.repository.manifestDao.save(_tamperManifestMac(manifest!));
 
     await expectLater(
       service.unlock(masterPassword: 'master-passphrase'),
@@ -159,9 +158,7 @@ void main() {
         biometricService: biometricService,
       );
       final manifest = await service.repository.manifestDao.get();
-      await service.repository.manifestDao.save(
-        manifest!.copyWith(mac: manifest.mac.replaceRange(0, 1, 'A')),
-      );
+      await service.repository.manifestDao.save(_tamperManifestMac(manifest!));
 
       final unlocked = await service.unlockWithBiometrics(
         biometricService: biometricService,
@@ -195,6 +192,55 @@ void main() {
     expect(unlocked, isTrue);
     expect(service.isUnlocked, isTrue);
   });
+
+  test(
+    'master unlock succeeds after disabling biometric unlock updates manifest',
+    () async {
+      final service = await buildService();
+      final biometricService = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: MemorySecureDekStore(),
+      );
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.enableBiometricUnlock(
+        masterPassword: 'master-passphrase',
+        biometricService: biometricService,
+      );
+
+      await service.disableBiometricUnlock(biometricService: biometricService);
+      service.lock();
+
+      final session = await service.unlock(masterPassword: 'master-passphrase');
+      expect(session.isUnlocked, isTrue);
+    },
+  );
+
+  test(
+    'change master password fails on tampered manifest without replacing it',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'old-master');
+      final manifest = await service.repository.manifestDao.get();
+      final tamperedManifest = _tamperManifestMac(manifest!);
+      await service.repository.manifestDao.save(tamperedManifest);
+
+      await expectLater(
+        service.changeMasterPassword(
+          oldPassword: 'old-master',
+          newPassword: 'new-master',
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      final persistedManifest = await service.repository.manifestDao.get();
+      expect(persistedManifest!.mac, tamperedManifest.mac);
+      expect(persistedManifest.counter, tamperedManifest.counter);
+      expect(service.isUnlocked, isFalse);
+    },
+  );
 
   test('new vaults use argon2id metadata by default', () async {
     final service = await buildService();
@@ -385,6 +431,10 @@ void main() {
           notes: 'private note',
           tags: ['dev'],
         ),
+      );
+      await _syncManifestForCurrentStateForTest(
+        service: service,
+        session: session,
       );
 
       await service.changeMasterPassword(
@@ -605,6 +655,33 @@ Future<_LegacyVaultFixture> _createLegacyVault({
   );
 
   return _LegacyVaultFixture(service: service, dek: Uint8List.fromList(dek));
+}
+
+VaultManifest _tamperManifestMac(VaultManifest manifest) {
+  final replacement = manifest.mac.startsWith('A') ? 'B' : 'A';
+  return manifest.copyWith(mac: manifest.mac.replaceRange(0, 1, replacement));
+}
+
+Future<void> _syncManifestForCurrentStateForTest({
+  required VaultService service,
+  required VaultSession session,
+}) async {
+  await session.withDekCopy((dek) async {
+    final meta = await service.repository.metaDao.get();
+    final previous = await service.repository.manifestDao.get();
+    final items = await service.repository.itemsDao.allItemsForManifest();
+    final manifest =
+        await VaultManifestService(
+          crypto: CryptoService(random: SecureRandom()),
+        ).createManifest(
+          dek: dek,
+          meta: meta!,
+          items: items,
+          previous: previous,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+    await service.repository.manifestDao.save(manifest);
+  });
 }
 
 class _DeleteDuringUpdateVaultItemsDao extends VaultItemsDao {
