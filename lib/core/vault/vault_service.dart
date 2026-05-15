@@ -90,7 +90,7 @@ class VaultService {
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final salt = _random.bytes(16);
-    final kdfParams = KdfParams.pbkdf2();
+    final kdfParams = KdfParams.argon2id();
     Uint8List? kek;
     Uint8List? dek;
     try {
@@ -236,10 +236,11 @@ class VaultService {
     try {
       dek = await _decryptDekWithUnlockError(meta: meta, password: oldPassword);
       final newSalt = _random.bytes(16);
+      final newKdfParams = KdfParams.argon2id();
       newKek = await _kdf.deriveKey(
         password: newPassword,
         salt: newSalt,
-        params: meta.kdfParams,
+        params: newKdfParams,
       );
       final wrappedDek = await _crypto.encryptBytes(
         key: newKek,
@@ -249,8 +250,8 @@ class VaultService {
       final updatedMeta = VaultMeta(
         id: meta.id,
         version: meta.version,
-        kdf: meta.kdf,
-        kdfParams: meta.kdfParams,
+        kdf: newKdfParams.name,
+        kdfParams: newKdfParams,
         salt: b64(newSalt),
         encryptedDekByMaster: b64(wrappedDek.ciphertext),
         encryptedDekByMasterNonce: b64(wrappedDek.nonce),

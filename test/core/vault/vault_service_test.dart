@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
+import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
@@ -11,6 +12,7 @@ import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/password_entry.dart';
+import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -45,6 +47,21 @@ void main() {
       () => service.unlock(masterPassword: 'wrong-passphrase'),
       throwsA(isA<VaultUnlockException>()),
     );
+  });
+
+  test('new vaults use argon2id metadata by default', () async {
+    final service = await buildService();
+
+    await service.createVault(masterPassword: 'master-passphrase');
+
+    final meta = await service.repository.metaDao.get();
+    expect(meta, isNotNull);
+    expect(meta!.kdf, 'argon2id');
+    expect(meta.kdfParams.name, 'argon2id');
+    expect(meta.kdfParams.memoryKiB, 65536);
+    expect(meta.kdfParams.iterations, 3);
+    expect(meta.kdfParams.parallelism, 1);
+    expect(meta.kdfParams.bits, 256);
   });
 
   test(
@@ -96,6 +113,59 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    'changing a pbkdf2 vault password migrates metadata to argon2id',
+    () async {
+      final service = await buildService();
+      final now = DateTime.utc(2026, 5, 15).millisecondsSinceEpoch;
+      final salt = SecureRandom().bytes(16);
+      final dek = SecureRandom().bytes(32);
+      final oldParams = KdfParams.pbkdf2(iterations: 120000, bits: 256);
+      final oldKek = await KdfService().deriveKey(
+        password: 'old-master',
+        salt: salt,
+        params: oldParams,
+      );
+      final wrappedDek = await CryptoService(
+        random: SecureRandom(),
+      ).encryptBytes(key: oldKek, plaintext: dek);
+
+      await service.repository.metaDao.save(
+        VaultMeta(
+          id: 'legacy-vault',
+          version: 1,
+          kdf: oldParams.name,
+          kdfParams: oldParams,
+          salt: b64(salt),
+          encryptedDekByMaster: b64(wrappedDek.ciphertext),
+          encryptedDekByMasterNonce: b64(wrappedDek.nonce),
+          encryptedDekByMasterMac: b64(wrappedDek.mac),
+          biometricEnabled: false,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await service.unlock(masterPassword: 'old-master');
+      await service.changeMasterPassword(
+        oldPassword: 'old-master',
+        newPassword: 'new-master',
+      );
+
+      final meta = await service.repository.metaDao.get();
+      expect(meta!.kdf, 'argon2id');
+      expect(meta.kdfParams.name, 'argon2id');
+      expect(
+        () => service.unlock(masterPassword: 'old-master'),
+        throwsA(isA<VaultUnlockException>()),
+      );
+      expect(
+        (await service.unlock(masterPassword: 'new-master')).isUnlocked,
+        isTrue,
+      );
+    },
+  );
 
   test('locked item operations fail with VaultLockedException', () async {
     final service = await buildService();
@@ -254,8 +324,8 @@ void main() {
       );
       itemsDao.targetId = id;
 
-      expect(
-        () => service.updateItem(
+      await expectLater(
+        service.updateItem(
           id,
           PasswordEntry(
             title: 'Updated',
@@ -269,7 +339,6 @@ void main() {
         throwsA(isA<VaultItemNotFoundException>()),
       );
 
-      await Future<void>.delayed(Duration.zero);
       final rawRows = await itemsDao.rawRowsForTest();
       expect(rawRows, hasLength(1));
       expect(rawRows.single['deleted_at'], isNotNull);
@@ -341,15 +410,11 @@ class _DeleteDuringUpdateVaultItemsDao extends VaultItemsDao {
   bool _deletedDuringUpdate = false;
 
   @override
-  Future<EncryptedVaultItem?> byId(String id) async {
-    final item = await super.byId(id);
-    if (!_deletedDuringUpdate &&
-        targetId == id &&
-        item != null &&
-        item.deletedAt == null) {
+  Future<bool> updateActive(EncryptedVaultItem item) async {
+    if (!_deletedDuringUpdate && targetId == item.id) {
       _deletedDuringUpdate = true;
-      Future.microtask(() => softDelete(id, item.updatedAt + 1));
+      await softDelete(item.id, item.updatedAt + 1);
     }
-    return item;
+    return super.updateActive(item);
   }
 }
