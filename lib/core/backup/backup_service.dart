@@ -156,10 +156,7 @@ class BackupService {
     return VaultBackup(
       version: meta.version,
       kdf: meta.kdf,
-      kdfParams: {
-        'iterations': meta.kdfParams.iterations,
-        'bits': meta.kdfParams.bits,
-      },
+      kdfParams: meta.kdfParams.toJson(),
       salt: meta.salt,
       encryptedDekByMaster: meta.encryptedDekByMaster,
       encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
@@ -365,6 +362,9 @@ class BackupService {
         existingMeta.kdfParams.name == backupMeta.kdfParams.name &&
         existingMeta.kdfParams.iterations == backupMeta.kdfParams.iterations &&
         existingMeta.kdfParams.bits == backupMeta.kdfParams.bits &&
+        existingMeta.kdfParams.memoryKiB == backupMeta.kdfParams.memoryKiB &&
+        existingMeta.kdfParams.parallelism ==
+            backupMeta.kdfParams.parallelism &&
         existingMeta.salt == backupMeta.salt &&
         existingMeta.encryptedDekByMaster == backupMeta.encryptedDekByMaster &&
         existingMeta.encryptedDekByMasterNonce ==
@@ -396,19 +396,18 @@ KdfParams _parseKdfParams({
   required String kdf,
   required Map<String, Object?> rawParams,
 }) {
-  final iterations = rawParams['iterations'];
-  if (iterations is! int) {
-    throw const BackupFormatException(
-      'Invalid "kdf_params.iterations": expected an int',
+  final paramsJson = Map<String, Object?>.from(rawParams);
+  paramsJson.putIfAbsent('name', () => kdf);
+  final KdfParams params;
+  try {
+    params = KdfParams.fromJson(paramsJson);
+  } on FormatException catch (error) {
+    throw BackupFormatException(error.message, error.source, error.offset);
+  }
+  if (params.name != kdf) {
+    throw BackupFormatException(
+      'Invalid "kdf_params.name": expected "$kdf" but found "${params.name}"',
     );
   }
-
-  final bits = rawParams['bits'];
-  if (bits is! int) {
-    throw const BackupFormatException(
-      'Invalid "kdf_params.bits": expected an int',
-    );
-  }
-
-  return KdfParams(name: kdf, iterations: iterations, bits: bits);
+  return params;
 }

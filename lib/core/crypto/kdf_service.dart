@@ -56,8 +56,15 @@ class KdfParams {
       'bits': bits,
     };
     if (name == 'argon2id') {
-      json['memoryKiB'] = memoryKiB ?? 65536;
-      json['parallelism'] = parallelism ?? 1;
+      final memoryKiB = this.memoryKiB;
+      final parallelism = this.parallelism;
+      if (memoryKiB == null || parallelism == null) {
+        throw StateError(
+          'Invalid argon2id KDF params: memoryKiB and parallelism are required',
+        );
+      }
+      json['memoryKiB'] = memoryKiB;
+      json['parallelism'] = parallelism;
     }
     return json;
   }

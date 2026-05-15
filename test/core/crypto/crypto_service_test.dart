@@ -3,11 +3,15 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' show Hmac, Pbkdf2, SecretKey;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hashlib/hashlib.dart' as hashlib;
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
 
 void main() {
+  String hex(List<int> bytes) =>
+      bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+
   test(
     'correct password decrypts encrypted DEK and wrong password fails',
     () async {
@@ -256,6 +260,57 @@ void main() {
     expect(first, hasLength(32));
     expect(second, orderedEquals(first));
   });
+
+  test('argon2id dependency matches RFC 9106 version 19 test vector', () {
+    final algorithm = hashlib.Argon2(
+      type: hashlib.Argon2Type.argon2id,
+      version: hashlib.Argon2Version.v13,
+      parallelism: 4,
+      memorySizeKB: 32,
+      iterations: 3,
+      hashLength: 32,
+      salt: List<int>.filled(16, 0x02),
+      key: List<int>.filled(8, 0x03),
+      personalization: List<int>.filled(12, 0x04),
+    );
+
+    final digest = algorithm.convert(List<int>.filled(32, 0x01));
+
+    expect(
+      hex(digest.bytes),
+      '0d640df58d78766c08c037a34a8b53c9'
+      'd01ef0452d75b65eb52520e96b01e659',
+    );
+  });
+
+  test(
+    'argon2id derives UTF-8 compatible keys for non-ASCII passwords',
+    () async {
+      final kdf = KdfService();
+      final salt = Uint8List.fromList(List<int>.generate(16, (index) => index));
+      final params = KdfParams.argon2id(
+        memoryKiB: 1024,
+        iterations: 2,
+        parallelism: 1,
+        bits: 256,
+      );
+      final password = 'p\u{00E4}ssw\u{00F6}rd\u{1F510}\u{6F22}\u{5B57}';
+
+      final first = await kdf.deriveKey(
+        password: password,
+        salt: salt,
+        params: params,
+      );
+      final second = await kdf.deriveKey(
+        password: password,
+        salt: salt,
+        params: params,
+      );
+
+      expect(first, hasLength(32));
+      expect(second, orderedEquals(first));
+    },
+  );
 
   test('rejects invalid argon2id params', () async {
     final kdf = KdfService();

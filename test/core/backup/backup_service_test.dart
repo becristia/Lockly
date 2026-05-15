@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
+import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
@@ -94,6 +95,53 @@ void main() {
       expect(jsonText, isNot(contains('secret-password')));
       expect(jsonText, isNot(contains('user@example.com')));
       expect(jsonText, isNot(contains('private note')));
+    },
+  );
+
+  test('argon2id backup export preserves full kdf params', () async {
+    final source = await _buildHarness();
+    await _createEmptyArgon2idVault(source, masterPassword: 'source-master');
+
+    final backup = await source.backupService.exportBackup();
+
+    expect(backup.kdf, 'argon2id');
+    expect(backup.kdfParams, {
+      'name': 'argon2id',
+      'iterations': 3,
+      'bits': 256,
+      'memoryKiB': 1024,
+      'parallelism': 1,
+    });
+    expect(backup.parsedKdfParams.name, 'argon2id');
+    expect(backup.parsedKdfParams.memoryKiB, 1024);
+    expect(backup.parsedKdfParams.parallelism, 1);
+  });
+
+  test(
+    'argon2id backup import restores metadata and remains unlockable',
+    () async {
+      final source = await _buildHarness();
+      await _createEmptyArgon2idVault(source, masterPassword: 'source-master');
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+
+      final meta = await target.repository.metaDao.get();
+      expect(meta, isNotNull);
+      expect(meta!.kdf, 'argon2id');
+      expect(meta.kdfParams.memoryKiB, 1024);
+      expect(meta.kdfParams.parallelism, 1);
+      expect(
+        (await target.vaultService.unlock(
+          masterPassword: 'source-master',
+        )).isUnlocked,
+        isTrue,
+      );
     },
   );
 
@@ -631,6 +679,46 @@ Future<VaultMeta> _setBiometricMeta(VaultRepository repository) async {
   return updatedMeta;
 }
 
+Future<void> _createEmptyArgon2idVault(
+  _BackupHarness harness, {
+  required String masterPassword,
+}) async {
+  final random = SecureRandom();
+  final crypto = CryptoService(random: random);
+  final kdf = KdfService();
+  final salt = random.bytes(16);
+  final dek = random.bytes(32);
+  final params = KdfParams.argon2id(
+    memoryKiB: 1024,
+    iterations: 3,
+    parallelism: 1,
+    bits: 256,
+  );
+  final kek = await kdf.deriveKey(
+    password: masterPassword,
+    salt: salt,
+    params: params,
+  );
+  final wrappedDek = await crypto.encryptBytes(key: kek, plaintext: dek);
+  final now = DateTime.utc(2026, 5, 15).millisecondsSinceEpoch;
+
+  await harness.repository.metaDao.save(
+    VaultMeta(
+      id: 'argon-vault',
+      version: 1,
+      kdf: params.name,
+      kdfParams: params,
+      salt: b64(salt),
+      encryptedDekByMaster: b64(wrappedDek.ciphertext),
+      encryptedDekByMasterNonce: b64(wrappedDek.nonce),
+      encryptedDekByMasterMac: b64(wrappedDek.mac),
+      biometricEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    ),
+  );
+}
+
 void _expectMetaPreserved(VaultMeta actual, VaultMeta expected) {
   expect(actual.id, expected.id);
   expect(actual.version, expected.version);
@@ -638,6 +726,8 @@ void _expectMetaPreserved(VaultMeta actual, VaultMeta expected) {
   expect(actual.kdfParams.name, expected.kdfParams.name);
   expect(actual.kdfParams.iterations, expected.kdfParams.iterations);
   expect(actual.kdfParams.bits, expected.kdfParams.bits);
+  expect(actual.kdfParams.memoryKiB, expected.kdfParams.memoryKiB);
+  expect(actual.kdfParams.parallelism, expected.kdfParams.parallelism);
   expect(actual.salt, expected.salt);
   expect(actual.encryptedDekByMaster, expected.encryptedDekByMaster);
   expect(actual.encryptedDekByMasterNonce, expected.encryptedDekByMasterNonce);
