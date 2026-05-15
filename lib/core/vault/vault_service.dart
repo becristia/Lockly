@@ -265,40 +265,47 @@ class VaultService {
       return;
     }
 
-    await _withDekForBiometricDisable(
-      biometricService: biometricService,
-      action: (dek) async {
-        await _verifyExistingManifest(meta: meta, dek: dek);
-        final updatedAt = DateTime.now().millisecondsSinceEpoch;
-        final updatedMeta = VaultMeta(
-          id: meta.id,
-          version: meta.version,
-          kdf: meta.kdf,
-          kdfParams: meta.kdfParams,
-          salt: meta.salt,
-          encryptedDekByMaster: meta.encryptedDekByMaster,
-          encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
-          encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
-          biometricEnabled: false,
-          createdAt: meta.createdAt,
-          updatedAt: updatedAt,
-          encryptedDekByBiometric: null,
-          encryptedDekByBiometricNonce: null,
-          encryptedDekByBiometricMac: null,
-        );
-        await repository.transaction((txn) async {
-          await _saveManifestForMetadataUpdate(
-            txn: txn,
-            dek: dek,
-            currentMeta: meta,
-            updatedMeta: updatedMeta,
+    try {
+      await _withDekForBiometricDisable(
+        biometricService: biometricService,
+        action: (dek) async {
+          await _verifyExistingManifest(meta: meta, dek: dek);
+          final updatedAt = DateTime.now().millisecondsSinceEpoch;
+          final updatedMeta = VaultMeta(
+            id: meta.id,
+            version: meta.version,
+            kdf: meta.kdf,
+            kdfParams: meta.kdfParams,
+            salt: meta.salt,
+            encryptedDekByMaster: meta.encryptedDekByMaster,
+            encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
+            encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
+            biometricEnabled: false,
+            createdAt: meta.createdAt,
             updatedAt: updatedAt,
+            encryptedDekByBiometric: null,
+            encryptedDekByBiometricNonce: null,
+            encryptedDekByBiometricMac: null,
           );
-          await txn.metaDao.save(updatedMeta);
-        });
-        await biometricService.disable();
-      },
-    );
+          await repository.transaction((txn) async {
+            await _saveManifestForMetadataUpdate(
+              txn: txn,
+              dek: dek,
+              currentMeta: meta,
+              updatedMeta: updatedMeta,
+              updatedAt: updatedAt,
+            );
+            await txn.metaDao.save(updatedMeta);
+          });
+          await biometricService.disable();
+        },
+      );
+    } catch (error) {
+      if (_isIntegrityReadFailure(error)) {
+        _session.lock();
+      }
+      rethrow;
+    }
   }
 
   Future<void> changeMasterPassword({

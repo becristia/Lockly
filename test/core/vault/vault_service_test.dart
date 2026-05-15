@@ -270,6 +270,35 @@ void main() {
   );
 
   test(
+    'disable biometric unlock locks on manifest integrity failure',
+    () async {
+      final service = await buildService();
+      final biometricService = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: MemorySecureDekStore(),
+      );
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.enableBiometricUnlock(
+        masterPassword: 'master-passphrase',
+        biometricService: biometricService,
+      );
+      await service.unlock(masterPassword: 'master-passphrase');
+      expect(service.isUnlocked, isTrue);
+      final manifest = await service.repository.manifestDao.get();
+      await service.repository.manifestDao.save(_tamperManifestMac(manifest!));
+
+      await expectLater(
+        service.disableBiometricUnlock(biometricService: biometricService),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
     'change master password fails on tampered manifest without replacing it',
     () async {
       final service = await buildService();
