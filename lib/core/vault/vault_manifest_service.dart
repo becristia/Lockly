@@ -126,6 +126,10 @@ class VaultManifestService {
       throw const VaultIntegrityException();
     } on CryptoException {
       throw const VaultIntegrityException();
+    } on ArgumentError {
+      throw const VaultIntegrityException();
+    } on StateError {
+      throw const VaultIntegrityException();
     }
   }
 
@@ -158,6 +162,7 @@ class VaultManifestService {
       'epoch': epoch,
       'counter': counter,
       'kdf': meta.kdf,
+      'meta_digest': await _digestObject(_metaDescriptor(meta)),
       'kdf_params_digest': await _digestObject(meta.kdfParams.toJson()),
       'encrypted_dek_digest': await _digestObject({
         'encrypted_dek_by_master': meta.encryptedDekByMaster,
@@ -169,6 +174,25 @@ class VaultManifestService {
           .where((item) => item.deletedAt != null)
           .length,
       'items_digest': await _digestObject(_itemDescriptors(items)),
+    };
+  }
+
+  Map<String, Object?> _metaDescriptor(VaultMeta meta) {
+    return {
+      'id': meta.id,
+      'version': meta.version,
+      'kdf': meta.kdf,
+      'kdf_params': meta.kdfParams.toJson(),
+      'salt': meta.salt,
+      'encrypted_dek_by_master': meta.encryptedDekByMaster,
+      'encrypted_dek_by_master_nonce': meta.encryptedDekByMasterNonce,
+      'encrypted_dek_by_master_mac': meta.encryptedDekByMasterMac,
+      'biometric_enabled': meta.biometricEnabled,
+      'encrypted_dek_by_biometric': meta.encryptedDekByBiometric,
+      'encrypted_dek_by_biometric_nonce': meta.encryptedDekByBiometricNonce,
+      'encrypted_dek_by_biometric_mac': meta.encryptedDekByBiometricMac,
+      'created_at': meta.createdAt,
+      'updated_at': meta.updatedAt,
     };
   }
 

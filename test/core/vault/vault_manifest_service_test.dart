@@ -114,22 +114,143 @@ void main() {
       throwsA(isA<VaultIntegrityException>()),
     );
   });
+
+  test('verify rejects tampered salt', () async {
+    final manifest = await service.createManifest(
+      dek: dek,
+      meta: meta,
+      items: items,
+      previous: null,
+      updatedAt: 3000,
+    );
+    final tamperedMeta = _meta(
+      salt: b64(Uint8List.fromList(List<int>.filled(16, 8))),
+    );
+
+    expect(
+      () => service.verifyManifest(
+        dek: dek,
+        meta: tamperedMeta,
+        items: items,
+        manifest: manifest,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
+
+  test('verify rejects tampered biometric metadata', () async {
+    final biometricMeta = _meta(
+      biometricEnabled: true,
+      encryptedDekByBiometric: b64(Uint8List.fromList([31, 32, 33])),
+      encryptedDekByBiometricNonce: b64(Uint8List.fromList([34, 35, 36])),
+      encryptedDekByBiometricMac: b64(Uint8List.fromList([37, 38, 39])),
+    );
+    final manifest = await service.createManifest(
+      dek: dek,
+      meta: biometricMeta,
+      items: items,
+      previous: null,
+      updatedAt: 3000,
+    );
+
+    expect(
+      () => service.verifyManifest(
+        dek: dek,
+        meta: _meta(
+          biometricEnabled: false,
+          encryptedDekByBiometric: b64(Uint8List.fromList([31, 32, 33])),
+          encryptedDekByBiometricNonce: b64(Uint8List.fromList([34, 35, 36])),
+          encryptedDekByBiometricMac: b64(Uint8List.fromList([37, 38, 39])),
+        ),
+        items: items,
+        manifest: manifest,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(
+      () => service.verifyManifest(
+        dek: dek,
+        meta: _meta(
+          biometricEnabled: true,
+          encryptedDekByBiometric: b64(Uint8List.fromList([40, 41, 42])),
+          encryptedDekByBiometricNonce: b64(Uint8List.fromList([34, 35, 36])),
+          encryptedDekByBiometricMac: b64(Uint8List.fromList([37, 38, 39])),
+        ),
+        items: items,
+        manifest: manifest,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
+
+  test('verify wraps malformed manifest encryption fields', () async {
+    final manifest = await service.createManifest(
+      dek: dek,
+      meta: meta,
+      items: items,
+      previous: null,
+      updatedAt: 3000,
+    );
+    final malformedManifest = manifest.copyWith(
+      nonce: b64(Uint8List.fromList([1, 2, 3])),
+    );
+
+    expect(
+      () => service.verifyManifest(
+        dek: dek,
+        meta: meta,
+        items: items,
+        manifest: malformedManifest,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
+
+  test('verify rejects manifest row counter mismatch generically', () async {
+    final manifest = await service.createManifest(
+      dek: dek,
+      meta: meta,
+      items: items,
+      previous: null,
+      updatedAt: 3000,
+    );
+
+    expect(
+      () => service.verifyManifest(
+        dek: dek,
+        meta: meta,
+        items: items,
+        manifest: manifest.copyWith(counter: manifest.counter + 1),
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
 }
 
-VaultMeta _meta({String? encryptedDekByMaster}) {
+VaultMeta _meta({
+  String? salt,
+  String? encryptedDekByMaster,
+  bool biometricEnabled = false,
+  String? encryptedDekByBiometric,
+  String? encryptedDekByBiometricNonce,
+  String? encryptedDekByBiometricMac,
+}) {
   return VaultMeta(
     id: 'vault-1',
     version: 1,
     kdf: 'pbkdf2-hmac-sha256',
     kdfParams: KdfParams.pbkdf2(iterations: 120000),
-    salt: b64(Uint8List.fromList(List<int>.filled(16, 7))),
+    salt: salt ?? b64(Uint8List.fromList(List<int>.filled(16, 7))),
     encryptedDekByMaster:
         encryptedDekByMaster ?? b64(Uint8List.fromList([1, 2, 3])),
     encryptedDekByMasterNonce: b64(Uint8List.fromList([4, 5, 6])),
     encryptedDekByMasterMac: b64(Uint8List.fromList([7, 8, 9])),
-    biometricEnabled: false,
+    biometricEnabled: biometricEnabled,
     createdAt: 1000,
     updatedAt: 2000,
+    encryptedDekByBiometric: encryptedDekByBiometric,
+    encryptedDekByBiometricNonce: encryptedDekByBiometricNonce,
+    encryptedDekByBiometricMac: encryptedDekByBiometricMac,
   );
 }
 
