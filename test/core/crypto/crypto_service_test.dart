@@ -231,4 +231,67 @@ void main() {
       dek,
     );
   });
+
+  test('argon2id derives deterministic 256-bit keys', () async {
+    final kdf = KdfService();
+    final salt = Uint8List.fromList(List<int>.generate(16, (index) => index));
+    final params = KdfParams.argon2id(
+      memoryKiB: 1024,
+      iterations: 2,
+      parallelism: 1,
+      bits: 256,
+    );
+
+    final first = await kdf.deriveKey(
+      password: 'correct horse battery staple',
+      salt: salt,
+      params: params,
+    );
+    final second = await kdf.deriveKey(
+      password: 'correct horse battery staple',
+      salt: salt,
+      params: params,
+    );
+
+    expect(first, hasLength(32));
+    expect(second, orderedEquals(first));
+  });
+
+  test('rejects invalid argon2id params', () async {
+    final kdf = KdfService();
+    final salt = Uint8List.fromList(List<int>.filled(16, 1));
+
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: salt,
+        params: KdfParams.argon2id(memoryKiB: 0),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: salt,
+        params: KdfParams.argon2id(iterations: 0),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: salt,
+        params: KdfParams.argon2id(parallelism: 0),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: salt,
+        params: KdfParams.argon2id(bits: 128),
+      ),
+      throwsArgumentError,
+    );
+  });
 }

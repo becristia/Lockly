@@ -181,16 +181,11 @@ class VaultMeta {
     }
 
     final json = Map<String, Object?>.from(decodedValue);
-    if (json['name'] is! String ||
-        json['iterations'] is! int ||
-        json['bits'] is! int) {
-      throw FormatException(
-        'Invalid kdf_params JSON object: expected string name and integer iterations/bits',
-        rawValue,
-      );
+    try {
+      return KdfParams.fromJson(json);
+    } on FormatException catch (error) {
+      throw FormatException(error.message, rawValue, error.offset);
     }
-
-    return KdfParams.fromJson(json);
   }
 
   static bool _hasMatchingKdf({

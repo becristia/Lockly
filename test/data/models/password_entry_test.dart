@@ -174,6 +174,38 @@ void main() {
     },
   );
 
+  test('vault meta round-trips argon2id kdf params', () {
+    final meta = VaultMeta(
+      id: 'vault-1',
+      version: 1,
+      kdf: 'argon2id',
+      kdfParams: KdfParams.argon2id(
+        memoryKiB: 65536,
+        iterations: 3,
+        parallelism: 1,
+        bits: 256,
+      ),
+      salt: 'salt',
+      encryptedDekByMaster: 'dek',
+      encryptedDekByMasterNonce: 'nonce',
+      encryptedDekByMasterMac: 'mac',
+      biometricEnabled: false,
+      createdAt: 1,
+      updatedAt: 2,
+    );
+
+    final row = meta.toDb();
+    expect(row['kdf'], 'argon2id');
+    expect(row['kdf_params'], contains('"memoryKiB":65536'));
+    expect(row['kdf_params'], contains('"parallelism":1'));
+
+    final decoded = VaultMeta.fromDb(row);
+    expect(decoded.kdf, 'argon2id');
+    expect(decoded.kdfParams.name, 'argon2id');
+    expect(decoded.kdfParams.memoryKiB, 65536);
+    expect(decoded.kdfParams.parallelism, 1);
+  });
+
   test('vault meta rejects mismatched kdf and kdf params name from DB', () {
     expect(
       () => VaultMeta.fromDb(
@@ -182,6 +214,8 @@ void main() {
             'name': 'argon2id',
             'iterations': 180000,
             'bits': 256,
+            'memoryKiB': 65536,
+            'parallelism': 1,
           }),
         ),
       ),
