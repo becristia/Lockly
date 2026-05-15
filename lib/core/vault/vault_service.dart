@@ -11,6 +11,7 @@ import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/password_entry.dart';
+import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:uuid/uuid.dart';
 
@@ -178,12 +179,12 @@ class VaultService {
     }
 
     try {
-      final manifest = await repository.manifestDao.get();
+      final manifest = await _readManifestForIntegrity(repository);
       if (manifest == null) {
         _session.lock();
         return false;
       }
-      final items = await repository.itemsDao.allItemsForManifest();
+      final items = await _readItemsForManifest(repository);
       await _manifestService.verifyManifest(
         dek: dek,
         meta: meta,
@@ -233,17 +234,21 @@ class VaultService {
         encryptedDekByBiometricMac: null,
       );
       await repository.transaction((txn) async {
-        await txn.metaDao.save(updatedMeta);
-        await _saveManifestForCurrentState(
+        await _saveManifestForMetadataUpdate(
           txn: txn,
           dek: dek!,
-          meta: updatedMeta,
+          currentMeta: meta,
+          updatedMeta: updatedMeta,
           updatedAt: updatedAt,
         );
+        await txn.metaDao.save(updatedMeta);
       });
-    } catch (_) {
+    } catch (error) {
       if (biometricEnabled) {
         await biometricService.disable();
+      }
+      if (_isIntegrityReadFailure(error)) {
+        _session.lock();
       }
       rethrow;
     } finally {
@@ -264,7 +269,6 @@ class VaultService {
       biometricService: biometricService,
       action: (dek) async {
         await _verifyExistingManifest(meta: meta, dek: dek);
-        await biometricService.disable();
         final updatedAt = DateTime.now().millisecondsSinceEpoch;
         final updatedMeta = VaultMeta(
           id: meta.id,
@@ -283,14 +287,16 @@ class VaultService {
           encryptedDekByBiometricMac: null,
         );
         await repository.transaction((txn) async {
-          await txn.metaDao.save(updatedMeta);
-          await _saveManifestForCurrentState(
+          await _saveManifestForMetadataUpdate(
             txn: txn,
             dek: dek,
-            meta: updatedMeta,
+            currentMeta: meta,
+            updatedMeta: updatedMeta,
             updatedAt: updatedAt,
           );
+          await txn.metaDao.save(updatedMeta);
         });
+        await biometricService.disable();
       },
     );
   }
@@ -337,15 +343,19 @@ class VaultService {
 
       await beforePersist?.call();
       await repository.transaction((txn) async {
-        await txn.metaDao.save(updatedMeta);
-        await _saveManifestForCurrentState(
+        await _saveManifestForMetadataUpdate(
           txn: txn,
           dek: dek!,
-          meta: updatedMeta,
+          currentMeta: meta,
+          updatedMeta: updatedMeta,
           updatedAt: updatedAt,
         );
+        await txn.metaDao.save(updatedMeta);
       });
       _session.unlock(dek);
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
     } finally {
       _zeroBytes(newKek);
       _zeroBytes(dek);
@@ -541,15 +551,15 @@ class VaultService {
     required VaultMeta meta,
     required Uint8List dek,
   }) async {
-    final manifest = await repository.manifestDao.get();
+    final manifest = await _readManifestForIntegrity(repository);
     if (manifest != null) {
       await _verifyExistingManifest(meta: meta, dek: dek);
       return;
     }
 
     await repository.transaction((txn) async {
-      final existingManifest = await txn.manifestDao.get();
-      final items = await txn.itemsDao.allItemsForManifest();
+      final existingManifest = await _readManifestForIntegrity(txn);
+      final items = await _readItemsForManifest(txn);
       if (existingManifest != null) {
         await _manifestService.verifyManifest(
           dek: dek,
@@ -575,11 +585,11 @@ class VaultService {
     required VaultMeta meta,
     required Uint8List dek,
   }) async {
-    final manifest = await repository.manifestDao.get();
+    final manifest = await _readManifestForIntegrity(repository);
     if (manifest == null) {
       throw const VaultIntegrityException();
     }
-    final items = await repository.itemsDao.allItemsForManifest();
+    final items = await _readItemsForManifest(repository);
     await _manifestService.verifyManifest(
       dek: dek,
       meta: meta,
@@ -588,22 +598,67 @@ class VaultService {
     );
   }
 
-  Future<void> _saveManifestForCurrentState({
+  Future<void> _saveManifestForMetadataUpdate({
     required VaultRepository txn,
     required Uint8List dek,
-    required VaultMeta meta,
+    required VaultMeta currentMeta,
+    required VaultMeta updatedMeta,
     required int updatedAt,
   }) async {
-    final previous = await txn.manifestDao.get();
-    final items = await txn.itemsDao.allItemsForManifest();
+    final previous = await _readManifestForIntegrity(txn);
+    if (previous == null) {
+      throw const VaultIntegrityException();
+    }
+    final items = await _readItemsForManifest(txn);
+    await _manifestService.verifyManifest(
+      dek: dek,
+      meta: currentMeta,
+      items: items,
+      manifest: previous,
+    );
     final manifest = await _manifestService.createManifest(
       dek: dek,
-      meta: meta,
+      meta: updatedMeta,
       items: items,
       previous: previous,
       updatedAt: updatedAt,
     );
     await txn.manifestDao.save(manifest);
+  }
+
+  Future<VaultManifest?> _readManifestForIntegrity(
+    VaultRepository repository,
+  ) async {
+    try {
+      return await repository.manifestDao.get();
+    } on FormatException {
+      throw const VaultIntegrityException();
+    } on StateError {
+      throw const VaultIntegrityException();
+    } on ArgumentError {
+      throw const VaultIntegrityException();
+    }
+  }
+
+  Future<List<EncryptedVaultItem>> _readItemsForManifest(
+    VaultRepository repository,
+  ) async {
+    try {
+      return await repository.itemsDao.allItemsForManifest();
+    } on FormatException {
+      throw const VaultIntegrityException();
+    } on StateError {
+      throw const VaultIntegrityException();
+    } on ArgumentError {
+      throw const VaultIntegrityException();
+    }
+  }
+
+  bool _isIntegrityReadFailure(Object error) {
+    return error is VaultIntegrityException ||
+        error is FormatException ||
+        error is StateError ||
+        error is ArgumentError;
   }
 
   Future<void> _withDekForBiometricDisable({

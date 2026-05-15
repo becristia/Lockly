@@ -83,6 +83,25 @@ void main() {
     expect(service.isUnlocked, isFalse);
   });
 
+  test(
+    'unlock normalizes malformed manifest rows and locks existing session',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      expect(service.isUnlocked, isTrue);
+      await service.repository.manifestDao.executor.update('vault_manifest', {
+        'version': 'bad-version',
+      });
+
+      await expectLater(
+        service.unlock(masterPassword: 'master-passphrase'),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
   test('legacy vault without manifest upgrades after master unlock', () async {
     final fixture = await _createLegacyVault(
       masterPassword: 'master-passphrase',
@@ -169,6 +188,38 @@ void main() {
     },
   );
 
+  test(
+    'biometric unlock normalizes malformed manifest rows and locks',
+    () async {
+      final service = await buildService();
+      final store = MemorySecureDekStore();
+      final biometricService = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: store,
+      );
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.enableBiometricUnlock(
+        masterPassword: 'master-passphrase',
+        biometricService: biometricService,
+      );
+      await service.unlock(masterPassword: 'master-passphrase');
+      expect(service.isUnlocked, isTrue);
+      await service.repository.manifestDao.executor.update('vault_manifest', {
+        'version': 'bad-version',
+      });
+
+      final unlocked = await service.unlockWithBiometrics(
+        biometricService: biometricService,
+      );
+
+      expect(unlocked, isFalse);
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
   test('biometric unlock verifies intact manifest before unlocking', () async {
     final service = await buildService();
     final store = MemorySecureDekStore();
@@ -231,6 +282,32 @@ void main() {
         service.changeMasterPassword(
           oldPassword: 'old-master',
           newPassword: 'new-master',
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      final persistedManifest = await service.repository.manifestDao.get();
+      expect(persistedManifest!.mac, tamperedManifest.mac);
+      expect(persistedManifest.counter, tamperedManifest.counter);
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'change master password fails when manifest is tampered before persistence',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'old-master');
+      final manifest = await service.repository.manifestDao.get();
+      final tamperedManifest = _tamperManifestMac(manifest!);
+
+      await expectLater(
+        service.changeMasterPassword(
+          oldPassword: 'old-master',
+          newPassword: 'new-master',
+          beforePersist: () async {
+            await service.repository.manifestDao.save(tamperedManifest);
+          },
         ),
         throwsA(isA<VaultIntegrityException>()),
       );
