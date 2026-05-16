@@ -29,6 +29,10 @@ class VaultMetaDao {
     return VaultMeta.fromDb(rows.single);
   }
 
+  Future<void> deleteAll() async {
+    await _db.delete('vault_meta');
+  }
+
   Future<void> clearBiometricDek(int updatedAt) async {
     final affectedRows = await _db.update(
       'vault_meta',

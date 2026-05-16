@@ -9,6 +9,8 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_anchor_service.dart';
+import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
@@ -499,6 +501,39 @@ void main() {
       expect(importedEntry.username, 'user@example.com');
       expect(importedEntry.password, 'secret-password');
       expect(importedEntry.notes, 'private note');
+    },
+  );
+
+  test(
+    'importBackup overwrite accepts rewritten target manifest into anchor',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+
+      final meta = await target.repository.metaDao.get();
+      final manifest = await target.repository.manifestDao.get();
+      final anchor = await target.anchorStore.read(vaultId: meta!.id);
+      expect(anchor, isNotNull);
+      expect(anchor!.manifestCounter, manifest!.counter);
     },
   );
 
@@ -1138,16 +1173,19 @@ Future<_BackupHarness> _buildHarness() async {
     manifestDao: VaultManifestDao(db),
     settingsDao: SettingsDao(db),
   );
+  final anchorStore = MemoryVaultAnchorStore();
   final vaultService = VaultService(
     repository: repository,
     random: SecureRandom(),
     kdf: KdfService(),
     crypto: CryptoService(random: SecureRandom()),
+    anchorService: VaultAnchorService(store: anchorStore),
   );
 
   return _BackupHarness(
     repository: repository,
     vaultService: vaultService,
+    anchorStore: anchorStore,
     backupService: BackupService(
       repository: repository,
       vaultService: vaultService,
@@ -1159,10 +1197,12 @@ class _BackupHarness {
   const _BackupHarness({
     required this.repository,
     required this.vaultService,
+    required this.anchorStore,
     required this.backupService,
   });
 
   final VaultRepository repository;
   final VaultService vaultService;
+  final MemoryVaultAnchorStore anchorStore;
   final BackupService backupService;
 }

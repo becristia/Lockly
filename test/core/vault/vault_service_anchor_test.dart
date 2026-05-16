@@ -13,6 +13,7 @@ import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/data/models/password_entry.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -129,6 +130,105 @@ void main() {
     expect(harness.service.isUnlocked, isFalse);
     expect(await harness.anchorStore.read(vaultId: meta.id), isNull);
   });
+
+  test('item mutations update anchor counter after manifest rewrite', () async {
+    final harness = await buildHarness();
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    await harness.service.unlock(masterPassword: 'master-passphrase');
+    final meta = await harness.service.repository.metaDao.get();
+
+    final id = await harness.service.createItem(_entry('One'));
+    final afterCreate = await harness.anchorStore.read(vaultId: meta!.id);
+    final manifestAfterCreate = await harness.service.repository.manifestDao
+        .get();
+    expect(afterCreate!.manifestCounter, manifestAfterCreate!.counter);
+
+    await harness.service.updateItem(id, _entry('Two'));
+    final afterUpdate = await harness.anchorStore.read(vaultId: meta.id);
+    final manifestAfterUpdate = await harness.service.repository.manifestDao
+        .get();
+    expect(afterUpdate!.manifestCounter, manifestAfterUpdate!.counter);
+
+    await harness.service.deleteItem(id);
+    final afterDelete = await harness.anchorStore.read(vaultId: meta.id);
+    final manifestAfterDelete = await harness.service.repository.manifestDao
+        .get();
+    expect(afterDelete!.manifestCounter, manifestAfterDelete!.counter);
+  });
+
+  test('item mutation rejects rollback before writing new data', () async {
+    final harness = await buildHarness();
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    await harness.service.unlock(masterPassword: 'master-passphrase');
+    final meta = await harness.service.repository.metaDao.get();
+    final manifest = await harness.service.repository.manifestDao.get();
+    await VaultAnchorService(store: harness.anchorStore).writeAcceptedManifest(
+      vaultId: meta!.id,
+      manifest: manifest!.copyWith(counter: manifest.counter + 2),
+      updatedAt: manifest.updatedAt + 2,
+    );
+
+    await expectLater(
+      harness.service.createItem(_entry('Blocked')),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(await harness.service.repository.itemsDao.rawRowsForTest(), isEmpty);
+    expect(harness.service.isUnlocked, isFalse);
+  });
+
+  test('clearLocalVault deletes anchor state', () async {
+    final harness = await buildHarness();
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    final meta = await harness.service.repository.metaDao.get();
+    expect(await harness.anchorStore.read(vaultId: meta!.id), isNotNull);
+
+    await harness.service.clearLocalVault();
+
+    expect(await harness.anchorStore.read(vaultId: meta.id), isNull);
+  });
+
+  test('biometric metadata rewrites update anchor counter', () async {
+    final harness = await buildHarness();
+    final biometric = BiometricService(
+      authenticator: FakeBiometricAuthenticator(
+        canAuthenticate: true,
+        succeeds: true,
+      ),
+      store: MemorySecureDekStore(),
+    );
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    final meta = await harness.service.repository.metaDao.get();
+
+    await harness.service.enableBiometricUnlock(
+      masterPassword: 'master-passphrase',
+      biometricService: biometric,
+    );
+    final afterEnable = await harness.anchorStore.read(vaultId: meta!.id);
+    final manifestAfterEnable = await harness.service.repository.manifestDao
+        .get();
+    expect(afterEnable!.manifestCounter, manifestAfterEnable!.counter);
+
+    await harness.service.disableBiometricUnlock(biometricService: biometric);
+    final afterDisable = await harness.anchorStore.read(vaultId: meta.id);
+    final manifestAfterDisable = await harness.service.repository.manifestDao
+        .get();
+    expect(afterDisable!.manifestCounter, manifestAfterDisable!.counter);
+  });
+
+  test('master password rotation rewrites update anchor counter', () async {
+    final harness = await buildHarness();
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    final meta = await harness.service.repository.metaDao.get();
+
+    await harness.service.changeMasterPassword(
+      oldPassword: 'master-passphrase',
+      newPassword: 'new-master-passphrase',
+    );
+
+    final anchor = await harness.anchorStore.read(vaultId: meta!.id);
+    final manifest = await harness.service.repository.manifestDao.get();
+    expect(anchor!.manifestCounter, manifest!.counter);
+  });
 }
 
 class _Harness {
@@ -136,4 +236,15 @@ class _Harness {
 
   final VaultService service;
   final MemoryVaultAnchorStore anchorStore;
+}
+
+PasswordEntry _entry(String title) {
+  return PasswordEntry(
+    title: title,
+    website: 'https://example.test',
+    username: 'user@example.test',
+    password: 'secret-password',
+    notes: 'private note',
+    tags: const ['tag'],
+  );
 }
