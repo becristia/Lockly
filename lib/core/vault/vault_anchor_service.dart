@@ -31,7 +31,10 @@ class VaultAnchorService {
     final VaultAnchor? anchor;
     try {
       anchor = await _store.read(vaultId: vaultId);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (error is Error) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
       throw const VaultAnchorException();
     }
     if (anchor == null) {
@@ -71,7 +74,10 @@ class VaultAnchorService {
     );
     try {
       await _store.write(anchor);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (error is Error) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
       throw const VaultAnchorException();
     }
   }
@@ -79,7 +85,10 @@ class VaultAnchorService {
   Future<void> deleteAnchor({required String vaultId}) async {
     try {
       await _store.delete(vaultId: vaultId);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (error is Error) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
       throw const VaultAnchorException();
     }
   }

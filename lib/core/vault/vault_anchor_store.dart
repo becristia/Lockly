@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:secure_box/core/vault/vault_anchor.dart';
 
@@ -22,8 +23,10 @@ class SecureStorageVaultAnchorStore implements VaultAnchorStore {
   static const _defaultAndroidOptions = AndroidOptions(
     encryptedSharedPreferences: true,
     storageNamespace: 'secure_box_vault_anchor',
-    resetOnError: true,
+    resetOnError: false,
   );
+  @visibleForTesting
+  static const defaultAndroidOptionsForTest = _defaultAndroidOptions;
 
   final FlutterSecureStorage _storage;
   final AndroidOptions _androidOptions;

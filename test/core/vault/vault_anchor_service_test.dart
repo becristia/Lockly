@@ -10,13 +10,19 @@ import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
 
 void main() {
-  VaultManifest manifest({int epoch = 1, int counter = 1, String mac = 'mac'}) {
+  VaultManifest manifest({
+    int epoch = 1,
+    int counter = 1,
+    String nonce = 'nonce',
+    String ciphertext = 'ciphertext',
+    String mac = 'mac',
+  }) {
     return VaultManifest(
       version: 1,
       epoch: epoch,
       counter: counter,
-      nonce: 'nonce',
-      ciphertext: 'ciphertext',
+      nonce: nonce,
+      ciphertext: ciphertext,
       mac: mac,
       updatedAt: 1760000000000 + counter,
     );
@@ -159,6 +165,75 @@ void main() {
     );
   });
 
+  test('store Dart Errors are rethrown without normalization', () async {
+    final readError = StateError('read failed');
+    final writeError = StateError('write failed');
+    final deleteError = StateError('delete failed');
+    final readService = VaultAnchorService(
+      store: _ThrowingVaultAnchorStore(readError: readError),
+    );
+    final writeService = VaultAnchorService(
+      store: _ThrowingVaultAnchorStore(writeError: writeError),
+    );
+    final deleteService = VaultAnchorService(
+      store: _ThrowingVaultAnchorStore(deleteError: deleteError),
+    );
+
+    await expectLater(
+      readService.verifyAgainstAnchor(vaultId: 'vault-1', manifest: manifest()),
+      throwsA(same(readError)),
+    );
+    await expectLater(
+      writeService.writeAcceptedManifest(
+        vaultId: 'vault-1',
+        manifest: manifest(),
+        updatedAt: 1760000000000,
+      ),
+      throwsA(same(writeError)),
+    );
+    await expectLater(
+      deleteService.deleteAnchor(vaultId: 'vault-1'),
+      throwsA(same(deleteError)),
+    );
+  });
+
+  test('secure storage anchor store uses non-resetting Android options', () {
+    final options = SecureStorageVaultAnchorStore.defaultAndroidOptionsForTest;
+    final params = options.toMap();
+
+    expect(params['encryptedSharedPreferences'], 'true');
+    expect(params['storageNamespace'], 'secure_box_vault_anchor');
+    expect(params['resetOnError'], isNot('true'));
+  });
+
+  test(
+    'digestManifest is deterministic and sensitive to anchor fields',
+    () async {
+      final service = VaultAnchorService(store: MemoryVaultAnchorStore());
+      final current = manifest(counter: 8);
+      final digest = await service.digestManifest(current);
+
+      expect(await service.digestManifest(current), digest);
+      expect(
+        await service.digestManifest(
+          manifest(counter: 8, nonce: 'other-nonce'),
+        ),
+        isNot(digest),
+      );
+      expect(
+        await service.digestManifest(
+          manifest(counter: 8, ciphertext: 'other-ciphertext'),
+        ),
+        isNot(digest),
+      );
+      expect(
+        await service.digestManifest(manifest(counter: 8, mac: 'other-mac')),
+        isNot(digest),
+      );
+      expect(await service.digestManifest(manifest(counter: 9)), isNot(digest));
+    },
+  );
+
   test('deleteAnchor removes stored anchor', () async {
     final store = MemoryVaultAnchorStore();
     final service = VaultAnchorService(store: store);
@@ -186,6 +261,20 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('VaultAnchor rejects malformed manifest digest', () {
+    expect(
+      () => VaultAnchor.fromJson({
+        'vault_id': 'vault-1',
+        'schema_version': 1,
+        'manifest_epoch': 1,
+        'manifest_counter': 1,
+        'manifest_digest': 'not-a-sha256-digest',
+        'updated_at': 1760000000000,
+      }),
+      throwsFormatException,
+    );
+  });
 }
 
 class _ThrowingVaultAnchorStore implements VaultAnchorStore {
@@ -193,14 +282,23 @@ class _ThrowingVaultAnchorStore implements VaultAnchorStore {
     this.readThrows = false,
     this.writeThrows = false,
     this.deleteThrows = false,
+    this.readError,
+    this.writeError,
+    this.deleteError,
   });
 
   final bool readThrows;
   final bool writeThrows;
   final bool deleteThrows;
+  final Object? readError;
+  final Object? writeError;
+  final Object? deleteError;
 
   @override
   Future<VaultAnchor?> read({required String vaultId}) async {
+    if (readError != null) {
+      throw readError!;
+    }
     if (readThrows) {
       throw 'read failed';
     }
@@ -209,6 +307,9 @@ class _ThrowingVaultAnchorStore implements VaultAnchorStore {
 
   @override
   Future<void> write(VaultAnchor anchor) async {
+    if (writeError != null) {
+      throw writeError!;
+    }
     if (writeThrows) {
       throw 'write failed';
     }
@@ -216,6 +317,9 @@ class _ThrowingVaultAnchorStore implements VaultAnchorStore {
 
   @override
   Future<void> delete({required String vaultId}) async {
+    if (deleteError != null) {
+      throw deleteError!;
+    }
     if (deleteThrows) {
       throw 'delete failed';
     }

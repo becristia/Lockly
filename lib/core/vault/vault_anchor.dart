@@ -1,3 +1,5 @@
+import 'package:secure_box/core/crypto/encoding.dart';
+
 class VaultAnchor {
   const VaultAnchor({
     required this.vaultId,
@@ -44,7 +46,7 @@ class VaultAnchor {
       schemaVersion: schemaVersion,
       manifestEpoch: manifestEpoch,
       manifestCounter: manifestCounter,
-      manifestDigest: _readRequiredString(json, 'manifest_digest'),
+      manifestDigest: _readRequiredDigest(json, 'manifest_digest'),
       updatedAt: _readRequiredInt(json, 'updated_at'),
     );
   }
@@ -63,5 +65,18 @@ class VaultAnchor {
       throw FormatException('Invalid "$field": expected an int');
     }
     return value;
+  }
+
+  static String _readRequiredDigest(Map<String, Object?> json, String field) {
+    final value = _readRequiredString(json, field);
+    try {
+      if (fromB64(value).length == 32) {
+        return value;
+      }
+    } on FormatException {
+      throw FormatException('Invalid "$field": expected a 32-byte digest');
+    }
+
+    throw FormatException('Invalid "$field": expected a 32-byte digest');
   }
 }
