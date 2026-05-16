@@ -6,9 +6,9 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
-import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
@@ -70,6 +70,30 @@ void main() {
     expect(session.isUnlocked, isTrue);
   });
 
+  test(
+    'manifest-aware vault fails closed when required manifest is missing',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.repository.manifestDao.deleteAll();
+      service.lock();
+
+      await expectLater(
+        service.unlock(masterPassword: 'master-passphrase'),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect(service.isUnlocked, isFalse);
+      expect(await service.repository.manifestDao.get(), isNull);
+      expect(
+        await service.repository.settingsDao.getValue(
+          'vault_manifest_required',
+        ),
+        '1',
+      );
+    },
+  );
+
   test('unlock fails closed when existing manifest is tampered', () async {
     final service = await buildService();
     await service.createVault(masterPassword: 'master-passphrase');
@@ -114,6 +138,35 @@ void main() {
     expect(manifest!.epoch, 1);
     expect(manifest.counter, 1);
     expect(fixture.service.isUnlocked, isTrue);
+    expect(
+      await fixture.service.repository.settingsDao.getValue(
+        'vault_manifest_required',
+      ),
+      '1',
+    );
+  });
+
+  test('legacy vault requires manifest after successful upgrade', () async {
+    final fixture = await _createLegacyVault(
+      masterPassword: 'master-passphrase',
+    );
+    await fixture.service.unlock(masterPassword: 'master-passphrase');
+    await fixture.service.repository.manifestDao.deleteAll();
+    fixture.service.lock();
+
+    await expectLater(
+      fixture.service.unlock(masterPassword: 'master-passphrase'),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+
+    expect(fixture.service.isUnlocked, isFalse);
+    expect(await fixture.service.repository.manifestDao.get(), isNull);
+    expect(
+      await fixture.service.repository.settingsDao.getValue(
+        'vault_manifest_required',
+      ),
+      '1',
+    );
   });
 
   test(
@@ -129,6 +182,12 @@ void main() {
       );
 
       expect(await fixture.service.repository.manifestDao.get(), isNull);
+      expect(
+        await fixture.service.repository.settingsDao.getValue(
+          'vault_manifest_required',
+        ),
+        isNull,
+      );
       expect(fixture.service.isUnlocked, isFalse);
     },
   );

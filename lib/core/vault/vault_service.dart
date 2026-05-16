@@ -15,6 +15,9 @@ import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:uuid/uuid.dart';
 
+const _vaultManifestRequiredSetting = 'vault_manifest_required';
+const _vaultManifestRequiredValue = '1';
+
 class VaultUnlockException implements Exception {
   const VaultUnlockException(this.message);
 
@@ -127,6 +130,10 @@ class VaultService {
       await repository.transaction((txn) async {
         await txn.metaDao.save(meta);
         await txn.settingsDao.setValue('clipboard_clear_seconds', '30');
+        await txn.settingsDao.setValue(
+          _vaultManifestRequiredSetting,
+          _vaultManifestRequiredValue,
+        );
         final manifest = await _manifestService.createManifest(
           dek: dek!,
           meta: meta,
@@ -575,12 +582,6 @@ class VaultService {
     required VaultMeta meta,
     required Uint8List dek,
   }) async {
-    final manifest = await _readManifestForIntegrity(repository);
-    if (manifest != null) {
-      await _verifyExistingManifest(meta: meta, dek: dek);
-      return;
-    }
-
     await repository.transaction((txn) async {
       final existingManifest = await _readManifestForIntegrity(txn);
       final items = await _readItemsForManifest(txn);
@@ -591,7 +592,12 @@ class VaultService {
           items: items,
           manifest: existingManifest,
         );
+        await _requireManifestAfterSuccessfulUnlock(txn);
         return;
+      }
+
+      if (await _isManifestRequired(txn)) {
+        throw const VaultIntegrityException();
       }
 
       final upgradedManifest = await _manifestService.createManifest(
@@ -602,7 +608,32 @@ class VaultService {
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       );
       await txn.manifestDao.save(upgradedManifest);
+      await _requireManifestAfterSuccessfulUnlock(txn);
     });
+  }
+
+  Future<void> _requireManifestAfterSuccessfulUnlock(
+    VaultRepository repository,
+  ) async {
+    await repository.settingsDao.setValue(
+      _vaultManifestRequiredSetting,
+      _vaultManifestRequiredValue,
+    );
+  }
+
+  Future<bool> _isManifestRequired(VaultRepository repository) async {
+    try {
+      return await repository.settingsDao.getValue(
+            _vaultManifestRequiredSetting,
+          ) ==
+          _vaultManifestRequiredValue;
+    } on FormatException {
+      throw const VaultIntegrityException();
+    } on StateError {
+      throw const VaultIntegrityException();
+    } on ArgumentError {
+      throw const VaultIntegrityException();
+    }
   }
 
   Future<void> _verifyExistingManifest({
