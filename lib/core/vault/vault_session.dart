@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 
 class VaultLockedException implements Exception {
@@ -13,6 +12,7 @@ class VaultLockedException implements Exception {
 
 class VaultSession {
   Uint8List? _dek;
+  Uint8List? _lastZeroedDekForTest;
 
   bool get isUnlocked => _dek != null;
 
@@ -32,8 +32,23 @@ class VaultSession {
     final dek = _dek;
     if (dek != null) {
       dek.fillRange(0, dek.length, 0);
+      assert(() {
+        _lastZeroedDekForTest = Uint8List.fromList(dek);
+        return true;
+      }());
     }
     _dek = null;
+  }
+
+  @visibleForTesting
+  Uint8List debugCopyDekForTest() {
+    return _copyDek();
+  }
+
+  @visibleForTesting
+  Uint8List? get debugLastZeroedDekForTest {
+    final value = _lastZeroedDekForTest;
+    return value == null ? null : Uint8List.fromList(value);
   }
 
   void ensureUnlocked() {

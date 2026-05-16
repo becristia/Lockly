@@ -48,6 +48,13 @@ class _VaultEditPageState extends State<VaultEditPage> {
 
   @override
   void dispose() {
+    _titleController.clear();
+    _websiteController.clear();
+    _usernameController.clear();
+    _passwordController.clear();
+    _notesController.clear();
+    _tagsController.clear();
+    _isPasswordVisible = false;
     _titleController.dispose();
     _websiteController.dispose();
     _usernameController.dispose();

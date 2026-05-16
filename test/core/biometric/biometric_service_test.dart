@@ -95,6 +95,49 @@ void main() {
     expect(auth.authenticateCalls, 1);
   });
 
+  test('enable zeroes the temporary DEK copy passed to the store', () async {
+    final retainedStore = _RetainingWriteDekStore();
+    final service = BiometricService(
+      authenticator: _RecordingBiometricAuthenticator(),
+      store: retainedStore,
+    );
+    final dek = Uint8List.fromList(List<int>.filled(32, 6));
+
+    await service.enable(dek);
+
+    expect(dek, List<int>.filled(32, 6));
+    expect(retainedStore.retainedDek, List<int>.filled(32, 0));
+    expect(retainedStore.persistedDek, List<int>.filled(32, 6));
+  });
+
+  test('unlock zeroes store-returned DEK after copying result', () async {
+    final returnedDek = Uint8List.fromList(List<int>.filled(32, 4));
+    final service = BiometricService(
+      authenticator: _RecordingBiometricAuthenticator(),
+      store: _SingleReadDekStore(returnedDek),
+    );
+
+    final result = await service.unlock();
+
+    expect(result.status, BiometricUnlockStatus.unlocked);
+    expect(result.dek, List<int>.filled(32, 4));
+    expect(returnedDek, List<int>.filled(32, 0));
+  });
+
+  test('unlock zeroes invalid store-returned DEK before fallback', () async {
+    final returnedDek = Uint8List.fromList(List<int>.filled(31, 5));
+    final service = BiometricService(
+      authenticator: _RecordingBiometricAuthenticator(),
+      store: _SingleReadDekStore(returnedDek),
+    );
+
+    final result = await service.unlock();
+
+    expect(result.status, BiometricUnlockStatus.fallbackToMasterPassword);
+    expect(result.dek, isNull);
+    expect(returnedDek, List<int>.filled(31, 0));
+  });
+
   test(
     'successful biometric unlock skips explicit authenticate when store protects the read',
     () async {
@@ -369,6 +412,58 @@ class _TestSecureDekStore implements SecureDekStore {
     deleteCalls += 1;
     _dek = null;
   }
+}
+
+class _RetainingWriteDekStore implements SecureDekStore {
+  Uint8List? retainedDek;
+  Uint8List? persistedDek;
+
+  @override
+  SecureDekReadRequirement get readRequirement =>
+      SecureDekReadRequirement.explicitBiometricAuthentication;
+
+  @override
+  Future<bool> canUseBiometricProtection() async => true;
+
+  @override
+  Future<void> writeDek(Uint8List dek) async {
+    retainedDek = dek;
+    persistedDek = Uint8List.fromList(dek);
+  }
+
+  @override
+  Future<Uint8List?> readDek() async {
+    final dek = persistedDek;
+    return dek == null ? null : Uint8List.fromList(dek);
+  }
+
+  @override
+  Future<void> deleteDek() async {
+    retainedDek = null;
+    persistedDek = null;
+  }
+}
+
+class _SingleReadDekStore implements SecureDekStore {
+  _SingleReadDekStore(this.dek);
+
+  final Uint8List dek;
+
+  @override
+  SecureDekReadRequirement get readRequirement =>
+      SecureDekReadRequirement.explicitBiometricAuthentication;
+
+  @override
+  Future<bool> canUseBiometricProtection() async => true;
+
+  @override
+  Future<void> writeDek(Uint8List dek) async {}
+
+  @override
+  Future<Uint8List?> readDek() async => dek;
+
+  @override
+  Future<void> deleteDek() async {}
 }
 
 class _RecordingFlutterSecureStorage extends FlutterSecureStorage {

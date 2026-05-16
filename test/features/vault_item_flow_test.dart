@@ -90,9 +90,7 @@ void main() {
 
       expect(find.text('super-secret-123'), findsOneWidget);
 
-      tester.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.inactive,
-      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.pump();
 
       expect(find.text('Secure Box'), findsOneWidget);
