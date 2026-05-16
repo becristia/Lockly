@@ -503,6 +503,21 @@ void main() {
     },
   );
 
+  test('getItem verifies live manifest before decrypting details', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+    final id = await service.createItem(_entry(title: 'GitHub'));
+    final manifest = await service.repository.manifestDao.get();
+    await service.repository.manifestDao.save(_tamperManifestMac(manifest!));
+
+    await expectLater(
+      service.getItem(id),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(service.isUnlocked, isFalse);
+  });
+
   test(
     'item mutation fails closed when manifest is missing for created vault',
     () async {

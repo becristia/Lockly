@@ -594,6 +594,7 @@ class VaultService {
 
   Future<PasswordEntry> getItem(String id) async {
     _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
     final encryptedItem = await _requireActiveItem(id);
     return _decryptItem(encryptedItem);
   }
