@@ -789,6 +789,14 @@ class VaultService {
     }
   }
 
+  // ignore: unused_element, Task 3 will wire anchor deletion for destructive flows.
+  Future<void> _deleteAnchorForMeta(VaultMeta? meta) async {
+    if (meta == null) {
+      return;
+    }
+    await _anchorService.deleteAnchor(vaultId: meta.id);
+  }
+
   Future<void> _saveManifestForMetadataUpdate({
     required VaultRepository txn,
     required Uint8List dek,
