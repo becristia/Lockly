@@ -418,27 +418,33 @@ class BackupService {
               manifest: existingManifest,
             );
           }
-          await txn.metaDao.save(importedMeta);
-          await txn.itemsDao.deleteAll();
-          final importedItems = <EncryptedVaultItem>[];
-          for (final item in backup.items) {
-            final importedItem = _buildImportedItem(
-              item,
-              createdAt: item.createdAt ?? now,
-              updatedAt: item.updatedAt ?? now,
-            );
-            importedItems.add(importedItem);
-            await txn.itemsDao.upsert(importedItem);
-          }
-          final manifest = await _writeManifestForImportedEnvelope(
-            txn: txn,
-            backup: backup,
+          final importedItems = backup.items
+              .map(
+                (item) => _buildImportedItem(
+                  item,
+                  createdAt: item.createdAt ?? now,
+                  updatedAt: item.updatedAt ?? now,
+                ),
+              )
+              .toList(growable: false);
+          final manifest = await vaultService.createManifestForImportedVault(
             masterPassword: masterPassword,
             meta: importedMeta,
             items: importedItems,
             previous: null,
             updatedAt: now,
           );
+          await vaultService.verifyManifestAgainstAnchor(
+            meta: importedMeta,
+            manifest: manifest,
+            allowMissingAnchor: true,
+          );
+          await txn.metaDao.save(importedMeta);
+          await txn.itemsDao.deleteAll();
+          for (final importedItem in importedItems) {
+            await txn.itemsDao.upsert(importedItem);
+          }
+          await txn.manifestDao.save(manifest);
           vaultService.lock();
           return _BackupImportResult(
             importedCount: backup.items.length,
@@ -471,13 +477,20 @@ class BackupService {
               'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
             );
           }
-          if (preserveExistingMeta && pendingItems.isNotEmpty) {
-            await _verifyExistingManifestBeforeImportMutation(
-              txn: txn,
-              masterPassword: masterPassword,
-              meta: existingMeta,
-              manifest: existingManifest,
-            );
+          if (preserveExistingMeta) {
+            if (pendingItems.isNotEmpty) {
+              await _verifyExistingManifestBeforeImportMutation(
+                txn: txn,
+                masterPassword: masterPassword,
+                meta: existingMeta,
+                manifest: existingManifest,
+              );
+            } else {
+              await _verifyExistingAnchorBeforeImportNoop(
+                meta: existingMeta,
+                manifest: existingManifest,
+              );
+            }
           }
           final itemsToInsert = await _prepareImportedItems(
             items: pendingItems,
@@ -743,6 +756,19 @@ class BackupService {
       items: await txn.itemsDao.allItemsForManifest(),
       manifest: manifest,
     );
+    await vaultService.verifyManifestAgainstAnchor(
+      meta: meta,
+      manifest: manifest,
+    );
+  }
+
+  Future<void> _verifyExistingAnchorBeforeImportNoop({
+    required VaultMeta meta,
+    required VaultManifest? manifest,
+  }) async {
+    if (manifest == null) {
+      throw const VaultIntegrityException();
+    }
     await vaultService.verifyManifestAgainstAnchor(
       meta: meta,
       manifest: manifest,

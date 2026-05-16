@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
@@ -229,6 +231,67 @@ void main() {
     final manifest = await harness.service.repository.manifestDao.get();
     expect(anchor!.manifestCounter, manifest!.counter);
   });
+
+  test(
+    'enable biometric fails before writing store when anchor is rolled back',
+    () async {
+      final harness = await buildHarness();
+      final store = _CountingSecureDekStore();
+      final biometric = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: store,
+      );
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await _advanceAnchorPastCurrentManifest(harness);
+
+      await expectLater(
+        harness.service.enableBiometricUnlock(
+          masterPassword: 'master-passphrase',
+          biometricService: biometric,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect(store.writeCount, 0);
+      expect(await store.readDek(), isNull);
+    },
+  );
+
+  test(
+    'master password change fails before biometric delete on rolled back anchor',
+    () async {
+      final harness = await buildHarness();
+      final store = _CountingSecureDekStore();
+      final biometric = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: store,
+      );
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.enableBiometricUnlock(
+        masterPassword: 'master-passphrase',
+        biometricService: biometric,
+      );
+      await _advanceAnchorPastCurrentManifest(harness);
+
+      await expectLater(
+        harness.service.changeMasterPassword(
+          oldPassword: 'master-passphrase',
+          newPassword: 'new-master-passphrase',
+          beforePersist: biometric.disable,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect(store.deleteCount, 0);
+      expect(await store.readDek(), isNotNull);
+    },
+  );
 }
 
 class _Harness {
@@ -247,4 +310,45 @@ PasswordEntry _entry(String title) {
     notes: 'private note',
     tags: const ['tag'],
   );
+}
+
+Future<void> _advanceAnchorPastCurrentManifest(_Harness harness) async {
+  final meta = await harness.service.repository.metaDao.get();
+  final manifest = await harness.service.repository.manifestDao.get();
+  await VaultAnchorService(store: harness.anchorStore).writeAcceptedManifest(
+    vaultId: meta!.id,
+    manifest: manifest!.copyWith(counter: manifest.counter + 2),
+    updatedAt: manifest.updatedAt + 2,
+  );
+}
+
+class _CountingSecureDekStore implements SecureDekStore {
+  Uint8List? _dek;
+  var writeCount = 0;
+  var deleteCount = 0;
+
+  @override
+  SecureDekReadRequirement get readRequirement =>
+      SecureDekReadRequirement.explicitBiometricAuthentication;
+
+  @override
+  Future<bool> canUseBiometricProtection() async => true;
+
+  @override
+  Future<void> writeDek(Uint8List dek) async {
+    writeCount += 1;
+    _dek = Uint8List.fromList(dek);
+  }
+
+  @override
+  Future<Uint8List?> readDek() async {
+    final dek = _dek;
+    return dek == null ? null : Uint8List.fromList(dek);
+  }
+
+  @override
+  Future<void> deleteDek() async {
+    deleteCount += 1;
+    _dek = null;
+  }
 }

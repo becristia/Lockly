@@ -241,7 +241,15 @@ class VaultService {
         meta: meta,
         password: masterPassword,
       );
-      await _verifyExistingManifest(meta: meta, dek: dek);
+      final currentManifest = await _verifyExistingManifest(
+        meta: meta,
+        dek: dek,
+      );
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: currentManifest,
+        allowMissingAnchor: false,
+      );
       await biometricService.enable(dek);
       biometricEnabled = true;
       final updatedAt = DateTime.now().millisecondsSinceEpoch;
@@ -350,7 +358,15 @@ class VaultService {
     Uint8List? newKek;
     try {
       dek = await _decryptDekWithUnlockError(meta: meta, password: oldPassword);
-      await _verifyExistingManifest(meta: meta, dek: dek);
+      final currentManifest = await _verifyExistingManifest(
+        meta: meta,
+        dek: dek,
+      );
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: currentManifest,
+        allowMissingAnchor: false,
+      );
       final newSalt = _random.bytes(16);
       final newKdfParams = KdfParams.argon2id();
       newKek = await _kdf.deriveKey(
@@ -566,6 +582,11 @@ class VaultService {
     required VaultManifest manifest,
   }) async {
     try {
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: manifest,
+        allowMissingAnchor: true,
+      );
       await _writeAnchorForManifest(meta: meta, manifest: manifest);
     } on VaultIntegrityException {
       _session.lock();
@@ -576,11 +597,12 @@ class VaultService {
   Future<void> verifyManifestAgainstAnchor({
     required VaultMeta meta,
     required VaultManifest manifest,
+    bool allowMissingAnchor = false,
   }) {
     return _verifyAnchorForManifest(
       meta: meta,
       manifest: manifest,
-      allowMissingAnchor: false,
+      allowMissingAnchor: allowMissingAnchor,
     );
   }
 
