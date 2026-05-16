@@ -410,6 +410,14 @@ class BackupService {
 
       switch (mode) {
         case BackupImportMode.overwrite:
+          if (hasExistingVault) {
+            await _verifyExistingManifestBeforeImportMutation(
+              txn: txn,
+              masterPassword: masterPassword,
+              meta: existingMeta,
+              manifest: existingManifest,
+            );
+          }
           await txn.metaDao.save(importedMeta);
           await txn.itemsDao.deleteAll();
           final importedItems = <EncryptedVaultItem>[];

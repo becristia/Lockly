@@ -537,6 +537,69 @@ void main() {
     },
   );
 
+  test(
+    'importBackup overwrite rejects target rollback before writing data',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'shared-master');
+      await source.vaultService.unlock(masterPassword: 'shared-master');
+      final sourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Source',
+          website: 'https://source.example',
+          username: 'source@example.com',
+          password: 'source-password',
+          notes: 'source note',
+          tags: const ['source'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'shared-master');
+      await target.vaultService.unlock(masterPassword: 'shared-master');
+      final targetId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Target',
+          website: 'https://target.example',
+          username: 'target@example.com',
+          password: 'target-password',
+          notes: 'target note',
+          tags: const ['target'],
+        ),
+      );
+      final targetMeta = await target.repository.metaDao.get();
+      final targetManifest = await target.repository.manifestDao.get();
+      await VaultAnchorService(store: target.anchorStore).writeAcceptedManifest(
+        vaultId: targetMeta!.id,
+        manifest: targetManifest!.copyWith(counter: targetManifest.counter + 2),
+        updatedAt: targetManifest.updatedAt + 2,
+      );
+      target.vaultService.lock();
+
+      await expectLater(
+        target.backupService.importBackup(
+          json: backup.toJson(),
+          masterPassword: 'shared-master',
+          mode: BackupImportMode.overwrite,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      final rows = await target.repository.itemsDao.rawRowsForTest();
+      expect(rows, hasLength(1));
+      expect(rows.single['id'], targetId);
+      expect(rows.single['id'], isNot(sourceId));
+      final preservedMeta = await target.repository.metaDao.get();
+      expect(preservedMeta!.id, targetMeta.id);
+      expect(
+        preservedMeta.encryptedDekByMaster,
+        targetMeta.encryptedDekByMaster,
+      );
+      expect(target.vaultService.isUnlocked, isFalse);
+    },
+  );
+
   test('importBackup skip keeps duplicate rows and adds new ones', () async {
     final source = await _buildHarness();
     await source.vaultService.createVault(masterPassword: 'source-master');
