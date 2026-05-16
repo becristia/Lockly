@@ -11,6 +11,7 @@ import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
+import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
@@ -158,6 +159,16 @@ void main() {
     );
   });
 
+  test('exportBackup fails while the vault is locked', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+
+    await expectLater(
+      source.backupService.exportBackup(),
+      throwsA(isA<VaultLockedException>()),
+    );
+  });
+
   test('argon2id backup export preserves full kdf params', () async {
     final source = await _buildHarness();
     await _createEmptyArgon2idVault(source, masterPassword: 'source-master');
@@ -299,6 +310,82 @@ void main() {
       );
       final local = await target.vaultService.getItem(localId);
       expect(local.password, 'local-password');
+    },
+  );
+
+  test(
+    'v2 import from biometric-enabled source succeeds and disables biometric on target',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final itemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: ['dev'],
+        ),
+      );
+      await _enableBiometricMeta(source, masterPassword: 'source-master');
+
+      final backup = await source.backupService.exportBackup();
+      final backupJson = backup.toJson();
+      expect(backupJson['biometric_enabled'], isTrue);
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: backupJson,
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+
+      final targetMeta = await target.repository.metaDao.get();
+      expect(targetMeta, isNotNull);
+      expect(targetMeta!.biometricEnabled, isFalse);
+      expect(targetMeta.encryptedDekByBiometric, isNull);
+      await target.vaultService.unlock(masterPassword: 'source-master');
+      final imported = await target.vaultService.getItem(itemId);
+      expect(imported.password, 'secret-password');
+    },
+  );
+
+  test(
+    'v2 import rejects tampered biometric metadata before writing target data',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: ['dev'],
+        ),
+      );
+      await _enableBiometricMeta(source, masterPassword: 'source-master');
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      final originalMeta = await target.repository.metaDao.get();
+
+      await expectLater(
+        target.backupService.importBackup(
+          json: {...backup.toJson(), 'biometric_enabled': false},
+          masterPassword: 'source-master',
+          mode: BackupImportMode.overwrite,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect((await target.repository.metaDao.get())!.id, originalMeta!.id);
+      expect(await target.repository.itemsDao.rawRowsForTest(), isEmpty);
     },
   );
 
@@ -574,7 +661,10 @@ void main() {
           tags: ['shared'],
         ),
       );
-      final originalMeta = await _enableBiometricMeta(target);
+      final originalMeta = await _enableBiometricMeta(
+        target,
+        masterPassword: 'target-master',
+      );
       final importedJson = _backupJsonWithItemIdReplacement(
         backup: exportedBackup,
         fromId: sharedSourceId,
@@ -708,7 +798,10 @@ void main() {
           tags: ['local'],
         ),
       );
-      final originalMeta = await _enableBiometricMeta(target);
+      final originalMeta = await _enableBiometricMeta(
+        target,
+        masterPassword: 'target-master',
+      );
       final importedJson = _backupJsonWithItemIdReplacement(
         backup: exportedBackup,
         fromId: sharedSourceId,
@@ -920,6 +1013,10 @@ Map<String, Object?> _asLegacyBackupJson(Map<String, Object?> json) {
   legacy.remove('vault_id');
   legacy.remove('vault_created_at');
   legacy.remove('vault_updated_at');
+  legacy.remove('biometric_enabled');
+  legacy.remove('encrypted_dek_by_biometric');
+  legacy.remove('encrypted_dek_by_biometric_nonce');
+  legacy.remove('encrypted_dek_by_biometric_mac');
   legacy.remove('manifest');
   return legacy;
 }
@@ -930,7 +1027,10 @@ String _tamperBase64(String value) {
   return b64(bytes);
 }
 
-Future<VaultMeta> _enableBiometricMeta(_BackupHarness harness) async {
+Future<VaultMeta> _enableBiometricMeta(
+  _BackupHarness harness, {
+  required String masterPassword,
+}) async {
   final biometricService = BiometricService(
     authenticator: FakeBiometricAuthenticator(
       canAuthenticate: true,
@@ -939,7 +1039,7 @@ Future<VaultMeta> _enableBiometricMeta(_BackupHarness harness) async {
     store: MemorySecureDekStore(),
   );
   await harness.vaultService.enableBiometricUnlock(
-    masterPassword: 'target-master',
+    masterPassword: masterPassword,
     biometricService: biometricService,
   );
   return (await harness.repository.metaDao.get())!;

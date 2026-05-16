@@ -134,6 +134,10 @@ class VaultBackup {
     this.vaultId,
     this.vaultCreatedAt,
     this.vaultUpdatedAt,
+    this.biometricEnabled,
+    this.encryptedDekByBiometric,
+    this.encryptedDekByBiometricNonce,
+    this.encryptedDekByBiometricMac,
     this.manifest,
     required this.kdf,
     required Map<String, Object?> kdfParams,
@@ -155,6 +159,7 @@ class VaultBackup {
           vaultId == null ||
           vaultCreatedAt == null ||
           vaultUpdatedAt == null ||
+          biometricEnabled == null ||
           manifest == null ||
           this.items.any(
             (item) => item.createdAt == null || item.updatedAt == null,
@@ -171,6 +176,10 @@ class VaultBackup {
   final String? vaultId;
   final int? vaultCreatedAt;
   final int? vaultUpdatedAt;
+  final bool? biometricEnabled;
+  final String? encryptedDekByBiometric;
+  final String? encryptedDekByBiometricNonce;
+  final String? encryptedDekByBiometricMac;
   final BackupManifest? manifest;
   final String kdf;
   final Map<String, Object?> kdfParams;
@@ -190,6 +199,10 @@ class VaultBackup {
         'vault_id': vaultId,
         'vault_created_at': vaultCreatedAt,
         'vault_updated_at': vaultUpdatedAt,
+        'biometric_enabled': biometricEnabled,
+        'encrypted_dek_by_biometric': encryptedDekByBiometric,
+        'encrypted_dek_by_biometric_nonce': encryptedDekByBiometricNonce,
+        'encrypted_dek_by_biometric_mac': encryptedDekByBiometricMac,
         'manifest': manifest!.toJson(),
       },
       'kdf': kdf,
@@ -250,6 +263,18 @@ class VaultBackup {
           : null,
       vaultUpdatedAt: version == _currentBackupVersion
           ? _readRequiredInt(json, 'vault_updated_at')
+          : null,
+      biometricEnabled: version == _currentBackupVersion
+          ? _readRequiredBool(json, 'biometric_enabled')
+          : null,
+      encryptedDekByBiometric: version == _currentBackupVersion
+          ? _readOptionalString(json, 'encrypted_dek_by_biometric')
+          : null,
+      encryptedDekByBiometricNonce: version == _currentBackupVersion
+          ? _readOptionalString(json, 'encrypted_dek_by_biometric_nonce')
+          : null,
+      encryptedDekByBiometricMac: version == _currentBackupVersion
+          ? _readOptionalString(json, 'encrypted_dek_by_biometric_mac')
           : null,
       manifest: manifest,
       kdf: _readRequiredString(json, 'kdf'),
@@ -317,6 +342,10 @@ class BackupService {
       vaultId: meta.id,
       vaultCreatedAt: meta.createdAt,
       vaultUpdatedAt: meta.updatedAt,
+      biometricEnabled: meta.biometricEnabled,
+      encryptedDekByBiometric: meta.encryptedDekByBiometric,
+      encryptedDekByBiometricNonce: meta.encryptedDekByBiometricNonce,
+      encryptedDekByBiometricMac: meta.encryptedDekByBiometricMac,
       manifest: BackupManifest.fromVaultManifest(manifest),
       kdf: meta.kdf,
       kdfParams: meta.kdfParams.toJson(),
@@ -517,12 +546,12 @@ class BackupService {
       encryptedDekByMaster: backup.encryptedDekByMaster,
       encryptedDekByMasterNonce: backup.encryptedDekByMasterNonce,
       encryptedDekByMasterMac: backup.encryptedDekByMasterMac,
-      biometricEnabled: false,
+      biometricEnabled: backup.biometricEnabled ?? false,
       createdAt: backup.vaultCreatedAt ?? 0,
       updatedAt: backup.vaultUpdatedAt ?? 0,
-      encryptedDekByBiometric: null,
-      encryptedDekByBiometricNonce: null,
-      encryptedDekByBiometricMac: null,
+      encryptedDekByBiometric: backup.encryptedDekByBiometric,
+      encryptedDekByBiometricNonce: backup.encryptedDekByBiometricNonce,
+      encryptedDekByBiometricMac: backup.encryptedDekByBiometricMac,
     );
   }
 
@@ -593,11 +622,6 @@ class BackupService {
     required VaultManifest? previous,
     required int updatedAt,
   }) async {
-    if (backup.version == _currentBackupVersion) {
-      await txn.manifestDao.save(backup.manifest!.toVaultManifest());
-      return;
-    }
-
     final manifest = await vaultService.createManifestForImportedVault(
       masterPassword: masterPassword,
       meta: meta,
@@ -730,6 +754,27 @@ int _readRequiredInt(Map<String, Object?> json, String field) {
   final value = json[field];
   if (value is! int) {
     throw BackupFormatException('Invalid "$field": expected an int');
+  }
+
+  return value;
+}
+
+bool _readRequiredBool(Map<String, Object?> json, String field) {
+  final value = json[field];
+  if (value is! bool) {
+    throw BackupFormatException('Invalid "$field": expected a bool');
+  }
+
+  return value;
+}
+
+String? _readOptionalString(Map<String, Object?> json, String field) {
+  final value = json[field];
+  if (value == null) {
+    return null;
+  }
+  if (value is! String) {
+    throw BackupFormatException('Invalid "$field": expected a string');
   }
 
   return value;
