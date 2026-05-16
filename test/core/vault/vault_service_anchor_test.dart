@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
@@ -24,10 +26,18 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  Future<_Harness> buildHarness() async {
-    final db = await AppDatabase.openInMemory();
-    addTearDown(db.close);
-    final anchorStore = MemoryVaultAnchorStore();
+  Future<_Harness> buildHarness({
+    String? path,
+    MemoryVaultAnchorStore? anchorStore,
+    bool autoClose = true,
+  }) async {
+    final db = path == null
+        ? await AppDatabase.openInMemory()
+        : await AppDatabase.open(path);
+    if (autoClose) {
+      addTearDown(db.close);
+    }
+    final store = anchorStore ?? MemoryVaultAnchorStore();
     final service = VaultService(
       repository: VaultRepository(
         metaDao: VaultMetaDao(db),
@@ -38,9 +48,9 @@ void main() {
       random: SecureRandom(),
       kdf: KdfService(),
       crypto: CryptoService(random: SecureRandom()),
-      anchorService: VaultAnchorService(store: anchorStore),
+      anchorService: VaultAnchorService(store: store),
     );
-    return _Harness(service: service, anchorStore: anchorStore);
+    return _Harness(service: service, anchorStore: store, db: db);
   }
 
   test('createVault writes anchor for initial manifest', () async {
@@ -200,6 +210,48 @@ void main() {
     expect(harness.service.isUnlocked, isFalse);
   });
 
+  test('master unlock rejects restored older SQLite database file', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'secure_box_rollback_anchor_',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final dbPath = p.join(dir.path, 'vault.db');
+    final snapshotPath = p.join(dir.path, 'vault.snapshot.db');
+    final anchorStore = MemoryVaultAnchorStore();
+
+    var harness = await buildHarness(
+      path: dbPath,
+      anchorStore: anchorStore,
+      autoClose: false,
+    );
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    await harness.db.close();
+    await _copyClosedDatabaseFile(from: dbPath, to: snapshotPath);
+
+    harness = await buildHarness(
+      path: dbPath,
+      anchorStore: anchorStore,
+      autoClose: false,
+    );
+    await harness.service.unlock(masterPassword: 'master-passphrase');
+    await harness.service.createItem(_entry('After snapshot'));
+    await harness.db.close();
+
+    await _copyClosedDatabaseFile(from: snapshotPath, to: dbPath);
+    final rolledBack = await buildHarness(
+      path: dbPath,
+      anchorStore: anchorStore,
+      autoClose: false,
+    );
+    addTearDown(rolledBack.db.close);
+
+    await expectLater(
+      rolledBack.service.unlock(masterPassword: 'master-passphrase'),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(rolledBack.service.isUnlocked, isFalse);
+  });
+
   test('clearLocalVault deletes anchor state', () async {
     final harness = await buildHarness();
     await harness.service.createVault(masterPassword: 'master-passphrase');
@@ -317,10 +369,15 @@ void main() {
 }
 
 class _Harness {
-  _Harness({required this.service, required this.anchorStore});
+  _Harness({
+    required this.service,
+    required this.anchorStore,
+    required this.db,
+  });
 
   final VaultService service;
   final MemoryVaultAnchorStore anchorStore;
+  final Database db;
 }
 
 PasswordEntry _entry(String title) {
@@ -342,6 +399,23 @@ Future<void> _advanceAnchorPastCurrentManifest(_Harness harness) async {
     manifest: manifest!.copyWith(counter: manifest.counter + 2),
     updatedAt: manifest.updatedAt + 2,
   );
+}
+
+Future<void> _copyClosedDatabaseFile({
+  required String from,
+  required String to,
+}) async {
+  await _deleteIfExists(to);
+  await _deleteIfExists('$to-wal');
+  await _deleteIfExists('$to-shm');
+  await File(from).copy(to);
+}
+
+Future<void> _deleteIfExists(String path) async {
+  final file = File(path);
+  if (await file.exists()) {
+    await file.delete();
+  }
 }
 
 class _CountingSecureDekStore implements SecureDekStore {

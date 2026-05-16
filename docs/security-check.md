@@ -12,7 +12,7 @@ Date: 2026-05-17
 
 ## Result
 
-- `flutter test --reporter compact` passed after device rollback anchor hardening: 215 tests.
+- `flutter test --reporter compact` passed after device rollback anchor hardening: 216 tests.
 - `flutter analyze` passed: no issues found.
 - No MD5 or SHA1 usage was found.
 - `sha256` appears only as the HMAC algorithm inside PBKDF2-HMAC-SHA256, HKDF/HMAC-SHA256 manifest key derivation, canonical manifest digests, and corresponding tests. It is not used as a direct master-password hash.
