@@ -21,7 +21,6 @@ class SecureStorageVaultAnchorStore implements VaultAnchorStore {
 
   static const _keyPrefix = 'vault_anchor_';
   static const _defaultAndroidOptions = AndroidOptions(
-    encryptedSharedPreferences: true,
     storageNamespace: 'secure_box_vault_anchor',
     resetOnError: false,
   );

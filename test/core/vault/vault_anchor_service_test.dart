@@ -197,14 +197,18 @@ void main() {
     );
   });
 
-  test('secure storage anchor store uses non-resetting Android options', () {
-    final options = SecureStorageVaultAnchorStore.defaultAndroidOptionsForTest;
-    final params = options.toMap();
+  test(
+    'secure storage anchor store uses scoped non-resetting Android options',
+    () {
+      final options =
+          SecureStorageVaultAnchorStore.defaultAndroidOptionsForTest;
+      final params = options.toMap();
 
-    expect(params['encryptedSharedPreferences'], 'true');
-    expect(params['storageNamespace'], 'secure_box_vault_anchor');
-    expect(params['resetOnError'], isNot('true'));
-  });
+      expect(params['storageNamespace'], 'secure_box_vault_anchor');
+      expect(params['resetOnError'], 'false');
+      expect(params['encryptedSharedPreferences'], isNot('true'));
+    },
+  );
 
   test(
     'digestManifest is deterministic and sensitive to anchor fields',
