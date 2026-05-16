@@ -438,6 +438,7 @@ class BackupService {
             meta: importedMeta,
             manifest: manifest,
             allowMissingAnchor: true,
+            allowNewerManifest: true,
           );
           await txn.metaDao.save(importedMeta);
           await txn.itemsDao.deleteAll();

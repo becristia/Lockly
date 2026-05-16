@@ -12,7 +12,7 @@ Date: 2026-05-17
 
 ## Result
 
-- `flutter test --reporter compact` passed after device rollback anchor hardening: 212 tests.
+- `flutter test --reporter compact` passed after device rollback anchor hardening: 215 tests.
 - `flutter analyze` passed: no issues found.
 - No MD5 or SHA1 usage was found.
 - `sha256` appears only as the HMAC algorithm inside PBKDF2-HMAC-SHA256, HKDF/HMAC-SHA256 manifest key derivation, canonical manifest digests, and corresponding tests. It is not used as a direct master-password hash.
@@ -28,7 +28,7 @@ Date: 2026-05-17
 - Vault rollback anchor is stored in platform secure storage, not SQLite, and contains only vault id, schema version, manifest epoch/counter, manifest digest, and timestamp.
 - Master-password unlock can recreate a missing platform anchor only after encrypted manifest verification succeeds.
 - Biometric unlock requires an existing matching platform anchor and falls back to the master password if the anchor is missing or invalid.
-- Whole-database rollback below the platform anchor counter fails closed.
+- Runtime unlock and mutation preflight require an existing platform anchor to match the encrypted manifest epoch, counter, and digest exactly, so whole-database rollback below the platform anchor or SQLite advancing beyond a stale anchor fails closed.
 - Backup import anchor preflight checks run before destructive writes. Overwrite import verifies the existing target anchor, checks the imported vault-id anchor before accepting the replacement, and skip no-op verifies the current target anchor before returning success.
 - Backup version 2 includes `magic`, `item_count`, source biometric metadata needed for manifest verification, and an encrypted manifest. Version 1 backup import remains supported as a legacy path that generates a target manifest.
 - Version 2 backup import verifies the backup master password and manifest before writing target data, and rejects item, manifest, biometric metadata, item count, and magic mismatches.

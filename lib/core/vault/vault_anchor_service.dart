@@ -27,6 +27,7 @@ class VaultAnchorService {
   Future<VaultAnchorVerificationResult> verifyAgainstAnchor({
     required String vaultId,
     required VaultManifest manifest,
+    bool allowNewerManifest = false,
   }) async {
     final VaultAnchor? anchor;
     try {
@@ -46,6 +47,12 @@ class VaultAnchorService {
       throw const VaultAnchorException();
     }
     if (_isManifestOlderThanAnchor(manifest: manifest, anchor: anchor)) {
+      throw const VaultAnchorException();
+    }
+    if (_isManifestNewerThanAnchor(manifest: manifest, anchor: anchor)) {
+      if (allowNewerManifest) {
+        return VaultAnchorVerificationResult.matched;
+      }
       throw const VaultAnchorException();
     }
     if (manifest.epoch == anchor.manifestEpoch &&
@@ -122,5 +129,18 @@ class VaultAnchorService {
       return false;
     }
     return manifest.counter < anchor.manifestCounter;
+  }
+
+  bool _isManifestNewerThanAnchor({
+    required VaultManifest manifest,
+    required VaultAnchor anchor,
+  }) {
+    if (manifest.epoch > anchor.manifestEpoch) {
+      return true;
+    }
+    if (manifest.epoch < anchor.manifestEpoch) {
+      return false;
+    }
+    return manifest.counter > anchor.manifestCounter;
   }
 }

@@ -586,6 +586,7 @@ class VaultService {
         meta: meta,
         manifest: manifest,
         allowMissingAnchor: true,
+        allowNewerManifest: true,
       );
       await _writeAnchorForManifest(meta: meta, manifest: manifest);
     } on VaultIntegrityException {
@@ -598,11 +599,13 @@ class VaultService {
     required VaultMeta meta,
     required VaultManifest manifest,
     bool allowMissingAnchor = false,
+    bool allowNewerManifest = false,
   }) {
     return _verifyAnchorForManifest(
       meta: meta,
       manifest: manifest,
       allowMissingAnchor: allowMissingAnchor,
+      allowNewerManifest: allowNewerManifest,
     );
   }
 
@@ -833,11 +836,13 @@ class VaultService {
     required VaultMeta meta,
     required VaultManifest manifest,
     required bool allowMissingAnchor,
+    bool allowNewerManifest = false,
   }) async {
     try {
       final result = await _anchorService.verifyAgainstAnchor(
         vaultId: meta.id,
         manifest: manifest,
+        allowNewerManifest: allowNewerManifest,
       );
       if (result == VaultAnchorVerificationResult.missing &&
           !allowMissingAnchor) {

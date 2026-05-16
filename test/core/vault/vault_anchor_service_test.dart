@@ -95,6 +95,48 @@ void main() {
     );
   });
 
+  test(
+    'verifyAgainstAnchor rejects a manifest newer than the anchor by default',
+    () async {
+      final store = MemoryVaultAnchorStore();
+      final service = VaultAnchorService(store: store);
+      await service.writeAcceptedManifest(
+        vaultId: 'vault-1',
+        manifest: manifest(counter: 5),
+        updatedAt: 1760000005000,
+      );
+
+      expect(
+        () => service.verifyAgainstAnchor(
+          vaultId: 'vault-1',
+          manifest: manifest(counter: 6),
+        ),
+        throwsA(isA<VaultAnchorException>()),
+      );
+    },
+  );
+
+  test(
+    'verifyAgainstAnchor can explicitly allow a newer accepted manifest',
+    () async {
+      final store = MemoryVaultAnchorStore();
+      final service = VaultAnchorService(store: store);
+      await service.writeAcceptedManifest(
+        vaultId: 'vault-1',
+        manifest: manifest(counter: 5),
+        updatedAt: 1760000005000,
+      );
+
+      final result = await service.verifyAgainstAnchor(
+        vaultId: 'vault-1',
+        manifest: manifest(counter: 6),
+        allowNewerManifest: true,
+      );
+
+      expect(result, VaultAnchorVerificationResult.matched);
+    },
+  );
+
   test('verifyAgainstAnchor rejects same counter digest mismatch', () async {
     final store = MemoryVaultAnchorStore();
     final service = VaultAnchorService(store: store);

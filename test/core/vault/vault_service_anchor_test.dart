@@ -178,6 +178,28 @@ void main() {
     expect(harness.service.isUnlocked, isFalse);
   });
 
+  test('master unlock rejects database advanced beyond stale anchor', () async {
+    final harness = await buildHarness();
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    await harness.service.unlock(masterPassword: 'master-passphrase');
+    final meta = await harness.service.repository.metaDao.get();
+    final initialManifest = await harness.service.repository.manifestDao.get();
+
+    await harness.service.createItem(_entry('Advanced'));
+    await VaultAnchorService(store: harness.anchorStore).writeAcceptedManifest(
+      vaultId: meta!.id,
+      manifest: initialManifest!,
+      updatedAt: initialManifest.updatedAt,
+    );
+    harness.service.lock();
+
+    await expectLater(
+      harness.service.unlock(masterPassword: 'master-passphrase'),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(harness.service.isUnlocked, isFalse);
+  });
+
   test('clearLocalVault deletes anchor state', () async {
     final harness = await buildHarness();
     await harness.service.createVault(masterPassword: 'master-passphrase');
