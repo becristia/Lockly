@@ -31,7 +31,7 @@ class VaultAnchorService {
     final VaultAnchor? anchor;
     try {
       anchor = await _store.read(vaultId: vaultId);
-    } on Exception {
+    } catch (_) {
       throw const VaultAnchorException();
     }
     if (anchor == null) {
@@ -71,7 +71,7 @@ class VaultAnchorService {
     );
     try {
       await _store.write(anchor);
-    } on Exception {
+    } catch (_) {
       throw const VaultAnchorException();
     }
   }
@@ -79,22 +79,26 @@ class VaultAnchorService {
   Future<void> deleteAnchor({required String vaultId}) async {
     try {
       await _store.delete(vaultId: vaultId);
-    } on Exception {
+    } catch (_) {
       throw const VaultAnchorException();
     }
   }
 
   Future<String> digestManifest(VaultManifest manifest) async {
     final canonical = jsonEncode({
-      'ciphertext': manifest.ciphertext,
+      'ciphertext_digest': await _digestString(manifest.ciphertext),
       'counter': manifest.counter,
       'epoch': manifest.epoch,
-      'mac': manifest.mac,
-      'nonce': manifest.nonce,
+      'mac_digest': await _digestString(manifest.mac),
+      'nonce_digest': await _digestString(manifest.nonce),
       'updated_at': manifest.updatedAt,
       'version': manifest.version,
     });
-    final digest = await _sha256.hash(utf8.encode(canonical));
+    return _digestString(canonical);
+  }
+
+  Future<String> _digestString(String value) async {
+    final digest = await _sha256.hash(utf8.encode(value));
     return b64(Uint8List.fromList(digest.bytes));
   }
 

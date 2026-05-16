@@ -1,4 +1,9 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:cryptography/cryptography.dart' show Sha256;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/vault/vault_anchor.dart';
 import 'package:secure_box/core/vault/vault_anchor_service.dart';
 import 'package:secure_box/core/vault/vault_anchor_store.dart';
@@ -102,6 +107,58 @@ void main() {
     );
   });
 
+  test(
+    'digestManifest does not use raw manifest fields as canonical input',
+    () async {
+      final service = VaultAnchorService(store: MemoryVaultAnchorStore());
+      final current = manifest(counter: 7, mac: 'mac');
+      final legacyCanonical = jsonEncode({
+        'ciphertext': current.ciphertext,
+        'counter': current.counter,
+        'epoch': current.epoch,
+        'mac': current.mac,
+        'nonce': current.nonce,
+        'updated_at': current.updatedAt,
+        'version': current.version,
+      });
+      final legacyDigest = await Sha256().hash(utf8.encode(legacyCanonical));
+
+      expect(
+        await service.digestManifest(current),
+        isNot(b64(Uint8List.fromList(legacyDigest.bytes))),
+      );
+    },
+  );
+
+  test('store failures from non-Exception throws are normalized', () async {
+    final readService = VaultAnchorService(
+      store: _ThrowingVaultAnchorStore(readThrows: true),
+    );
+    final writeService = VaultAnchorService(
+      store: _ThrowingVaultAnchorStore(writeThrows: true),
+    );
+    final deleteService = VaultAnchorService(
+      store: _ThrowingVaultAnchorStore(deleteThrows: true),
+    );
+
+    await expectLater(
+      readService.verifyAgainstAnchor(vaultId: 'vault-1', manifest: manifest()),
+      throwsA(isA<VaultAnchorException>()),
+    );
+    await expectLater(
+      writeService.writeAcceptedManifest(
+        vaultId: 'vault-1',
+        manifest: manifest(),
+        updatedAt: 1760000000000,
+      ),
+      throwsA(isA<VaultAnchorException>()),
+    );
+    await expectLater(
+      deleteService.deleteAnchor(vaultId: 'vault-1'),
+      throwsA(isA<VaultAnchorException>()),
+    );
+  });
+
   test('deleteAnchor removes stored anchor', () async {
     final store = MemoryVaultAnchorStore();
     final service = VaultAnchorService(store: store);
@@ -129,4 +186,38 @@ void main() {
       throwsFormatException,
     );
   });
+}
+
+class _ThrowingVaultAnchorStore implements VaultAnchorStore {
+  const _ThrowingVaultAnchorStore({
+    this.readThrows = false,
+    this.writeThrows = false,
+    this.deleteThrows = false,
+  });
+
+  final bool readThrows;
+  final bool writeThrows;
+  final bool deleteThrows;
+
+  @override
+  Future<VaultAnchor?> read({required String vaultId}) async {
+    if (readThrows) {
+      throw 'read failed';
+    }
+    return null;
+  }
+
+  @override
+  Future<void> write(VaultAnchor anchor) async {
+    if (writeThrows) {
+      throw 'write failed';
+    }
+  }
+
+  @override
+  Future<void> delete({required String vaultId}) async {
+    if (deleteThrows) {
+      throw 'delete failed';
+    }
+  }
 }
