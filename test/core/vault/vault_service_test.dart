@@ -70,29 +70,20 @@ void main() {
     expect(session.isUnlocked, isTrue);
   });
 
-  test(
-    'manifest-aware vault fails closed when required manifest is missing',
-    () async {
-      final service = await buildService();
-      await service.createVault(masterPassword: 'master-passphrase');
-      await service.repository.manifestDao.deleteAll();
-      service.lock();
+  test('manifest-aware vault fails closed when manifest is missing', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.repository.manifestDao.deleteAll();
+    service.lock();
 
-      await expectLater(
-        service.unlock(masterPassword: 'master-passphrase'),
-        throwsA(isA<VaultIntegrityException>()),
-      );
+    await expectLater(
+      service.unlock(masterPassword: 'master-passphrase'),
+      throwsA(isA<VaultIntegrityException>()),
+    );
 
-      expect(service.isUnlocked, isFalse);
-      expect(await service.repository.manifestDao.get(), isNull);
-      expect(
-        await service.repository.settingsDao.getValue(
-          'vault_manifest_required',
-        ),
-        '1',
-      );
-    },
-  );
+    expect(service.isUnlocked, isFalse);
+    expect(await service.repository.manifestDao.get(), isNull);
+  });
 
   test('unlock fails closed when existing manifest is tampered', () async {
     final service = await buildService();
@@ -126,51 +117,22 @@ void main() {
     },
   );
 
-  test('legacy vault without manifest upgrades after master unlock', () async {
+  test('no-manifest vault fails closed after master unlock', () async {
     final fixture = await _createLegacyVault(
       masterPassword: 'master-passphrase',
     );
-
-    await fixture.service.unlock(masterPassword: 'master-passphrase');
-
-    final manifest = await fixture.service.repository.manifestDao.get();
-    expect(manifest, isNotNull);
-    expect(manifest!.epoch, 1);
-    expect(manifest.counter, 1);
-    expect(fixture.service.isUnlocked, isTrue);
-    expect(
-      await fixture.service.repository.settingsDao.getValue(
-        'vault_manifest_required',
-      ),
-      '1',
-    );
-  });
-
-  test('legacy vault requires manifest after successful upgrade', () async {
-    final fixture = await _createLegacyVault(
-      masterPassword: 'master-passphrase',
-    );
-    await fixture.service.unlock(masterPassword: 'master-passphrase');
-    await fixture.service.repository.manifestDao.deleteAll();
-    fixture.service.lock();
 
     await expectLater(
       fixture.service.unlock(masterPassword: 'master-passphrase'),
       throwsA(isA<VaultIntegrityException>()),
     );
 
-    expect(fixture.service.isUnlocked, isFalse);
     expect(await fixture.service.repository.manifestDao.get(), isNull);
-    expect(
-      await fixture.service.repository.settingsDao.getValue(
-        'vault_manifest_required',
-      ),
-      '1',
-    );
+    expect(fixture.service.isUnlocked, isFalse);
   });
 
   test(
-    'wrong master password on legacy vault does not create manifest',
+    'wrong master password on no-manifest vault does not create manifest',
     () async {
       final fixture = await _createLegacyVault(
         masterPassword: 'master-passphrase',
@@ -182,12 +144,6 @@ void main() {
       );
 
       expect(await fixture.service.repository.manifestDao.get(), isNull);
-      expect(
-        await fixture.service.repository.settingsDao.getValue(
-          'vault_manifest_required',
-        ),
-        isNull,
-      );
       expect(fixture.service.isUnlocked, isFalse);
     },
   );
@@ -602,22 +558,34 @@ void main() {
       final wrappedDek = await CryptoService(
         random: SecureRandom(),
       ).encryptBytes(key: oldKek, plaintext: dek);
-
-      await service.repository.metaDao.save(
-        VaultMeta(
-          id: 'legacy-vault',
-          version: 1,
-          kdf: oldParams.name,
-          kdfParams: oldParams,
-          salt: b64(salt),
-          encryptedDekByMaster: b64(wrappedDek.ciphertext),
-          encryptedDekByMasterNonce: b64(wrappedDek.nonce),
-          encryptedDekByMasterMac: b64(wrappedDek.mac),
-          biometricEnabled: false,
-          createdAt: now,
-          updatedAt: now,
-        ),
+      final legacyMeta = VaultMeta(
+        id: 'pbkdf2-vault',
+        version: 1,
+        kdf: oldParams.name,
+        kdfParams: oldParams,
+        salt: b64(salt),
+        encryptedDekByMaster: b64(wrappedDek.ciphertext),
+        encryptedDekByMasterNonce: b64(wrappedDek.nonce),
+        encryptedDekByMasterMac: b64(wrappedDek.mac),
+        biometricEnabled: false,
+        createdAt: now,
+        updatedAt: now,
       );
+
+      await service.repository.transaction((txn) async {
+        await txn.metaDao.save(legacyMeta);
+        final manifest =
+            await VaultManifestService(
+              crypto: CryptoService(random: SecureRandom()),
+            ).createManifest(
+              dek: dek,
+              meta: legacyMeta,
+              items: const [],
+              previous: null,
+              updatedAt: now,
+            );
+        await txn.manifestDao.save(manifest);
+      });
 
       await service.unlock(masterPassword: 'old-master');
       await service.changeMasterPassword(
