@@ -6,6 +6,8 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_anchor_service.dart';
+import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
@@ -62,13 +64,16 @@ class VaultService {
     VaultSession? session,
     Uuid? uuid,
     VaultManifestService? manifestService,
+    VaultAnchorService? anchorService,
   }) : _random = random,
        _kdf = kdf,
        _crypto = crypto,
        _session = session ?? VaultSession(),
        _uuid = uuid ?? const Uuid(),
        _manifestService =
-           manifestService ?? VaultManifestService(crypto: crypto);
+           manifestService ?? VaultManifestService(crypto: crypto),
+       _anchorService =
+           anchorService ?? VaultAnchorService(store: MemoryVaultAnchorStore());
 
   final VaultRepository repository;
   final SecureRandom _random;
@@ -77,6 +82,7 @@ class VaultService {
   final VaultSession _session;
   final Uuid _uuid;
   final VaultManifestService _manifestService;
+  final VaultAnchorService _anchorService;
 
   bool get isUnlocked => _session.isUnlocked;
 
@@ -99,6 +105,8 @@ class VaultService {
     final kdfParams = KdfParams.argon2id();
     Uint8List? kek;
     Uint8List? dek;
+    VaultMeta? createdMeta;
+    VaultManifest? createdManifest;
     try {
       kek = await _kdf.deriveKey(
         password: masterPassword,
@@ -135,8 +143,17 @@ class VaultService {
           updatedAt: now,
         );
         await txn.manifestDao.save(manifest);
+        createdMeta = meta;
+        createdManifest = manifest;
       });
+      await _writeAnchorForManifest(
+        meta: createdMeta!,
+        manifest: createdManifest!,
+      );
       _session.lock();
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
     } finally {
       _zeroBytes(kek);
       _zeroBytes(dek);
@@ -149,7 +166,13 @@ class VaultService {
 
     try {
       dek = await _decryptDek(meta: meta, password: masterPassword);
-      await _verifyExistingManifest(meta: meta, dek: dek);
+      final manifest = await _verifyExistingManifest(meta: meta, dek: dek);
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: manifest,
+        allowMissingAnchor: true,
+      );
+      await _writeAnchorForManifest(meta: meta, manifest: manifest);
       _session.unlock(dek);
       return _session;
     } on CryptoException {
@@ -190,6 +213,11 @@ class VaultService {
         meta: meta,
         items: items,
         manifest: manifest,
+      );
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: manifest,
+        allowMissingAnchor: false,
       );
       _session.unlock(dek);
       return true;
@@ -709,7 +737,7 @@ class VaultService {
     }
   }
 
-  Future<void> _verifyExistingManifest({
+  Future<VaultManifest> _verifyExistingManifest({
     required VaultMeta meta,
     required Uint8List dek,
   }) async {
@@ -724,6 +752,41 @@ class VaultService {
       items: items,
       manifest: manifest,
     );
+    return manifest;
+  }
+
+  Future<void> _verifyAnchorForManifest({
+    required VaultMeta meta,
+    required VaultManifest manifest,
+    required bool allowMissingAnchor,
+  }) async {
+    try {
+      final result = await _anchorService.verifyAgainstAnchor(
+        vaultId: meta.id,
+        manifest: manifest,
+      );
+      if (result == VaultAnchorVerificationResult.missing &&
+          !allowMissingAnchor) {
+        throw const VaultIntegrityException();
+      }
+    } on VaultAnchorException {
+      throw const VaultIntegrityException();
+    }
+  }
+
+  Future<void> _writeAnchorForManifest({
+    required VaultMeta meta,
+    required VaultManifest manifest,
+  }) async {
+    try {
+      await _anchorService.writeAcceptedManifest(
+        vaultId: meta.id,
+        manifest: manifest,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+    } on VaultAnchorException {
+      throw const VaultIntegrityException();
+    }
   }
 
   Future<void> _saveManifestForMetadataUpdate({
