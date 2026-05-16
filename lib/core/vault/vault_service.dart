@@ -438,14 +438,20 @@ class VaultService {
     _ensureUnlocked();
     final now = DateTime.now().millisecondsSinceEpoch;
     final id = _uuid.v4();
-    final encryptedItem = await _encryptEntry(
-      id: id,
-      entry: entry,
-      createdAt: now,
-      updatedAt: now,
-    );
 
-    await repository.itemsDao.upsert(encryptedItem);
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, dek) async {
+        final encryptedItem = await _encryptEntryWithDek(
+          dek: dek,
+          id: id,
+          entry: entry,
+          createdAt: now,
+          updatedAt: now,
+        );
+        await txn.itemsDao.upsert(encryptedItem);
+      },
+    );
     return id;
   }
 
@@ -457,6 +463,7 @@ class VaultService {
 
   Future<List<VaultListItem>> listItems({String query = ''}) async {
     _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
     final normalizedQuery = query.trim().toLowerCase();
     final items = await repository.itemsDao.activeItems();
     final results = <VaultListItem>[];
@@ -485,30 +492,40 @@ class VaultService {
 
   Future<void> updateItem(String id, PasswordEntry entry) async {
     _ensureUnlocked();
-    final existing = await _requireActiveItem(id);
-    final updatedItem = await _encryptEntry(
-      id: id,
-      entry: entry,
-      createdAt: existing.createdAt,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, dek) async {
+        final existing = await _requireActiveItemFrom(txn, id);
+        final updatedItem = await _encryptEntryWithDek(
+          dek: dek,
+          id: id,
+          entry: entry,
+          createdAt: existing.createdAt,
+          updatedAt: now,
+        );
+        final updated = await txn.itemsDao.updateActive(updatedItem);
+        if (!updated) {
+          throw VaultItemNotFoundException(id);
+        }
+      },
     );
-    final updated = await repository.itemsDao.updateActive(updatedItem);
-    if (!updated) {
-      throw VaultItemNotFoundException(id);
-    }
   }
 
   Future<void> deleteItem(String id) async {
     _ensureUnlocked();
-    await _requireActiveItem(id);
-    try {
-      await repository.itemsDao.softDelete(
-        id,
-        DateTime.now().millisecondsSinceEpoch,
-      );
-    } on StateError {
-      throw VaultItemNotFoundException(id);
-    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, _) async {
+        await _requireActiveItemFrom(txn, id);
+        try {
+          await txn.itemsDao.softDelete(id, now);
+        } on StateError {
+          throw VaultItemNotFoundException(id);
+        }
+      },
+    );
   }
 
   Future<VaultMeta> _requireVaultMeta() async {
@@ -633,6 +650,52 @@ class VaultService {
     await txn.manifestDao.save(manifest);
   }
 
+  Future<T> _rewriteManifestForMutation<T>({
+    required int updatedAt,
+    required Future<T> Function(VaultRepository txn, Uint8List dek) mutate,
+  }) async {
+    try {
+      return await _session.withDekCopy((dek) async {
+        return repository.transaction((txn) async {
+          final currentMeta = await txn.metaDao.get();
+          if (currentMeta == null) {
+            throw StateError('Vault has not been created');
+          }
+          final previous = await _readManifestForIntegrity(txn);
+          if (previous == null) {
+            throw const VaultIntegrityException();
+          }
+          final currentItems = await _readItemsForManifest(txn);
+          await _manifestService.verifyManifest(
+            dek: dek,
+            meta: currentMeta,
+            items: currentItems,
+            manifest: previous,
+          );
+
+          final result = await mutate(txn, dek);
+          final updatedMeta = await txn.metaDao.get();
+          if (updatedMeta == null) {
+            throw StateError('Vault has not been created');
+          }
+          final updatedItems = await _readItemsForManifest(txn);
+          final manifest = await _manifestService.createManifest(
+            dek: dek,
+            meta: updatedMeta,
+            items: updatedItems,
+            previous: previous,
+            updatedAt: updatedAt,
+          );
+          await txn.manifestDao.save(manifest);
+          return result;
+        });
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
+  }
+
   Future<VaultManifest?> _readManifestForIntegrity(
     VaultRepository repository,
   ) async {
@@ -695,6 +758,13 @@ class VaultService {
   }
 
   Future<EncryptedVaultItem> _requireActiveItem(String id) async {
+    return _requireActiveItemFrom(repository, id);
+  }
+
+  Future<EncryptedVaultItem> _requireActiveItemFrom(
+    VaultRepository repository,
+    String id,
+  ) async {
     final encryptedItem = await repository.itemsDao.byId(id);
     if (encryptedItem == null || encryptedItem.deletedAt != null) {
       throw VaultItemNotFoundException(id);
@@ -702,14 +772,15 @@ class VaultService {
     return encryptedItem;
   }
 
-  Future<EncryptedVaultItem> _encryptEntry({
+  Future<EncryptedVaultItem> _encryptEntryWithDek({
+    required Uint8List dek,
     required String id,
     required PasswordEntry entry,
     required int createdAt,
     required int updatedAt,
   }) async {
-    final encryptedPayload = await _session.encrypt(
-      crypto: _crypto,
+    final encryptedPayload = await _crypto.encryptBytes(
+      key: dek,
       plaintext: utf8.encode(jsonEncode(entry.toJson())),
     );
 
@@ -738,6 +809,18 @@ class VaultService {
     }
 
     return PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+  }
+
+  Future<void> _verifyCurrentManifestWithActiveSession() async {
+    try {
+      await _session.withDekCopy((dek) async {
+        final meta = await _requireVaultMeta();
+        await _verifyExistingManifest(meta: meta, dek: dek);
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
   }
 
   bool _matchesQuery({required PasswordEntry entry, required String query}) {

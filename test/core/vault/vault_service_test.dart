@@ -393,6 +393,120 @@ void main() {
     },
   );
 
+  test('item mutations increment manifest counter exactly once', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+
+    final initialManifest = await service.repository.manifestDao.get();
+    expect(initialManifest!.counter, 1);
+
+    final id = await service.createItem(_entry(title: 'GitHub'));
+    final afterCreate = await service.repository.manifestDao.get();
+    expect(afterCreate!.epoch, initialManifest.epoch);
+    expect(afterCreate.counter, initialManifest.counter + 1);
+
+    await service.updateItem(id, _entry(title: 'GitHub Prod'));
+    final afterUpdate = await service.repository.manifestDao.get();
+    expect(afterUpdate!.epoch, initialManifest.epoch);
+    expect(afterUpdate.counter, afterCreate.counter + 1);
+
+    await service.deleteItem(id);
+    final afterDelete = await service.repository.manifestDao.get();
+    expect(afterDelete!.epoch, initialManifest.epoch);
+    expect(afterDelete.counter, afterUpdate.counter + 1);
+  });
+
+  test(
+    'item create update and delete rewrites keep vault unlockable',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+
+      final id = await service.createItem(_entry(title: 'GitHub'));
+      service.lock();
+      await service.unlock(masterPassword: 'master-passphrase');
+
+      await service.updateItem(id, _entry(title: 'GitHub Prod'));
+      service.lock();
+      await service.unlock(masterPassword: 'master-passphrase');
+
+      await service.deleteItem(id);
+      service.lock();
+
+      final session = await service.unlock(masterPassword: 'master-passphrase');
+      expect(session.isUnlocked, isTrue);
+      expect(await service.listItems(), isEmpty);
+    },
+  );
+
+  test(
+    'tampering with item after manifest rewrite fails closed on unlock and list',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(_entry(title: 'GitHub'));
+
+      await _tamperItemCiphertext(service: service, id: id);
+
+      await expectLater(
+        service.listItems(),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+
+      await expectLater(
+        service.unlock(masterPassword: 'master-passphrase'),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'item mutation with tampered manifest locks and preserves tampered manifest',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(_entry(title: 'GitHub'));
+      final manifest = await service.repository.manifestDao.get();
+      final tamperedManifest = _tamperManifestMac(manifest!);
+      await service.repository.manifestDao.save(tamperedManifest);
+
+      await expectLater(
+        service.updateItem(id, _entry(title: 'GitHub Prod')),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      final persistedManifest = await service.repository.manifestDao.get();
+      expect(persistedManifest!.mac, tamperedManifest.mac);
+      expect(persistedManifest.counter, tamperedManifest.counter);
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'item mutation fails closed when manifest is missing for created vault',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      await service.repository.manifestDao.deleteAll();
+
+      await expectLater(
+        service.createItem(_entry(title: 'GitHub')),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect(await service.repository.manifestDao.get(), isNull);
+      expect(service.isUnlocked, isFalse);
+      expect(await service.repository.itemsDao.rawRowsForTest(), isEmpty);
+    },
+  );
+
   test('master password rotation invalidates old password', () async {
     final service = await buildService();
     await service.createVault(masterPassword: 'old-master');
@@ -538,17 +652,21 @@ void main() {
           tags: ['dev'],
         ),
       );
-      await _syncManifestForCurrentStateForTest(
-        service: service,
-        session: session,
-      );
+      final beforeChange = await service.repository.manifestDao.get();
 
       await service.changeMasterPassword(
         oldPassword: 'old-master',
         newPassword: 'new-master',
       );
+      final afterChange = await service.repository.manifestDao.get();
 
       session.lock();
+      expect(afterChange!.epoch, beforeChange!.epoch);
+      expect(afterChange.counter, beforeChange.counter + 1);
+      expect(
+        () => service.unlock(masterPassword: 'old-master'),
+        throwsA(isA<VaultUnlockException>()),
+      );
       await service.unlock(masterPassword: 'new-master');
 
       final entry = await service.getItem(id);
@@ -603,12 +721,7 @@ void main() {
       addTearDown(db.close);
       final itemsDao = _DeleteDuringUpdateVaultItemsDao(db);
       final service = VaultService(
-        repository: VaultRepository(
-          metaDao: VaultMetaDao(db),
-          itemsDao: itemsDao,
-          manifestDao: VaultManifestDao(db),
-          settingsDao: SettingsDao(db),
-        ),
+        repository: _DeleteDuringUpdateVaultRepository(db, itemsDao),
         random: SecureRandom(),
         kdf: KdfService(),
         crypto: CryptoService(random: SecureRandom()),
@@ -627,6 +740,7 @@ void main() {
         ),
       );
       itemsDao.targetId = id;
+      final beforeUpdate = await service.repository.manifestDao.get();
 
       await expectLater(
         service.updateItem(
@@ -645,7 +759,9 @@ void main() {
 
       final rawRows = await itemsDao.rawRowsForTest();
       expect(rawRows, hasLength(1));
-      expect(rawRows.single['deleted_at'], isNotNull);
+      expect(rawRows.single['deleted_at'], isNull);
+      final afterUpdate = await service.repository.manifestDao.get();
+      expect(afterUpdate!.counter, beforeUpdate!.counter);
     },
   );
 
@@ -764,30 +880,37 @@ Future<_LegacyVaultFixture> _createLegacyVault({
 }
 
 VaultManifest _tamperManifestMac(VaultManifest manifest) {
-  final replacement = manifest.mac.startsWith('A') ? 'B' : 'A';
-  return manifest.copyWith(mac: manifest.mac.replaceRange(0, 1, replacement));
+  return manifest.copyWith(mac: _tamperBase64(manifest.mac));
 }
 
-Future<void> _syncManifestForCurrentStateForTest({
+PasswordEntry _entry({required String title}) {
+  return PasswordEntry(
+    title: title,
+    website: 'https://github.com',
+    username: 'user@example.com',
+    password: 'secret-password',
+    notes: 'private note',
+    tags: ['dev'],
+  );
+}
+
+Future<void> _tamperItemCiphertext({
   required VaultService service,
-  required VaultSession session,
+  required String id,
 }) async {
-  await session.withDekCopy((dek) async {
-    final meta = await service.repository.metaDao.get();
-    final previous = await service.repository.manifestDao.get();
-    final items = await service.repository.itemsDao.allItemsForManifest();
-    final manifest =
-        await VaultManifestService(
-          crypto: CryptoService(random: SecureRandom()),
-        ).createManifest(
-          dek: dek,
-          meta: meta!,
-          items: items,
-          previous: previous,
-          updatedAt: DateTime.now().millisecondsSinceEpoch,
-        );
-    await service.repository.manifestDao.save(manifest);
-  });
+  final item = await service.repository.itemsDao.byId(id);
+  await service.repository.itemsDao.executor.update(
+    'vault_items',
+    {'ciphertext': _tamperBase64(item!.ciphertext)},
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+}
+
+String _tamperBase64(String value) {
+  final bytes = fromB64(value);
+  bytes[0] = bytes[0] ^ 0x01;
+  return b64(bytes);
 }
 
 class _DeleteDuringUpdateVaultItemsDao extends VaultItemsDao {
@@ -803,5 +926,37 @@ class _DeleteDuringUpdateVaultItemsDao extends VaultItemsDao {
       await softDelete(item.id, item.updatedAt + 1);
     }
     return super.updateActive(item);
+  }
+}
+
+class _DeleteDuringUpdateVaultRepository extends VaultRepository {
+  _DeleteDuringUpdateVaultRepository(Database db, this._itemsDao)
+    : _db = db,
+      super(
+        metaDao: VaultMetaDao(db),
+        itemsDao: _itemsDao,
+        manifestDao: VaultManifestDao(db),
+        settingsDao: SettingsDao(db),
+      );
+
+  final Database _db;
+  final _DeleteDuringUpdateVaultItemsDao _itemsDao;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(VaultRepository repository) action,
+  ) async {
+    return _db.transaction((txn) {
+      final txnItemsDao = _DeleteDuringUpdateVaultItemsDao(txn)
+        ..targetId = _itemsDao.targetId;
+      return action(
+        VaultRepository(
+          metaDao: VaultMetaDao(txn),
+          itemsDao: txnItemsDao,
+          manifestDao: VaultManifestDao(txn),
+          settingsDao: SettingsDao(txn),
+        ),
+      );
+    });
   }
 }
