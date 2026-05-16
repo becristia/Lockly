@@ -384,6 +384,143 @@ class VaultService {
     }
   }
 
+  Future<VaultManifest> createVerifiedManifestForBackup({
+    required List<EncryptedVaultItem> items,
+    required int updatedAt,
+  }) async {
+    _ensureUnlocked();
+    try {
+      return await _session.withDekCopy((dek) async {
+        final meta = await _requireVaultMeta();
+        final manifest = await _readManifestForIntegrity(repository);
+        if (manifest == null) {
+          throw const VaultIntegrityException();
+        }
+        final currentItems = await _readItemsForManifest(repository);
+        await _manifestService.verifyManifest(
+          dek: dek,
+          meta: meta,
+          items: currentItems,
+          manifest: manifest,
+        );
+        return _manifestService.createManifest(
+          dek: dek,
+          meta: meta,
+          items: items,
+          previous: manifest,
+          updatedAt: updatedAt,
+        );
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
+  }
+
+  Future<void> verifyBackupManifest({
+    required String masterPassword,
+    required VaultMeta meta,
+    required List<EncryptedVaultItem> items,
+    required VaultManifest manifest,
+  }) async {
+    Uint8List? dek;
+    try {
+      dek = await _decryptDekWithUnlockError(
+        meta: meta,
+        password: masterPassword,
+      );
+      await _manifestService.verifyManifest(
+        dek: dek,
+        meta: meta,
+        items: items,
+        manifest: manifest,
+      );
+    } finally {
+      _zeroBytes(dek);
+    }
+  }
+
+  Future<VaultManifest> createManifestForImportedVault({
+    required String masterPassword,
+    required VaultMeta meta,
+    required List<EncryptedVaultItem> items,
+    required VaultManifest? previous,
+    required int updatedAt,
+  }) async {
+    Uint8List? dek;
+    try {
+      dek = await _decryptDekWithUnlockError(
+        meta: meta,
+        password: masterPassword,
+      );
+      return await _manifestService.createManifest(
+        dek: dek,
+        meta: meta,
+        items: items,
+        previous: previous,
+        updatedAt: updatedAt,
+      );
+    } finally {
+      _zeroBytes(dek);
+    }
+  }
+
+  Future<void> verifyCurrentManifestForImport({
+    required VaultRepository txn,
+  }) async {
+    _ensureUnlocked();
+    try {
+      await _session.withDekCopy((dek) async {
+        final currentMeta = await txn.metaDao.get();
+        if (currentMeta == null) {
+          throw StateError('Vault has not been created');
+        }
+        final previous = await _readManifestForIntegrity(txn);
+        if (previous == null) {
+          throw const VaultIntegrityException();
+        }
+        final items = await _readItemsForManifest(txn);
+        await _manifestService.verifyManifest(
+          dek: dek,
+          meta: currentMeta,
+          items: items,
+          manifest: previous,
+        );
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
+  }
+
+  Future<void> rewriteManifestForCurrentVaultAfterImport({
+    required VaultRepository txn,
+    required VaultManifest previous,
+    required int updatedAt,
+  }) async {
+    _ensureUnlocked();
+    try {
+      await _session.withDekCopy((dek) async {
+        final currentMeta = await txn.metaDao.get();
+        if (currentMeta == null) {
+          throw StateError('Vault has not been created');
+        }
+        final items = await _readItemsForManifest(txn);
+        final manifest = await _manifestService.createManifest(
+          dek: dek,
+          meta: currentMeta,
+          items: items,
+          previous: previous,
+          updatedAt: updatedAt,
+        );
+        await txn.manifestDao.save(manifest);
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
+  }
+
   Future<List<EncryptedVaultItem>> reencryptItemsForCurrentVault({
     required List<EncryptedVaultItem> items,
     required VaultMeta sourceMeta,

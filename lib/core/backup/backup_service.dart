@@ -1,13 +1,17 @@
 import 'dart:collection';
 
 import 'package:secure_box/core/crypto/kdf_service.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
+import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:uuid/uuid.dart';
 
-const int _supportedBackupVersion = 1;
+const int _legacyBackupVersion = 1;
+const int _currentBackupVersion = 2;
+const String _backupMagic = 'secure-box-backup';
 
 class BackupFormatException extends FormatException {
   const BackupFormatException(super.message, [super.source, super.offset]);
@@ -19,19 +23,27 @@ class BackupItem {
     required this.nonce,
     required this.ciphertext,
     required this.mac,
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
   final String nonce;
   final String ciphertext;
   final String mac;
+  final int? createdAt;
+  final int? updatedAt;
 
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'nonce': nonce,
-    'ciphertext': ciphertext,
-    'mac': mac,
-  };
+  Map<String, Object?> toJson() {
+    return {
+      'id': id,
+      'nonce': nonce,
+      'ciphertext': ciphertext,
+      'mac': mac,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    };
+  }
 
   factory BackupItem.fromJson(Map<String, Object?> json) {
     return BackupItem(
@@ -39,6 +51,76 @@ class BackupItem {
       nonce: _readRequiredString(json, 'nonce'),
       ciphertext: _readRequiredString(json, 'ciphertext'),
       mac: _readRequiredString(json, 'mac'),
+      createdAt: _readOptionalInt(json, 'created_at'),
+      updatedAt: _readOptionalInt(json, 'updated_at'),
+    );
+  }
+}
+
+class BackupManifest {
+  const BackupManifest({
+    required this.version,
+    required this.epoch,
+    required this.counter,
+    required this.nonce,
+    required this.ciphertext,
+    required this.mac,
+    required this.updatedAt,
+  });
+
+  factory BackupManifest.fromVaultManifest(VaultManifest manifest) {
+    return BackupManifest(
+      version: manifest.version,
+      epoch: manifest.epoch,
+      counter: manifest.counter,
+      nonce: manifest.nonce,
+      ciphertext: manifest.ciphertext,
+      mac: manifest.mac,
+      updatedAt: manifest.updatedAt,
+    );
+  }
+
+  final int version;
+  final int epoch;
+  final int counter;
+  final String nonce;
+  final String ciphertext;
+  final String mac;
+  final int updatedAt;
+
+  Map<String, Object?> toJson() {
+    return {
+      'version': version,
+      'epoch': epoch,
+      'counter': counter,
+      'nonce': nonce,
+      'ciphertext': ciphertext,
+      'mac': mac,
+      'updated_at': updatedAt,
+    };
+  }
+
+  VaultManifest toVaultManifest() {
+    return VaultManifest(
+      version: version,
+      epoch: epoch,
+      counter: counter,
+      nonce: nonce,
+      ciphertext: ciphertext,
+      mac: mac,
+      updatedAt: updatedAt,
+    );
+  }
+
+  factory BackupManifest.fromJson(Map<String, Object?> json) {
+    return BackupManifest(
+      version: _readRequiredInt(json, 'version'),
+      epoch: _readRequiredInt(json, 'epoch'),
+      counter: _readRequiredInt(json, 'counter'),
+      nonce: _readRequiredString(json, 'nonce'),
+      ciphertext: _readRequiredString(json, 'ciphertext'),
+      mac: _readRequiredString(json, 'mac'),
+      updatedAt: _readRequiredInt(json, 'updated_at'),
     );
   }
 }
@@ -46,6 +128,13 @@ class BackupItem {
 class VaultBackup {
   VaultBackup({
     required this.version,
+    this.magic,
+    this.createdAt,
+    this.itemCount,
+    this.vaultId,
+    this.vaultCreatedAt,
+    this.vaultUpdatedAt,
+    this.manifest,
     required this.kdf,
     required Map<String, Object?> kdfParams,
     required this.salt,
@@ -55,13 +144,34 @@ class VaultBackup {
     required List<BackupItem> items,
   }) : kdfParams = UnmodifiableMapView(Map<String, Object?>.from(kdfParams)),
        items = List.unmodifiable(items) {
-    if (version != _supportedBackupVersion) {
+    if (version != _legacyBackupVersion && version != _currentBackupVersion) {
       throw BackupFormatException('Unsupported backup version: $version');
     }
     _parseKdfParams(kdf: kdf, rawParams: this.kdfParams);
+    if (version == _currentBackupVersion) {
+      if (magic != _backupMagic ||
+          createdAt == null ||
+          itemCount != this.items.length ||
+          vaultId == null ||
+          vaultCreatedAt == null ||
+          vaultUpdatedAt == null ||
+          manifest == null ||
+          this.items.any(
+            (item) => item.createdAt == null || item.updatedAt == null,
+          )) {
+        throw const BackupFormatException('Invalid backup format');
+      }
+    }
   }
 
   final int version;
+  final String? magic;
+  final int? createdAt;
+  final int? itemCount;
+  final String? vaultId;
+  final int? vaultCreatedAt;
+  final int? vaultUpdatedAt;
+  final BackupManifest? manifest;
   final String kdf;
   final Map<String, Object?> kdfParams;
   final String salt;
@@ -70,20 +180,31 @@ class VaultBackup {
   final String encryptedDekByMasterMac;
   final List<BackupItem> items;
 
-  Map<String, Object?> toJson() => {
-    'version': version,
-    'kdf': kdf,
-    'kdf_params': Map<String, Object?>.from(kdfParams),
-    'salt': salt,
-    'encrypted_dek_by_master': encryptedDekByMaster,
-    'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
-    'encrypted_dek_by_master_mac': encryptedDekByMasterMac,
-    'items': items.map((item) => item.toJson()).toList(growable: false),
-  };
+  Map<String, Object?> toJson() {
+    return {
+      'version': version,
+      if (version == _currentBackupVersion) ...{
+        'magic': magic,
+        'created_at': createdAt,
+        'item_count': itemCount,
+        'vault_id': vaultId,
+        'vault_created_at': vaultCreatedAt,
+        'vault_updated_at': vaultUpdatedAt,
+        'manifest': manifest!.toJson(),
+      },
+      'kdf': kdf,
+      'kdf_params': Map<String, Object?>.from(kdfParams),
+      'salt': salt,
+      'encrypted_dek_by_master': encryptedDekByMaster,
+      'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
+      'encrypted_dek_by_master_mac': encryptedDekByMasterMac,
+      'items': items.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
 
   factory VaultBackup.fromJson(Map<String, Object?> json) {
     final version = _readRequiredInt(json, 'version');
-    if (version != _supportedBackupVersion) {
+    if (version != _legacyBackupVersion && version != _currentBackupVersion) {
       throw BackupFormatException('Unsupported backup version: $version');
     }
 
@@ -99,8 +220,38 @@ class VaultBackup {
       throw const BackupFormatException('Invalid "items": expected a list');
     }
 
+    BackupManifest? manifest;
+    if (version == _currentBackupVersion) {
+      final rawManifest = json['manifest'];
+      if (rawManifest is! Map<Object?, Object?>) {
+        throw const BackupFormatException('Invalid backup format');
+      }
+      manifest = BackupManifest.fromJson(
+        Map<String, Object?>.from(rawManifest),
+      );
+    }
+
     return VaultBackup(
       version: version,
+      magic: version == _currentBackupVersion
+          ? _readRequiredString(json, 'magic')
+          : null,
+      createdAt: version == _currentBackupVersion
+          ? _readRequiredInt(json, 'created_at')
+          : null,
+      itemCount: version == _currentBackupVersion
+          ? _readRequiredInt(json, 'item_count')
+          : null,
+      vaultId: version == _currentBackupVersion
+          ? _readRequiredString(json, 'vault_id')
+          : null,
+      vaultCreatedAt: version == _currentBackupVersion
+          ? _readRequiredInt(json, 'vault_created_at')
+          : null,
+      vaultUpdatedAt: version == _currentBackupVersion
+          ? _readRequiredInt(json, 'vault_updated_at')
+          : null,
+      manifest: manifest,
       kdf: _readRequiredString(json, 'kdf'),
       kdfParams: Map<String, Object?>.from(rawKdfParams),
       salt: _readRequiredString(json, 'salt'),
@@ -153,8 +304,20 @@ class BackupService {
     }
 
     final items = await repository.itemsDao.activeItems();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final manifest = await vaultService.createVerifiedManifestForBackup(
+      items: items,
+      updatedAt: now,
+    );
     return VaultBackup(
-      version: meta.version,
+      version: _currentBackupVersion,
+      magic: _backupMagic,
+      createdAt: now,
+      itemCount: items.length,
+      vaultId: meta.id,
+      vaultCreatedAt: meta.createdAt,
+      vaultUpdatedAt: meta.updatedAt,
+      manifest: BackupManifest.fromVaultManifest(manifest),
       kdf: meta.kdf,
       kdfParams: meta.kdfParams.toJson(),
       salt: meta.salt,
@@ -168,6 +331,8 @@ class BackupService {
               nonce: item.nonce,
               ciphertext: item.ciphertext,
               mac: item.mac,
+              createdAt: item.createdAt,
+              updatedAt: item.updatedAt,
             ),
           )
           .toList(growable: false),
@@ -185,9 +350,18 @@ class BackupService {
       masterPassword: masterPassword,
       meta: backupMeta,
     );
+    if (backup.version == _currentBackupVersion) {
+      await vaultService.verifyBackupManifest(
+        masterPassword: masterPassword,
+        meta: backupMeta,
+        items: _manifestItemsFromBackup(backup.items),
+        manifest: backup.manifest!.toVaultManifest(),
+      );
+    }
 
     return repository.transaction((txn) async {
       final existingMeta = await txn.metaDao.get();
+      final existingManifest = await txn.manifestDao.get();
       final now = DateTime.now().millisecondsSinceEpoch;
       final hasExistingVault = existingMeta != null;
       final preserveExistingMeta =
@@ -199,6 +373,7 @@ class BackupService {
       final importedMeta = _buildImportedMeta(
         backup: backup,
         existingMeta: existingMeta,
+        preserveExistingId: preserveExistingMeta,
         now: now,
       );
 
@@ -206,11 +381,25 @@ class BackupService {
         case BackupImportMode.overwrite:
           await txn.metaDao.save(importedMeta);
           await txn.itemsDao.executor.delete('vault_items');
+          final importedItems = <EncryptedVaultItem>[];
           for (final item in backup.items) {
-            await txn.itemsDao.upsert(
-              _buildImportedItem(item, createdAt: now, updatedAt: now),
+            final importedItem = _buildImportedItem(
+              item,
+              createdAt: item.createdAt ?? now,
+              updatedAt: item.updatedAt ?? now,
             );
+            importedItems.add(importedItem);
+            await txn.itemsDao.upsert(importedItem);
           }
+          await _writeManifestForImportedEnvelope(
+            txn: txn,
+            backup: backup,
+            masterPassword: masterPassword,
+            meta: importedMeta,
+            items: importedItems,
+            previous: null,
+            updatedAt: now,
+          );
           vaultService.lock();
           return backup.items.length;
         case BackupImportMode.skip:
@@ -224,7 +413,11 @@ class BackupService {
               continue;
             }
             pendingItems.add(
-              _buildImportedItem(item, createdAt: now, updatedAt: now),
+              _buildImportedItem(
+                item,
+                createdAt: item.createdAt ?? now,
+                updatedAt: item.updatedAt ?? now,
+              ),
             );
           }
           final needsPendingReencryption =
@@ -232,6 +425,14 @@ class BackupService {
           if (needsPendingReencryption && !vaultService.isUnlocked) {
             throw StateError(
               'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+            );
+          }
+          if (preserveExistingMeta && pendingItems.isNotEmpty) {
+            await _verifyExistingManifestBeforeImportMutation(
+              txn: txn,
+              masterPassword: masterPassword,
+              meta: existingMeta,
+              manifest: existingManifest,
             );
           }
           final itemsToInsert = await _prepareImportedItems(
@@ -243,6 +444,15 @@ class BackupService {
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
           }
+          await _rewriteManifestAfterImport(
+            txn: txn,
+            backup: backup,
+            masterPassword: masterPassword,
+            preserveExistingMeta: preserveExistingMeta,
+            dataChanged: itemsToInsert.isNotEmpty,
+            previous: existingManifest,
+            updatedAt: now,
+          );
           return itemsToInsert.length;
         case BackupImportMode.merge:
           if (!preserveExistingMeta) {
@@ -254,8 +464,8 @@ class BackupService {
             pendingItems.add(
               _buildImportedItem(
                 item,
-                createdAt: existingItem?.createdAt ?? now,
-                updatedAt: now,
+                createdAt: existingItem?.createdAt ?? item.createdAt ?? now,
+                updatedAt: item.updatedAt ?? now,
               ),
             );
           }
@@ -264,6 +474,14 @@ class BackupService {
           if (needsPendingReencryption && !vaultService.isUnlocked) {
             throw StateError(
               'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+            );
+          }
+          if (preserveExistingMeta && pendingItems.isNotEmpty) {
+            await _verifyExistingManifestBeforeImportMutation(
+              txn: txn,
+              masterPassword: masterPassword,
+              meta: existingMeta,
+              manifest: existingManifest,
             );
           }
           final itemsToInsert = await _prepareImportedItems(
@@ -275,6 +493,15 @@ class BackupService {
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
           }
+          await _rewriteManifestAfterImport(
+            txn: txn,
+            backup: backup,
+            masterPassword: masterPassword,
+            preserveExistingMeta: preserveExistingMeta,
+            dataChanged: itemsToInsert.isNotEmpty,
+            previous: existingManifest,
+            updatedAt: now,
+          );
           return backup.items.length;
       }
     });
@@ -282,8 +509,8 @@ class BackupService {
 
   VaultMeta _backupMetaForVerification(VaultBackup backup) {
     return VaultMeta(
-      id: 'backup-verification',
-      version: backup.version,
+      id: backup.vaultId ?? 'backup-verification',
+      version: 1,
       kdf: backup.kdf,
       kdfParams: backup.parsedKdfParams,
       salt: backup.salt,
@@ -291,8 +518,8 @@ class BackupService {
       encryptedDekByMasterNonce: backup.encryptedDekByMasterNonce,
       encryptedDekByMasterMac: backup.encryptedDekByMasterMac,
       biometricEnabled: false,
-      createdAt: 0,
-      updatedAt: 0,
+      createdAt: backup.vaultCreatedAt ?? 0,
+      updatedAt: backup.vaultUpdatedAt ?? 0,
       encryptedDekByBiometric: null,
       encryptedDekByBiometricNonce: null,
       encryptedDekByBiometricMac: null,
@@ -302,11 +529,12 @@ class BackupService {
   VaultMeta _buildImportedMeta({
     required VaultBackup backup,
     required VaultMeta? existingMeta,
+    required bool preserveExistingId,
     required int now,
   }) {
     return VaultMeta(
-      id: existingMeta?.id ?? _uuid.v4(),
-      version: backup.version,
+      id: preserveExistingId ? existingMeta!.id : backup.vaultId ?? _uuid.v4(),
+      version: 1,
       kdf: backup.kdf,
       kdfParams: backup.parsedKdfParams,
       salt: backup.salt,
@@ -314,8 +542,10 @@ class BackupService {
       encryptedDekByMasterNonce: backup.encryptedDekByMasterNonce,
       encryptedDekByMasterMac: backup.encryptedDekByMasterMac,
       biometricEnabled: false,
-      createdAt: existingMeta?.createdAt ?? now,
-      updatedAt: now,
+      createdAt: preserveExistingId
+          ? existingMeta!.createdAt
+          : backup.vaultCreatedAt ?? now,
+      updatedAt: preserveExistingId ? now : backup.vaultUpdatedAt ?? now,
       encryptedDekByBiometric: null,
       encryptedDekByBiometricNonce: null,
       encryptedDekByBiometricMac: null,
@@ -354,6 +584,119 @@ class BackupService {
     );
   }
 
+  Future<void> _writeManifestForImportedEnvelope({
+    required VaultRepository txn,
+    required VaultBackup backup,
+    required String masterPassword,
+    required VaultMeta meta,
+    required List<EncryptedVaultItem> items,
+    required VaultManifest? previous,
+    required int updatedAt,
+  }) async {
+    if (backup.version == _currentBackupVersion) {
+      await txn.manifestDao.save(backup.manifest!.toVaultManifest());
+      return;
+    }
+
+    final manifest = await vaultService.createManifestForImportedVault(
+      masterPassword: masterPassword,
+      meta: meta,
+      items: items,
+      previous: previous,
+      updatedAt: updatedAt,
+    );
+    await txn.manifestDao.save(manifest);
+  }
+
+  Future<void> _rewriteManifestAfterImport({
+    required VaultRepository txn,
+    required VaultBackup backup,
+    required String masterPassword,
+    required bool preserveExistingMeta,
+    required bool dataChanged,
+    required VaultManifest? previous,
+    required int updatedAt,
+  }) async {
+    if (!preserveExistingMeta) {
+      final meta = await txn.metaDao.get();
+      if (meta == null) {
+        throw StateError('Vault has not been created');
+      }
+      final items = await txn.itemsDao.allItemsForManifest();
+      await _writeManifestForImportedEnvelope(
+        txn: txn,
+        backup: backup,
+        masterPassword: masterPassword,
+        meta: meta,
+        items: items,
+        previous: null,
+        updatedAt: updatedAt,
+      );
+      return;
+    }
+    if (!dataChanged) {
+      return;
+    }
+    if (vaultService.isUnlocked) {
+      if (previous == null) {
+        throw const VaultIntegrityException();
+      }
+      await vaultService.rewriteManifestForCurrentVaultAfterImport(
+        txn: txn,
+        previous: previous,
+        updatedAt: updatedAt,
+      );
+      return;
+    }
+
+    final meta = await txn.metaDao.get();
+    if (meta == null) {
+      throw StateError('Vault has not been created');
+    }
+    final items = await txn.itemsDao.allItemsForManifest();
+    final manifest = await vaultService.createManifestForImportedVault(
+      masterPassword: masterPassword,
+      meta: meta,
+      items: items,
+      previous: previous,
+      updatedAt: updatedAt,
+    );
+    await txn.manifestDao.save(manifest);
+  }
+
+  Future<void> _verifyExistingManifestBeforeImportMutation({
+    required VaultRepository txn,
+    required String masterPassword,
+    required VaultMeta meta,
+    required VaultManifest? manifest,
+  }) async {
+    if (manifest == null) {
+      throw const VaultIntegrityException();
+    }
+    if (vaultService.isUnlocked) {
+      await vaultService.verifyCurrentManifestForImport(txn: txn);
+      return;
+    }
+    await vaultService.verifyBackupManifest(
+      masterPassword: masterPassword,
+      meta: meta,
+      items: await txn.itemsDao.allItemsForManifest(),
+      manifest: manifest,
+    );
+  }
+
+  List<EncryptedVaultItem> _manifestItemsFromBackup(List<BackupItem> items) {
+    return items
+        .map(
+          (item) => _buildImportedItem(
+            item,
+            createdAt: item.createdAt!,
+            updatedAt: item.updatedAt!,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   bool _hasSameEncryptionEnvelope(
     VaultMeta existingMeta,
     VaultMeta backupMeta,
@@ -385,6 +728,18 @@ String _readRequiredString(Map<String, Object?> json, String field) {
 
 int _readRequiredInt(Map<String, Object?> json, String field) {
   final value = json[field];
+  if (value is! int) {
+    throw BackupFormatException('Invalid "$field": expected an int');
+  }
+
+  return value;
+}
+
+int? _readOptionalInt(Map<String, Object?> json, String field) {
+  final value = json[field];
+  if (value == null) {
+    return null;
+  }
   if (value is! int) {
     throw BackupFormatException('Invalid "$field": expected an int');
   }

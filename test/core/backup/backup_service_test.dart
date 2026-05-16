@@ -3,11 +3,13 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
@@ -50,6 +52,35 @@ void main() {
     expect(jsonText, isNot(contains('user@example.com')));
   });
 
+  test('version 2 backup JSON requires manifest integrity fields', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: ['dev'],
+      ),
+    );
+
+    final backup = await source.backupService.exportBackup();
+    final json = backup.toJson();
+    final jsonText = jsonEncode(json);
+
+    expect(backup.version, 2);
+    expect(json['magic'], 'secure-box-backup');
+    expect(json['created_at'], isA<int>());
+    expect(json['item_count'], 1);
+    expect(json['manifest'], isA<Map<String, Object?>>());
+    expect(jsonText, isNot(contains('secret-password')));
+    expect(jsonText, isNot(contains('user@example.com')));
+    expect(jsonText, isNot(contains('private note')));
+  });
+
   test('unsupported backup version is rejected', () {
     expect(
       () => VaultBackup.fromJson({'version': 99}),
@@ -89,7 +120,10 @@ void main() {
       final backup = await source.backupService.exportBackup();
       final jsonText = jsonEncode(backup.toJson());
 
-      expect(backup.version, 1);
+      expect(backup.version, 2);
+      expect(backup.magic, 'secure-box-backup');
+      expect(backup.itemCount, 1);
+      expect(backup.manifest, isNotNull);
       expect(backup.items.map((item) => item.id), [activeId]);
       expect(jsonText, contains('encrypted_dek_by_master'));
       expect(jsonText, contains(backup.items.single.ciphertext));
@@ -99,9 +133,35 @@ void main() {
     },
   );
 
+  test('exportBackup fails when the live manifest is tampered', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: ['dev'],
+      ),
+    );
+    final manifest = await source.repository.manifestDao.get();
+    await source.repository.manifestDao.save(
+      manifest!.copyWith(mac: _tamperBase64(manifest.mac)),
+    );
+
+    await expectLater(
+      source.backupService.exportBackup(),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
+
   test('argon2id backup export preserves full kdf params', () async {
     final source = await _buildHarness();
     await _createEmptyArgon2idVault(source, masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
 
     final backup = await source.backupService.exportBackup();
 
@@ -123,11 +183,12 @@ void main() {
     () async {
       final source = await _buildHarness();
       await _createEmptyArgon2idVault(source, masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
       final backup = await source.backupService.exportBackup();
 
       final target = await _buildHarness();
       await target.backupService.importBackup(
-        json: backup.toJson(),
+        json: _asLegacyBackupJson(backup.toJson()),
         masterPassword: 'source-master',
         mode: BackupImportMode.overwrite,
       );
@@ -145,6 +206,143 @@ void main() {
       );
     },
   );
+
+  test(
+    'v1 import generates a target manifest and leaves imported vault unlockable',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final itemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: ['dev'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: _asLegacyBackupJson(backup.toJson()),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+
+      expect(await target.repository.manifestDao.get(), isNotNull);
+      await target.vaultService.unlock(masterPassword: 'source-master');
+      final imported = await target.vaultService.getItem(itemId);
+      expect(imported.password, 'secret-password');
+    },
+  );
+
+  test(
+    'v2 import rejects tampered item ciphertext before writing target data',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: ['dev'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final localId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local',
+          website: 'https://local.example',
+          username: 'local@example.com',
+          password: 'local-password',
+          notes: 'target item',
+          tags: ['local'],
+        ),
+      );
+      final originalMeta = await target.repository.metaDao.get();
+      final originalManifest = await target.repository.manifestDao.get();
+      final backupJson = backup.toJson();
+      final items = List<Map<String, Object?>>.from(
+        (backupJson['items']! as List<Object?>).map(
+          (item) => Map<String, Object?>.from(item! as Map<Object?, Object?>),
+        ),
+      );
+      items[0] = {
+        ...items[0],
+        'ciphertext': _tamperBase64(items[0]['ciphertext']! as String),
+      };
+
+      await expectLater(
+        target.backupService.importBackup(
+          json: {...backupJson, 'items': items},
+          masterPassword: 'source-master',
+          mode: BackupImportMode.overwrite,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect((await target.repository.metaDao.get())!.id, originalMeta!.id);
+      expect(
+        (await target.repository.manifestDao.get())!.counter,
+        originalManifest!.counter,
+      );
+      final local = await target.vaultService.getItem(localId);
+      expect(local.password, 'local-password');
+    },
+  );
+
+  test('v2 import rejects item_count mismatch and invalid magic', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: ['dev'],
+      ),
+    );
+    final backup = await source.backupService.exportBackup();
+    final target = await _buildHarness();
+
+    await expectLater(
+      target.backupService.importBackup(
+        json: {...backup.toJson(), 'item_count': 2},
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      ),
+      throwsA(
+        anyOf(isA<BackupFormatException>(), isA<VaultIntegrityException>()),
+      ),
+    );
+    expect(await target.repository.metaDao.get(), isNull);
+
+    await expectLater(
+      target.backupService.importBackup(
+        json: {...backup.toJson(), 'magic': 'tampered'},
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      ),
+      throwsA(
+        anyOf(isA<BackupFormatException>(), isA<VaultIntegrityException>()),
+      ),
+    );
+    expect(await target.repository.metaDao.get(), isNull);
+  });
 
   test(
     'importBackup rejects a wrong backup master password without writing data',
@@ -281,6 +479,61 @@ void main() {
   });
 
   test(
+    'importBackup skip increments target manifest once when data changes',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final firstId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: ['dev'],
+        ),
+      );
+      final initialBackup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: initialBackup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+      await target.vaultService.unlock(masterPassword: 'source-master');
+      final before = await target.repository.manifestDao.get();
+
+      await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'docs-password',
+          notes: 'new item',
+          tags: ['docs'],
+        ),
+      );
+      final updatedBackup = await source.backupService.exportBackup();
+
+      final importedCount = await target.backupService.importBackup(
+        json: updatedBackup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+      );
+
+      final after = await target.repository.manifestDao.get();
+      expect(importedCount, 1);
+      expect(after!.counter, before!.counter + 1);
+      expect(
+        (await target.vaultService.getItem(firstId)).password,
+        'secret-password',
+      );
+    },
+  );
+
+  test(
     'importBackup skip preserves existing vault meta and biometric state while importing from a different vault envelope',
     () async {
       final source = await _buildHarness();
@@ -321,7 +574,7 @@ void main() {
           tags: ['shared'],
         ),
       );
-      final originalMeta = await _setBiometricMeta(target.repository);
+      final originalMeta = await _enableBiometricMeta(target);
       final importedJson = _backupJsonWithItemIdReplacement(
         backup: exportedBackup,
         fromId: sharedSourceId,
@@ -455,7 +708,7 @@ void main() {
           tags: ['local'],
         ),
       );
-      final originalMeta = await _setBiometricMeta(target.repository);
+      final originalMeta = await _enableBiometricMeta(target);
       final importedJson = _backupJsonWithItemIdReplacement(
         backup: exportedBackup,
         fromId: sharedSourceId,
@@ -643,7 +896,7 @@ Map<String, Object?> _backupJsonWithItemIdReplacement({
   required String fromId,
   required String toId,
 }) {
-  final json = backup.toJson();
+  final json = _asLegacyBackupJson(backup.toJson());
   final items = List<Map<String, Object?>>.from(
     (json['items']! as List<Object?>).map(
       (item) => Map<String, Object?>.from(item! as Map<Object?, Object?>),
@@ -658,26 +911,38 @@ Map<String, Object?> _backupJsonWithItemIdReplacement({
   return {...json, 'items': items};
 }
 
-Future<VaultMeta> _setBiometricMeta(VaultRepository repository) async {
-  final meta = (await repository.metaDao.get())!;
-  final updatedMeta = VaultMeta(
-    id: meta.id,
-    version: meta.version,
-    kdf: meta.kdf,
-    kdfParams: meta.kdfParams,
-    salt: meta.salt,
-    encryptedDekByMaster: meta.encryptedDekByMaster,
-    encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
-    encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
-    biometricEnabled: true,
-    createdAt: meta.createdAt,
-    updatedAt: meta.updatedAt,
-    encryptedDekByBiometric: 'encrypted-biometric-dek',
-    encryptedDekByBiometricNonce: 'biometric-nonce',
-    encryptedDekByBiometricMac: 'biometric-mac',
+Map<String, Object?> _asLegacyBackupJson(Map<String, Object?> json) {
+  final legacy = Map<String, Object?>.from(json);
+  legacy['version'] = 1;
+  legacy.remove('magic');
+  legacy.remove('created_at');
+  legacy.remove('item_count');
+  legacy.remove('vault_id');
+  legacy.remove('vault_created_at');
+  legacy.remove('vault_updated_at');
+  legacy.remove('manifest');
+  return legacy;
+}
+
+String _tamperBase64(String value) {
+  final bytes = fromB64(value);
+  bytes[bytes.length - 1] = bytes.last ^ 0x01;
+  return b64(bytes);
+}
+
+Future<VaultMeta> _enableBiometricMeta(_BackupHarness harness) async {
+  final biometricService = BiometricService(
+    authenticator: FakeBiometricAuthenticator(
+      canAuthenticate: true,
+      succeeds: true,
+    ),
+    store: MemorySecureDekStore(),
   );
-  await repository.metaDao.save(updatedMeta);
-  return updatedMeta;
+  await harness.vaultService.enableBiometricUnlock(
+    masterPassword: 'target-master',
+    biometricService: biometricService,
+  );
+  return (await harness.repository.metaDao.get())!;
 }
 
 Future<void> _createEmptyArgon2idVault(
@@ -703,21 +968,31 @@ Future<void> _createEmptyArgon2idVault(
   final wrappedDek = await crypto.encryptBytes(key: kek, plaintext: dek);
   final now = DateTime.utc(2026, 5, 15).millisecondsSinceEpoch;
 
-  await harness.repository.metaDao.save(
-    VaultMeta(
-      id: 'argon-vault',
-      version: 1,
-      kdf: params.name,
-      kdfParams: params,
-      salt: b64(salt),
-      encryptedDekByMaster: b64(wrappedDek.ciphertext),
-      encryptedDekByMasterNonce: b64(wrappedDek.nonce),
-      encryptedDekByMasterMac: b64(wrappedDek.mac),
-      biometricEnabled: false,
-      createdAt: now,
-      updatedAt: now,
-    ),
+  final meta = VaultMeta(
+    id: 'argon-vault',
+    version: 1,
+    kdf: params.name,
+    kdfParams: params,
+    salt: b64(salt),
+    encryptedDekByMaster: b64(wrappedDek.ciphertext),
+    encryptedDekByMasterNonce: b64(wrappedDek.nonce),
+    encryptedDekByMasterMac: b64(wrappedDek.mac),
+    biometricEnabled: false,
+    createdAt: now,
+    updatedAt: now,
   );
+  final manifest = await VaultManifestService(crypto: crypto).createManifest(
+    dek: dek,
+    meta: meta,
+    items: const [],
+    previous: null,
+    updatedAt: now,
+  );
+
+  await harness.repository.transaction((txn) async {
+    await txn.metaDao.save(meta);
+    await txn.manifestDao.save(manifest);
+  });
 }
 
 void _expectMetaPreserved(VaultMeta actual, VaultMeta expected) {
