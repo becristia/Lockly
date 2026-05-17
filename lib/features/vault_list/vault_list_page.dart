@@ -113,19 +113,6 @@ class _VaultListPageState extends State<VaultListPage> {
             children: [
               SecureReplicaHeader(
                 title: '密码库',
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      onPressed: () {},
-                      icon: const Icon(Icons.search_rounded),
-                    ),
-                    IconButton(
-                      onPressed: () {},
-                      icon: const Icon(Icons.more_vert_rounded),
-                    ),
-                  ],
-                ),
               ),
               const SizedBox(height: 22),
               _SecuritySummary(itemCount: _items.length, isLoading: _isLoading),

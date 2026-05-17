@@ -49,16 +49,6 @@ class _UnlockPageState extends State<UnlockPage> {
       child: SingleChildScrollView(
         child: Column(
           children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: IconButton(
-                onPressed: null,
-                icon: Icon(
-                  Icons.arrow_back_rounded,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            ),
             const SizedBox(height: 18),
             const SecureIconBadge(icon: Icons.lock_rounded, size: 106),
             const SizedBox(height: 24),
