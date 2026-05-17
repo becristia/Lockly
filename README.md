@@ -1,17 +1,52 @@
 # Lockly
 
-A new Flutter project.
+本地密码管理工具，保护您的数据隐私安全。
 
-## Getting Started
+## 功能特性
 
-This project is a starting point for a Flutter application.
+- **本地加密存储** - 所有密码数据仅保存在本机，通过 AES-256-GCM 端到端加密保护
+- **主密码保护** - 使用 Argon2id 算法导出密钥，支持主密码策略检测
+- **生物识别解锁** - 支持指纹等生物识别方式快速解锁，失败时回退主密码
+- **密码生成器** - 支持强密码、密码短语、兼容网站等多种生成模式
+- **隐私保护** - 应用进入后台时自动显示隐私遮罩，防止信息泄露
+- **自动锁定** - 可配置空闲超时后自动锁定保险库
+- **剪贴板清理** - 复制密码后自动定时清除剪贴板内容
+- **备份与恢复** - 支持加密备份导出和导入
 
-A few resources to get you started if this is your first Flutter project:
+## 技术架构
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- **加密**: AES-256-GCM + Argon2id + KEK/DEK 分层架构
+- **存储**: SQLite 本地数据库，敏感字段加密后持久化
+- **生物识别**: local_auth + flutter_secure_storage
+- **UI**: Material Design 3 + 自定义玻璃态组件
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 构建
+
+```bash
+# 安装依赖
+flutter pub get
+
+# 构建 Debug APK
+flutter build apk --debug
+
+# 构建 Release APK
+flutter build apk --release
+```
+
+## 项目结构
+
+```
+lib/
+├── app/           # 应用入口、路由、服务定位
+├── core/          # 核心服务（加密、保险库、生物识别、备份）
+├── data/          # 数据层（SQLite DAOs、数据模型）
+├── features/      # 页面（设置、解锁、密码库、生成器、设置）
+└── shared/        # 共享组件（主题、控件库）
+```
+
+## 安全说明
+
+- 主密码不会上传云端，也无法找回
+- 所有数据存储在本地设备
+- 生物识别仅用于快速解锁本地密码库
+- 密码库完整性通过清单机制验证，防止篡改和回滚
