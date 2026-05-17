@@ -76,10 +76,10 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
     final theme = Theme.of(context);
 
     return SecureVisualBackground(
-      bottomInset: 84,
+      bottomInset: 0,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 92),
         children: [
           SecureReplicaHeader(
             title: '密码生成器',
@@ -87,12 +87,8 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
               Icons.auto_awesome_rounded,
               color: theme.colorScheme.primary,
             ),
-            trailing: IconButton(
-              onPressed: () {},
-              icon: const Icon(Icons.history_rounded),
-            ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -102,7 +98,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                 onGenerate: _generatePassword,
                 onSave: _savePassword,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               SecureSection(
                 title: '生成规则',
                 subtitle: '默认保证每类已选字符至少出现一次。',
@@ -140,6 +136,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                           children: [
                             _GeneratorSwitch(
                               width: tileWidth,
+                              icon: Icons.text_fields_rounded,
                               title: '小写字母',
                               value: _lowercase,
                               onChanged: (value) =>
@@ -147,6 +144,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             ),
                             _GeneratorSwitch(
                               width: tileWidth,
+                              icon: Icons.title_rounded,
                               title: '大写字母',
                               value: _uppercase,
                               onChanged: (value) =>
@@ -154,6 +152,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             ),
                             _GeneratorSwitch(
                               width: tileWidth,
+                              icon: Icons.pin_rounded,
                               title: '数字',
                               value: _numbers,
                               onChanged: (value) =>
@@ -161,6 +160,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             ),
                             _GeneratorSwitch(
                               width: tileWidth,
+                              icon: Icons.alternate_email_rounded,
                               title: '特殊符号',
                               value: _symbols,
                               onChanged: (value) =>
@@ -168,6 +168,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             ),
                             _GeneratorSwitch(
                               width: tileWidth,
+                              icon: Icons.visibility_off_outlined,
                               title: '排除易混字符',
                               value: _excludeConfusing,
                               onChanged: (value) =>
@@ -175,6 +176,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             ),
                             _GeneratorSwitch(
                               width: tileWidth,
+                              icon: Icons.done_all_rounded,
                               title: '每类至少一个',
                               value: _requireEverySelectedClass,
                               onChanged: (value) => setState(
@@ -316,12 +318,14 @@ class _ResultPanel extends StatelessWidget {
 class _GeneratorSwitch extends StatelessWidget {
   const _GeneratorSwitch({
     required this.width,
+    required this.icon,
     required this.title,
     required this.value,
     required this.onChanged,
   });
 
   final double width;
+  final IconData icon;
   final String title;
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -334,6 +338,21 @@ class _GeneratorSwitch extends StatelessWidget {
         contentPadding: EdgeInsets.zero,
         dense: true,
         visualDensity: VisualDensity.compact,
+        secondary: Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(
+            icon,
+            size: 15,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
         title: Text(title),
         value: value,
         onChanged: onChanged,

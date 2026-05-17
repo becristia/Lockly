@@ -196,15 +196,22 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return SecureVisualBackground(
-      bottomInset: 84,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      bottomInset: 0,
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 112),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 92),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SecureReplicaHeader(title: '设置'),
-            const SizedBox(height: 24),
+            Text(
+              '设置',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontSize: 30,
+                height: 1.05,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 22),
             SecureSection(
               key: const ValueKey('settings-section-unlock'),
               title: '解锁安全',
@@ -684,7 +691,21 @@ class _MasterPasswordPromptDialogState
                 ],
               ),
               const SizedBox(height: 18),
-              Text('信息仅存储在本机', style: Theme.of(context).textTheme.bodySmall),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '信息仅存储在本机',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ],
           ),
         ),

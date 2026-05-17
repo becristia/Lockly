@@ -59,21 +59,24 @@ class _UnlockPageState extends State<UnlockPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 22),
-            const SecureIconBadge(icon: Icons.lock_rounded, size: 110),
-            const SizedBox(height: 28),
+            const SizedBox(height: 18),
+            const SecureIconBadge(icon: Icons.lock_rounded, size: 106),
+            const SizedBox(height: 24),
             Text(
               '解锁密码库',
-              style: theme.textTheme.headlineMedium,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontSize: 26,
+                height: 1.05,
+              ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               '输入主密码以解锁本地加密密码库。',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
             ),
-            const SizedBox(height: 26),
+            const SizedBox(height: 22),
             SecureGlassCard(
               padding: const EdgeInsets.all(0),
               shadow: false,
@@ -88,6 +91,11 @@ class _UnlockPageState extends State<UnlockPage> {
                 decoration: InputDecoration(
                   labelText: '主密码',
                   errorText: _errorText,
+                  floatingLabelStyle: const TextStyle(fontSize: 12),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
                   suffixIcon: IconButton(
                     tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
                     onPressed: _togglePasswordVisibility,
@@ -127,10 +135,23 @@ class _UnlockPageState extends State<UnlockPage> {
               ),
             ],
             const SizedBox(height: 22),
-            Text(
-              '连续输错后会短暂延迟重试\n以降低暴力尝试风险',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.verified_user_outlined,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    '连续输错后会短暂延迟重试\n以降低暴力尝试风险',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
