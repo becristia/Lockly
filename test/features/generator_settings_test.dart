@@ -80,6 +80,65 @@ void main() {
     expect(find.widgetWithText(FilledButton, '清除'), findsOneWidget);
   });
 
+  testWidgets('successful master password change closes dialog cleanly', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('修改主密码'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '当前主密码'),
+      'old-master-password',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '新主密码'),
+      'correct horse battery staple',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '确认新主密码'),
+      'correct horse battery staple',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('主密码已修改，生物识别需要重新开启。'), findsOneWidget);
+  });
+
+  testWidgets('successful biometric enable closes password prompt cleanly', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('生物识别'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, '主密码'),
+      'old-master-password',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '开启'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final tile = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    expect(tile.value, isTrue);
+  });
+
   test('failed master password change does not delete biometric DEK', () async {
     final harness = await _buildBiometricHarness();
     await harness.vaultService.enableBiometricUnlock(

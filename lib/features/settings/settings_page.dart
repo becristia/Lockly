@@ -313,207 +313,31 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<bool?> _showMasterPasswordChangeDialog(BuildContext context) async {
-    final formKey = GlobalKey<FormState>();
-    final oldPasswordController = TextEditingController();
-    final newPasswordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
-    String? errorText;
-    var isSaving = false;
-
-    final result = await showDialog<bool>(
+    return showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('修改主密码'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: oldPasswordController,
-                  decoration: const InputDecoration(labelText: '当前主密码'),
-                  obscureText: true,
-                  validator: _requiredPassword,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: newPasswordController,
-                  decoration: const InputDecoration(labelText: '新主密码'),
-                  obscureText: true,
-                  validator: _validateNewPassword,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: confirmPasswordController,
-                  decoration: const InputDecoration(labelText: '确认新主密码'),
-                  obscureText: true,
-                  validator: (value) {
-                    if (value != newPasswordController.text) {
-                      return '两次输入的主密码不一致';
-                    }
-                    return null;
-                  },
-                ),
-                if (errorText != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    errorText!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSaving ? null : () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      final form = formKey.currentState;
-                      if (form == null || !form.validate()) {
-                        return;
-                      }
-                      setDialogState(() {
-                        isSaving = true;
-                        errorText = null;
-                      });
-                      try {
-                        await widget.services.changeMasterPassword(
-                          oldPassword: oldPasswordController.text,
-                          newPassword: newPasswordController.text,
-                        );
-                        if (context.mounted) {
-                          Navigator.of(context).pop(true);
-                        }
-                      } catch (_) {
-                        setDialogState(() {
-                          isSaving = false;
-                          errorText = '主密码修改失败，请确认当前主密码。';
-                        });
-                      }
-                    },
-              child: const Text('保存'),
-            ),
-          ],
-        ),
-      ),
+      builder: (context) =>
+          _MasterPasswordChangeDialog(services: widget.services),
     );
-
-    oldPasswordController.dispose();
-    newPasswordController.dispose();
-    confirmPasswordController.dispose();
-    return result;
   }
 
   Future<String?> _showMasterPasswordPrompt({
     required String title,
     required String submitLabel,
   }) async {
-    final controller = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    final result = await showDialog<String>(
+    return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            decoration: const InputDecoration(labelText: '主密码'),
-            obscureText: true,
-            validator: _requiredPassword,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final form = formKey.currentState;
-              if (form == null || !form.validate()) {
-                return;
-              }
-              Navigator.of(context).pop(controller.text);
-            },
-            child: Text(submitLabel),
-          ),
-        ],
-      ),
+      builder: (context) =>
+          _MasterPasswordPromptDialog(title: title, submitLabel: submitLabel),
     );
-    controller.dispose();
-    return result;
   }
 
   Future<_BackupImportInput?> _showBackupImportDialog(
     BuildContext context,
   ) async {
-    final formKey = GlobalKey<FormState>();
-    final backupController = TextEditingController();
-    final passwordController = TextEditingController();
-
-    final result = await showDialog<_BackupImportInput>(
+    return showDialog<_BackupImportInput>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('导入加密备份'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: backupController,
-                decoration: const InputDecoration(labelText: '备份 JSON'),
-                minLines: 4,
-                maxLines: 6,
-                validator: (value) =>
-                    value == null || value.trim().isEmpty ? '请粘贴备份内容' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: passwordController,
-                decoration: const InputDecoration(labelText: '备份主密码'),
-                obscureText: true,
-                validator: _requiredPassword,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final form = formKey.currentState;
-              if (form == null || !form.validate()) {
-                return;
-              }
-              Navigator.of(context).pop(
-                _BackupImportInput(
-                  backupJson: backupController.text,
-                  masterPassword: passwordController.text,
-                ),
-              );
-            },
-            child: const Text('导入'),
-          ),
-        ],
-      ),
+      builder: (context) => const _BackupImportDialog(),
     );
-
-    backupController.dispose();
-    passwordController.dispose();
-    return result;
   }
 
   Future<bool?> _showConfirmationDialog({
@@ -556,6 +380,251 @@ class _SettingsPageState extends State<SettingsPage> {
   static String? _validateNewPassword(String? value) {
     final result = MasterPasswordPolicy.evaluate(value ?? '');
     return result.isAcceptable ? null : result.message;
+  }
+}
+
+class _MasterPasswordChangeDialog extends StatefulWidget {
+  const _MasterPasswordChangeDialog({required this.services});
+
+  final AppServices services;
+
+  @override
+  State<_MasterPasswordChangeDialog> createState() =>
+      _MasterPasswordChangeDialogState();
+}
+
+class _MasterPasswordChangeDialogState
+    extends State<_MasterPasswordChangeDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _oldPasswordController = TextEditingController();
+  final TextEditingController _newPasswordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
+
+  String? _errorText;
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _oldPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('修改主密码'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _oldPasswordController,
+              decoration: const InputDecoration(labelText: '当前主密码'),
+              obscureText: true,
+              validator: _SettingsPageState._requiredPassword,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _newPasswordController,
+              decoration: const InputDecoration(labelText: '新主密码'),
+              obscureText: true,
+              validator: _SettingsPageState._validateNewPassword,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _confirmPasswordController,
+              decoration: const InputDecoration(labelText: '确认新主密码'),
+              obscureText: true,
+              validator: (value) {
+                if (value != _newPasswordController.text) {
+                  return '两次输入的主密码不一致';
+                }
+                return null;
+              },
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorText!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _isSaving ? null : _submit,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _submit() async {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _isSaving = true;
+      _errorText = null;
+    });
+    try {
+      await widget.services.changeMasterPassword(
+        oldPassword: _oldPasswordController.text,
+        newPassword: _newPasswordController.text,
+      );
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSaving = false;
+        _errorText = '主密码修改失败，请确认当前主密码。';
+      });
+    }
+  }
+}
+
+class _MasterPasswordPromptDialog extends StatefulWidget {
+  const _MasterPasswordPromptDialog({
+    required this.title,
+    required this.submitLabel,
+  });
+
+  final String title;
+  final String submitLabel;
+
+  @override
+  State<_MasterPasswordPromptDialog> createState() =>
+      _MasterPasswordPromptDialogState();
+}
+
+class _MasterPasswordPromptDialogState
+    extends State<_MasterPasswordPromptDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          decoration: const InputDecoration(labelText: '主密码'),
+          obscureText: true,
+          validator: _SettingsPageState._requiredPassword,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: Text(widget.submitLabel)),
+      ],
+    );
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop(_controller.text);
+  }
+}
+
+class _BackupImportDialog extends StatefulWidget {
+  const _BackupImportDialog();
+
+  @override
+  State<_BackupImportDialog> createState() => _BackupImportDialogState();
+}
+
+class _BackupImportDialogState extends State<_BackupImportDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _backupController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _backupController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('导入加密备份'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _backupController,
+              decoration: const InputDecoration(labelText: '备份 JSON'),
+              minLines: 4,
+              maxLines: 6,
+              validator: (value) =>
+                  value == null || value.trim().isEmpty ? '请粘贴备份内容' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _passwordController,
+              decoration: const InputDecoration(labelText: '备份主密码'),
+              obscureText: true,
+              validator: _SettingsPageState._requiredPassword,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('导入')),
+      ],
+    );
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop(
+      _BackupImportInput(
+        backupJson: _backupController.text,
+        masterPassword: _passwordController.text,
+      ),
+    );
   }
 }
 
