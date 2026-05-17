@@ -481,90 +481,92 @@ class _MasterPasswordChangeDialogState
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 20),
       backgroundColor: Colors.transparent,
-      child: SecureGlassCard(
-        borderRadius: 28,
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: IconButton(
-                  onPressed: _isSaving
-                      ? null
-                      : () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
+      child: SingleChildScrollView(
+        child:SecureGlassCard(
+          borderRadius: 28,
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
                 ),
-              ),
-              const SecureIconBadge(icon: Icons.key_rounded, size: 76),
-              const SizedBox(height: 18),
-              Text('修改主密码', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 8),
-              Text(
-                '建议定期更新密码以提升安全性。',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _oldPasswordController,
-                decoration: const InputDecoration(
-                  labelText: '当前主密码',
-                  suffixIcon: Icon(Icons.visibility_outlined),
-                ),
-                obscureText: true,
-                validator: _SettingsPageState._requiredPassword,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _newPasswordController,
-                decoration: const InputDecoration(
-                  labelText: '新主密码',
-                  suffixIcon: Icon(Icons.visibility_outlined),
-                ),
-                obscureText: true,
-                validator: _SettingsPageState._validateNewPassword,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _confirmPasswordController,
-                decoration: const InputDecoration(
-                  labelText: '确认新主密码',
-                  suffixIcon: Icon(Icons.visibility_outlined),
-                ),
-                obscureText: true,
-                validator: (value) {
-                  if (value != _newPasswordController.text) {
-                    return '两次输入的主密码不一致';
-                  }
-                  return null;
-                },
-              ),
-              if (_errorText != null) ...[
-                const SizedBox(height: 12),
+                const SecureIconBadge(icon: Icons.key_rounded, size: 76),
+                const SizedBox(height: 18),
+                Text('修改主密码', style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 8),
                 Text(
-                  _errorText!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  '建议定期更新密码以提升安全性。',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: _oldPasswordController,
+                  decoration: const InputDecoration(
+                    labelText: '当前主密码',
+                    suffixIcon: Icon(Icons.visibility_outlined),
+                  ),
+                  obscureText: true,
+                  validator: _SettingsPageState._requiredPassword,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _newPasswordController,
+                  decoration: const InputDecoration(
+                    labelText: '新主密码',
+                    suffixIcon: Icon(Icons.visibility_outlined),
+                  ),
+                  obscureText: true,
+                  validator: _SettingsPageState._validateNewPassword,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _confirmPasswordController,
+                  decoration: const InputDecoration(
+                    labelText: '确认新主密码',
+                    suffixIcon: Icon(Icons.visibility_outlined),
+                  ),
+                  obscureText: true,
+                  validator: (value) {
+                    if (value != _newPasswordController.text) {
+                      return '两次输入的主密码不一致';
+                    }
+                    return null;
+                  },
+                ),
+                if (_errorText != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _errorText!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 22),
+                SecureGradientButton(
+                  onPressed: _isSaving ? null : _submit,
+                  label: '保存',
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(),
+                    child: const Text('取消'),
+                  ),
                 ),
               ],
-              const SizedBox(height: 22),
-              SecureGradientButton(
-                onPressed: _isSaving ? null : _submit,
-                label: '保存',
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: _isSaving
-                      ? null
-                      : () => Navigator.of(context).pop(),
-                  child: const Text('取消'),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -736,59 +738,61 @@ class _BackupImportDialogState extends State<_BackupImportDialog> {
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 20),
       backgroundColor: Colors.transparent,
-      child: SecureGlassCard(
-        borderRadius: 28,
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SecureIconBadge(
-                icon: Icons.file_download_outlined,
-                size: 76,
-              ),
-              const SizedBox(height: 18),
-              Text('导入加密备份', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 8),
-              Text(
-                '粘贴加密备份 JSON，并输入备份主密码验证后导入。',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _backupController,
-                decoration: const InputDecoration(
-                  labelText: '备份 JSON',
-                  prefixIcon: Icon(Icons.data_object_rounded),
+      child: SingleChildScrollView(
+        child: SecureGlassCard(
+          borderRadius: 28,
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SecureIconBadge(
+                  icon: Icons.file_download_outlined,
+                  size: 76,
                 ),
-                minLines: 4,
-                maxLines: 6,
-                validator: (value) =>
-                    value == null || value.trim().isEmpty ? '请粘贴备份内容' : null,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: '备份主密码',
-                  prefixIcon: Icon(Icons.lock_outline_rounded),
+                const SizedBox(height: 18),
+                Text('导入加密备份', style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 8),
+                Text(
+                  '粘贴加密备份 JSON，并输入备份主密码验证后导入。',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
-                obscureText: true,
-                validator: _SettingsPageState._requiredPassword,
-              ),
-              const SizedBox(height: 22),
-              SecureGradientButton(onPressed: _submit, label: '导入'),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('取消'),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: _backupController,
+                  decoration: const InputDecoration(
+                    labelText: '备份 JSON',
+                    prefixIcon: Icon(Icons.data_object_rounded),
+                  ),
+                  minLines: 4,
+                  maxLines: 6,
+                  validator: (value) =>
+                      value == null || value.trim().isEmpty ? '请粘贴备份内容' : null,
                 ),
-              ),
-            ],
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(
+                    labelText: '备份主密码',
+                    prefixIcon: Icon(Icons.lock_outline_rounded),
+                  ),
+                  obscureText: true,
+                  validator: _SettingsPageState._requiredPassword,
+                ),
+                const SizedBox(height: 22),
+                SecureGradientButton(onPressed: _submit, label: '导入'),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('取消'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
