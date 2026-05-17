@@ -71,6 +71,20 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
     );
   }
 
+  Future<void> _copyGeneratedPassword() async {
+    widget.services.recordActivity();
+    if (_generatedPassword.isEmpty) {
+      return;
+    }
+    final copied = await widget.services.copyPassword(_generatedPassword);
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(copied ? '密码已复制，30 秒后将自动清理剪贴板。' : '复制失败，请重试。')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -96,6 +110,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                 password: _generatedPassword,
                 errorText: _errorText,
                 onGenerate: _generatePassword,
+                onCopy: _copyGeneratedPassword,
                 onSave: _savePassword,
               ),
               const SizedBox(height: 16),
@@ -203,12 +218,14 @@ class _ResultPanel extends StatelessWidget {
     required this.password,
     required this.errorText,
     required this.onGenerate,
+    required this.onCopy,
     required this.onSave,
   });
 
   final String password;
   final String? errorText;
   final VoidCallback onGenerate;
+  final VoidCallback onCopy;
   final VoidCallback onSave;
 
   @override
@@ -259,14 +276,33 @@ class _ResultPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (hasPassword)
-            SelectableText(
-              password,
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    password,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Tooltip(
+                  message: '复制密码',
+                  child: Material(
+                    color: Colors.white.withValues(alpha: 0.86),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      onPressed: onCopy,
+                      icon: const Icon(Icons.copy_rounded),
+                      color: SecureVisualColors.blue,
+                    ),
+                  ),
+                ),
+              ],
             )
           else
             Text(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
@@ -128,19 +129,7 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       await showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('导出加密备份'),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 360),
-            child: SingleChildScrollView(child: SelectableText(backupJson)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('关闭'),
-            ),
-          ],
-        ),
+        builder: (context) => _BackupExportDialog(backupJson: backupJson),
       );
     } catch (_) {
       if (!mounted) {
@@ -744,38 +733,65 @@ class _BackupImportDialogState extends State<_BackupImportDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('导入加密备份'),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _backupController,
-              decoration: const InputDecoration(labelText: '备份 JSON'),
-              minLines: 4,
-              maxLines: 6,
-              validator: (value) =>
-                  value == null || value.trim().isEmpty ? '请粘贴备份内容' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _passwordController,
-              decoration: const InputDecoration(labelText: '备份主密码'),
-              obscureText: true,
-              validator: _SettingsPageState._requiredPassword,
-            ),
-          ],
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+      backgroundColor: Colors.transparent,
+      child: SecureGlassCard(
+        borderRadius: 28,
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SecureIconBadge(
+                icon: Icons.file_download_outlined,
+                size: 76,
+              ),
+              const SizedBox(height: 18),
+              Text('导入加密备份', style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 8),
+              Text(
+                '粘贴加密备份 JSON，并输入备份主密码验证后导入。',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _backupController,
+                decoration: const InputDecoration(
+                  labelText: '备份 JSON',
+                  prefixIcon: Icon(Icons.data_object_rounded),
+                ),
+                minLines: 4,
+                maxLines: 6,
+                validator: (value) =>
+                    value == null || value.trim().isEmpty ? '请粘贴备份内容' : null,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _passwordController,
+                decoration: const InputDecoration(
+                  labelText: '备份主密码',
+                  prefixIcon: Icon(Icons.lock_outline_rounded),
+                ),
+                obscureText: true,
+                validator: _SettingsPageState._requiredPassword,
+              ),
+              const SizedBox(height: 22),
+              SecureGradientButton(onPressed: _submit, label: '导入'),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('取消'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('导入')),
-      ],
     );
   }
 
@@ -789,6 +805,92 @@ class _BackupImportDialogState extends State<_BackupImportDialog> {
       _BackupImportInput(
         backupJson: _backupController.text,
         masterPassword: _passwordController.text,
+      ),
+    );
+  }
+}
+
+class _BackupExportDialog extends StatefulWidget {
+  const _BackupExportDialog({required this.backupJson});
+
+  final String backupJson;
+
+  @override
+  State<_BackupExportDialog> createState() => _BackupExportDialogState();
+}
+
+class _BackupExportDialogState extends State<_BackupExportDialog> {
+  bool _copied = false;
+
+  Future<void> _copyBackupJson() async {
+    await Clipboard.setData(ClipboardData(text: widget.backupJson));
+    if (!mounted) {
+      return;
+    }
+    setState(() => _copied = true);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('加密备份已复制。')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+      backgroundColor: Colors.transparent,
+      child: SecureGlassCard(
+        borderRadius: 28,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SecureIconBadge(icon: Icons.file_upload_outlined, size: 76),
+            const SizedBox(height: 18),
+            Text('导出加密备份', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            Text(
+              '备份内容已加密，恢复时仍需要对应主密码。',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 20),
+            SecureGlassCard(
+              padding: const EdgeInsets.all(14),
+              borderRadius: 16,
+              shadow: false,
+              color: Theme.of(
+                context,
+              ).colorScheme.surface.withValues(alpha: 0.72),
+              borderColor: Theme.of(context).colorScheme.outlineVariant,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    widget.backupJson,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureGradientButton(
+              onPressed: _copyBackupJson,
+              icon: _copied ? Icons.check_rounded : Icons.copy_rounded,
+              label: _copied ? '已复制' : '复制备份',
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

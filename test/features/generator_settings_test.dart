@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
@@ -53,6 +52,41 @@ void main() {
     },
   );
 
+  testWidgets('generator copy button copies generated password', (
+    tester,
+  ) async {
+    String? clipboardText;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final data = Map<Object?, Object?>.from(call.arguments as Map);
+            clipboardText = data['text'] as String?;
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeGenerator);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('generator-generate-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.copy_rounded));
+    await tester.pump();
+
+    expect(clipboardText, isNotNull);
+    expect(clipboardText, isNotEmpty);
+  });
+
   testWidgets('settings exposes required local vault controls', (tester) async {
     final services = AppServices.fake(hasVault: true, unlocked: true);
 
@@ -78,6 +112,43 @@ void main() {
 
     expect(find.text('此操作会删除本机密码库和设置，无法找回。请确认已经导出可用备份。'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '清除'), findsOneWidget);
+  });
+
+  testWidgets('backup export dialog can copy encrypted backup json', (
+    tester,
+  ) async {
+    String? clipboardText;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            final data = Map<Object?, Object?>.from(call.arguments as Map);
+            clipboardText = data['text'] as String?;
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+    await tester.pumpAndSettle();
+
+    final exportIcon = find.byIcon(Icons.file_upload_outlined).first;
+    await tester.scrollUntilVisible(exportIcon, 120);
+    await tester.tap(exportIcon);
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.copy_rounded));
+    await tester.pump();
+
+    expect(clipboardText, contains('"version"'));
   });
 
   testWidgets('successful master password change closes dialog cleanly', (
