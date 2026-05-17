@@ -49,7 +49,7 @@ class _UnlockPageState extends State<UnlockPage> {
       child: SingleChildScrollView(
         child: Column(
           children: [
-            const SizedBox(height: 18),
+            const SizedBox(height: 100),
             const SecureIconBadge(icon: Icons.lock_rounded, size: 106),
             const SizedBox(height: 24),
             Text(
@@ -68,7 +68,9 @@ class _UnlockPageState extends State<UnlockPage> {
             ),
             const SizedBox(height: 22),
             SecureGlassCard(
-              padding: const EdgeInsets.all(0),
+              padding: const EdgeInsets.all(14),
+              color: SecureVisualColors.paleBlue.withValues(alpha: 0.5),
+              borderColor: Colors.transparent,
               shadow: false,
               child: ActivityTextFormField(
                 controller: _passwordController,
@@ -81,11 +83,6 @@ class _UnlockPageState extends State<UnlockPage> {
                 decoration: InputDecoration(
                   labelText: '主密码',
                   errorText: _errorText,
-                  floatingLabelStyle: const TextStyle(fontSize: 12),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
-                  ),
                   suffixIcon: IconButton(
                     tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
                     onPressed: _togglePasswordVisibility,

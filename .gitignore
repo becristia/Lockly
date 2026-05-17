@@ -1,4 +1,6 @@
 .superpowers
+.claude
+image/
 .worktrees/
 # Miscellaneous
 *.class
