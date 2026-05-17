@@ -62,7 +62,12 @@ class BiometricService {
       throw StateError('Biometric authentication is unavailable');
     }
 
-    await store.writeDek(Uint8List.fromList(dek));
+    final copy = Uint8List.fromList(dek);
+    try {
+      await store.writeDek(copy);
+    } finally {
+      copy.fillRange(0, copy.length, 0);
+    }
   }
 
   Future<void> disable() {
@@ -81,11 +86,19 @@ class BiometricService {
 
     try {
       final dek = await store.readDek();
-      if (dek == null || dek.length != _dekLength) {
+      if (dek == null) {
         return const BiometricUnlockResult.fallbackToMasterPassword();
       }
 
-      return BiometricUnlockResult.unlocked(dek);
+      try {
+        if (dek.length != _dekLength) {
+          return const BiometricUnlockResult.fallbackToMasterPassword();
+        }
+
+        return BiometricUnlockResult.unlocked(dek);
+      } finally {
+        dek.fillRange(0, dek.length, 0);
+      }
     } catch (_) {
       return const BiometricUnlockResult.fallbackToMasterPassword();
     }

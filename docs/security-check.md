@@ -1,18 +1,18 @@
 # Secure Box Security Check
 
-Date: 2026-05-16
+Date: 2026-05-17
 
 ## Commands
 
-- `flutter test`
+- `flutter test --reporter compact`
 - `flutter analyze`
 - `rg -n "MD5|SHA1|sha1|sha256\(|print\(|debugPrint\(|log\(|password|masterPassword|secret" lib test`
-- `rg -n "CREATE TABLE vault_items|CREATE TABLE vault_manifest|username|password|notes|title" lib/data/db lib/data/models`
+- `rg -n "CREATE TABLE vault_items|CREATE TABLE vault_manifest|username|password|notes|title|vault_anchor|anchor" lib/data/db lib/data/models lib/core/vault`
 - `rg -n "android.permission.INTERNET" android`
 
 ## Result
 
-- `flutter test` passed after manifest integrity hardening: 177 tests.
+- `flutter test --reporter compact` passed after device rollback anchor hardening: 216 tests.
 - `flutter analyze` passed: no issues found.
 - No MD5 or SHA1 usage was found.
 - `sha256` appears only as the HMAC algorithm inside PBKDF2-HMAC-SHA256, HKDF/HMAC-SHA256 manifest key derivation, canonical manifest digests, and corresponding tests. It is not used as a direct master-password hash.
@@ -25,12 +25,20 @@ Date: 2026-05-16
 - Sensitive item fields are serialized into one JSON payload and encrypted before persistence.
 - Vault manifest integrity is enabled for new vaults and normal unlock now fails closed if the manifest is missing or invalid.
 - Live vault mutations verify the previous manifest and rewrite one new manifest in the same transaction, detecting item tampering, item deletion, metadata envelope replacement, and manifest rollback/mismatch.
+- Vault rollback anchor is stored in platform secure storage, not SQLite, and contains only vault id, schema version, manifest epoch/counter, manifest digest, and timestamp.
+- Master-password unlock can recreate a missing platform anchor only after encrypted manifest verification succeeds.
+- Biometric unlock requires an existing matching platform anchor and falls back to the master password if the anchor is missing or invalid.
+- Runtime unlock and mutation preflight require an existing platform anchor to match the encrypted manifest epoch, counter, and digest exactly, so whole-database rollback below the platform anchor or SQLite advancing beyond a stale anchor fails closed.
+- Backup import anchor preflight checks run before destructive writes. Overwrite import verifies the existing target anchor, checks the imported vault-id anchor before accepting the replacement, and skip no-op verifies the current target anchor before returning success.
 - Backup version 2 includes `magic`, `item_count`, source biometric metadata needed for manifest verification, and an encrypted manifest. Version 1 backup import remains supported as a legacy path that generates a target manifest.
 - Version 2 backup import verifies the backup master password and manifest before writing target data, and rejects item, manifest, biometric metadata, item count, and magic mismatches.
 - Android manifests contain no `android.permission.INTERNET` permission, and `USE_BIOMETRIC` is declared for biometric quick unlock.
 - Android `MainActivity` uses `FlutterFragmentActivity` for `local_auth` compatibility and enables `FLAG_SECURE` for screenshot/task-preview masking.
 - Android biometric unlock stores only a DEK copy, uses biometric Android secure storage options with `enforceBiometrics: true`, and still requires the app-level `local_auth` biometric-only gate before reading the DEK copy.
 - Biometric unlock failure continues to fall back to the master password.
+- `VaultSession.lock()` zeroes session-owned DEK bytes before dropping the reference.
+- Temporary DEK copies in biometric enable/unlock are zeroed where ownership is clear, including invalid-length biometric DEK reads.
+- Password detail and edit pages clear transient plaintext state from controllers/state during dispose.
 
 ## Residual Notes
 

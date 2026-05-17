@@ -31,6 +31,13 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     _loadItem();
   }
 
+  @override
+  void dispose() {
+    _entry = null;
+    _isPasswordVisible = false;
+    super.dispose();
+  }
+
   Future<void> _loadItem() async {
     setState(() {
       _isLoading = true;

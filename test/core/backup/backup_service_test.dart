@@ -9,6 +9,8 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_anchor_service.dart';
+import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
@@ -502,6 +504,178 @@ void main() {
     },
   );
 
+  test(
+    'importBackup overwrite accepts rewritten target manifest into anchor',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+
+      final meta = await target.repository.metaDao.get();
+      final manifest = await target.repository.manifestDao.get();
+      final anchor = await target.anchorStore.read(vaultId: meta!.id);
+      expect(anchor, isNotNull);
+      expect(anchor!.manifestCounter, manifest!.counter);
+    },
+  );
+
+  test(
+    'importBackup overwrite rejects target rollback before writing data',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'shared-master');
+      await source.vaultService.unlock(masterPassword: 'shared-master');
+      final sourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Source',
+          website: 'https://source.example',
+          username: 'source@example.com',
+          password: 'source-password',
+          notes: 'source note',
+          tags: const ['source'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'shared-master');
+      await target.vaultService.unlock(masterPassword: 'shared-master');
+      final targetId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Target',
+          website: 'https://target.example',
+          username: 'target@example.com',
+          password: 'target-password',
+          notes: 'target note',
+          tags: const ['target'],
+        ),
+      );
+      final targetMeta = await target.repository.metaDao.get();
+      final targetManifest = await target.repository.manifestDao.get();
+      await VaultAnchorService(store: target.anchorStore).writeAcceptedManifest(
+        vaultId: targetMeta!.id,
+        manifest: targetManifest!.copyWith(counter: targetManifest.counter + 2),
+        updatedAt: targetManifest.updatedAt + 2,
+      );
+      target.vaultService.lock();
+
+      await expectLater(
+        target.backupService.importBackup(
+          json: backup.toJson(),
+          masterPassword: 'shared-master',
+          mode: BackupImportMode.overwrite,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      final rows = await target.repository.itemsDao.rawRowsForTest();
+      expect(rows, hasLength(1));
+      expect(rows.single['id'], targetId);
+      expect(rows.single['id'], isNot(sourceId));
+      final preservedMeta = await target.repository.metaDao.get();
+      expect(preservedMeta!.id, targetMeta.id);
+      expect(
+        preservedMeta.encryptedDekByMaster,
+        targetMeta.encryptedDekByMaster,
+      );
+      expect(target.vaultService.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'importBackup overwrite rejects stale anchor for imported vault id',
+    () async {
+      final sourceA = await _buildHarness();
+      await sourceA.vaultService.createVault(masterPassword: 'source-a-master');
+      await sourceA.vaultService.unlock(masterPassword: 'source-a-master');
+      await sourceA.vaultService.createItem(
+        PasswordEntry(
+          title: 'Source A',
+          website: 'https://a.example',
+          username: 'a@example.com',
+          password: 'a-password',
+          notes: 'older backup',
+          tags: const ['a'],
+        ),
+      );
+      final backupA = await sourceA.backupService.exportBackup();
+      final sourceAMeta = await sourceA.repository.metaDao.get();
+      final sourceAManifest = await sourceA.repository.manifestDao.get();
+
+      final sourceB = await _buildHarness();
+      await sourceB.vaultService.createVault(masterPassword: 'source-b-master');
+      await sourceB.vaultService.unlock(masterPassword: 'source-b-master');
+      final sourceBId = await sourceB.vaultService.createItem(
+        PasswordEntry(
+          title: 'Source B',
+          website: 'https://b.example',
+          username: 'b@example.com',
+          password: 'b-password',
+          notes: 'current backup',
+          tags: const ['b'],
+        ),
+      );
+      final backupB = await sourceB.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      final advancedAAnchorManifest = sourceAManifest!.copyWith(
+        counter: sourceAManifest.counter + 5,
+      );
+      await VaultAnchorService(store: target.anchorStore).writeAcceptedManifest(
+        vaultId: sourceAMeta!.id,
+        manifest: advancedAAnchorManifest,
+        updatedAt: sourceAManifest.updatedAt + 5,
+      );
+
+      await target.backupService.importBackup(
+        json: backupB.toJson(),
+        masterPassword: 'source-b-master',
+        mode: BackupImportMode.overwrite,
+      );
+      await target.vaultService.unlock(masterPassword: 'source-b-master');
+      final targetMetaAfterB = await target.repository.metaDao.get();
+
+      await expectLater(
+        target.backupService.importBackup(
+          json: backupA.toJson(),
+          masterPassword: 'source-a-master',
+          mode: BackupImportMode.overwrite,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      final preservedAAnchor = await target.anchorStore.read(
+        vaultId: sourceAMeta.id,
+      );
+      expect(
+        preservedAAnchor!.manifestCounter,
+        advancedAAnchorManifest.counter,
+      );
+      final targetMetaAfterFailedA = await target.repository.metaDao.get();
+      expect(targetMetaAfterFailedA!.id, targetMetaAfterB!.id);
+      final rows = await target.repository.itemsDao.rawRowsForTest();
+      expect(rows.map((row) => row['id']), contains(sourceBId));
+    },
+  );
+
   test('importBackup skip keeps duplicate rows and adds new ones', () async {
     final source = await _buildHarness();
     await source.vaultService.createVault(masterPassword: 'source-master');
@@ -919,6 +1093,47 @@ void main() {
     },
   );
 
+  test('importBackup skip no-op rejects target rollback', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: const ['dev'],
+      ),
+    );
+    final backup = await source.backupService.exportBackup();
+
+    final target = await _buildHarness();
+    await target.backupService.importBackup(
+      json: backup.toJson(),
+      masterPassword: 'source-master',
+      mode: BackupImportMode.overwrite,
+    );
+    final targetMeta = await target.repository.metaDao.get();
+    final targetManifest = await target.repository.manifestDao.get();
+    await VaultAnchorService(store: target.anchorStore).writeAcceptedManifest(
+      vaultId: targetMeta!.id,
+      manifest: targetManifest!.copyWith(counter: targetManifest.counter + 2),
+      updatedAt: targetManifest.updatedAt + 2,
+    );
+    target.vaultService.lock();
+
+    await expectLater(
+      target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
+
   test(
     'overwrite import clears the active session so later different-envelope imports stay decryptable after relock',
     () async {
@@ -1138,16 +1353,19 @@ Future<_BackupHarness> _buildHarness() async {
     manifestDao: VaultManifestDao(db),
     settingsDao: SettingsDao(db),
   );
+  final anchorStore = MemoryVaultAnchorStore();
   final vaultService = VaultService(
     repository: repository,
     random: SecureRandom(),
     kdf: KdfService(),
     crypto: CryptoService(random: SecureRandom()),
+    anchorService: VaultAnchorService(store: anchorStore),
   );
 
   return _BackupHarness(
     repository: repository,
     vaultService: vaultService,
+    anchorStore: anchorStore,
     backupService: BackupService(
       repository: repository,
       vaultService: vaultService,
@@ -1159,10 +1377,12 @@ class _BackupHarness {
   const _BackupHarness({
     required this.repository,
     required this.vaultService,
+    required this.anchorStore,
     required this.backupService,
   });
 
   final VaultRepository repository;
   final VaultService vaultService;
+  final MemoryVaultAnchorStore anchorStore;
   final BackupService backupService;
 }

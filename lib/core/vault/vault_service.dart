@@ -6,6 +6,8 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_anchor_service.dart';
+import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
@@ -62,13 +64,16 @@ class VaultService {
     VaultSession? session,
     Uuid? uuid,
     VaultManifestService? manifestService,
+    VaultAnchorService? anchorService,
   }) : _random = random,
        _kdf = kdf,
        _crypto = crypto,
        _session = session ?? VaultSession(),
        _uuid = uuid ?? const Uuid(),
        _manifestService =
-           manifestService ?? VaultManifestService(crypto: crypto);
+           manifestService ?? VaultManifestService(crypto: crypto),
+       _anchorService =
+           anchorService ?? VaultAnchorService(store: MemoryVaultAnchorStore());
 
   final VaultRepository repository;
   final SecureRandom _random;
@@ -77,6 +82,7 @@ class VaultService {
   final VaultSession _session;
   final Uuid _uuid;
   final VaultManifestService _manifestService;
+  final VaultAnchorService _anchorService;
 
   bool get isUnlocked => _session.isUnlocked;
 
@@ -99,6 +105,8 @@ class VaultService {
     final kdfParams = KdfParams.argon2id();
     Uint8List? kek;
     Uint8List? dek;
+    VaultMeta? createdMeta;
+    VaultManifest? createdManifest;
     try {
       kek = await _kdf.deriveKey(
         password: masterPassword,
@@ -135,8 +143,17 @@ class VaultService {
           updatedAt: now,
         );
         await txn.manifestDao.save(manifest);
+        createdMeta = meta;
+        createdManifest = manifest;
       });
+      await _writeAnchorForManifest(
+        meta: createdMeta!,
+        manifest: createdManifest!,
+      );
       _session.lock();
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
     } finally {
       _zeroBytes(kek);
       _zeroBytes(dek);
@@ -149,7 +166,13 @@ class VaultService {
 
     try {
       dek = await _decryptDek(meta: meta, password: masterPassword);
-      await _verifyExistingManifest(meta: meta, dek: dek);
+      final manifest = await _verifyExistingManifest(meta: meta, dek: dek);
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: manifest,
+        allowMissingAnchor: true,
+      );
+      await _writeAnchorForManifest(meta: meta, manifest: manifest);
       _session.unlock(dek);
       return _session;
     } on CryptoException {
@@ -191,6 +214,11 @@ class VaultService {
         items: items,
         manifest: manifest,
       );
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: manifest,
+        allowMissingAnchor: false,
+      );
       _session.unlock(dek);
       return true;
     } on VaultIntegrityException {
@@ -213,7 +241,15 @@ class VaultService {
         meta: meta,
         password: masterPassword,
       );
-      await _verifyExistingManifest(meta: meta, dek: dek);
+      final currentManifest = await _verifyExistingManifest(
+        meta: meta,
+        dek: dek,
+      );
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: currentManifest,
+        allowMissingAnchor: false,
+      );
       await biometricService.enable(dek);
       biometricEnabled = true;
       final updatedAt = DateTime.now().millisecondsSinceEpoch;
@@ -233,8 +269,8 @@ class VaultService {
         encryptedDekByBiometricNonce: null,
         encryptedDekByBiometricMac: null,
       );
-      await repository.transaction((txn) async {
-        await _saveManifestForMetadataUpdate(
+      final manifest = await repository.transaction((txn) async {
+        final manifest = await _saveManifestForMetadataUpdate(
           txn: txn,
           dek: dek!,
           currentMeta: meta,
@@ -242,7 +278,9 @@ class VaultService {
           updatedAt: updatedAt,
         );
         await txn.metaDao.save(updatedMeta);
+        return manifest;
       });
+      await _writeAnchorForManifest(meta: updatedMeta, manifest: manifest);
     } catch (error) {
       if (biometricEnabled) {
         await biometricService.disable();
@@ -287,8 +325,8 @@ class VaultService {
             encryptedDekByBiometricNonce: null,
             encryptedDekByBiometricMac: null,
           );
-          await repository.transaction((txn) async {
-            await _saveManifestForMetadataUpdate(
+          final manifest = await repository.transaction((txn) async {
+            final manifest = await _saveManifestForMetadataUpdate(
               txn: txn,
               dek: dek,
               currentMeta: meta,
@@ -296,7 +334,9 @@ class VaultService {
               updatedAt: updatedAt,
             );
             await txn.metaDao.save(updatedMeta);
+            return manifest;
           });
+          await _writeAnchorForManifest(meta: updatedMeta, manifest: manifest);
           await biometricService.disable();
         },
       );
@@ -318,7 +358,15 @@ class VaultService {
     Uint8List? newKek;
     try {
       dek = await _decryptDekWithUnlockError(meta: meta, password: oldPassword);
-      await _verifyExistingManifest(meta: meta, dek: dek);
+      final currentManifest = await _verifyExistingManifest(
+        meta: meta,
+        dek: dek,
+      );
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: currentManifest,
+        allowMissingAnchor: false,
+      );
       final newSalt = _random.bytes(16);
       final newKdfParams = KdfParams.argon2id();
       newKek = await _kdf.deriveKey(
@@ -349,8 +397,8 @@ class VaultService {
       );
 
       await beforePersist?.call();
-      await repository.transaction((txn) async {
-        await _saveManifestForMetadataUpdate(
+      final manifest = await repository.transaction((txn) async {
+        final manifest = await _saveManifestForMetadataUpdate(
           txn: txn,
           dek: dek!,
           currentMeta: meta,
@@ -358,7 +406,9 @@ class VaultService {
           updatedAt: updatedAt,
         );
         await txn.metaDao.save(updatedMeta);
+        return manifest;
       });
+      await _writeAnchorForManifest(meta: updatedMeta, manifest: manifest);
       _session.unlock(dek);
     } on VaultIntegrityException {
       _session.lock();
@@ -486,6 +536,11 @@ class VaultService {
           items: items,
           manifest: previous,
         );
+        await _verifyAnchorForManifest(
+          meta: currentMeta,
+          manifest: previous,
+          allowMissingAnchor: false,
+        );
       });
     } on VaultIntegrityException {
       _session.lock();
@@ -493,14 +548,14 @@ class VaultService {
     }
   }
 
-  Future<void> rewriteManifestForCurrentVaultAfterImport({
+  Future<VaultManifest> rewriteManifestForCurrentVaultAfterImport({
     required VaultRepository txn,
     required VaultManifest previous,
     required int updatedAt,
   }) async {
     _ensureUnlocked();
     try {
-      await _session.withDekCopy((dek) async {
+      return await _session.withDekCopy((dek) async {
         final currentMeta = await txn.metaDao.get();
         if (currentMeta == null) {
           throw StateError('Vault has not been created');
@@ -514,11 +569,61 @@ class VaultService {
           updatedAt: updatedAt,
         );
         await txn.manifestDao.save(manifest);
+        return manifest;
       });
     } on VaultIntegrityException {
       _session.lock();
       rethrow;
     }
+  }
+
+  Future<void> acceptManifestForCurrentState({
+    required VaultMeta meta,
+    required VaultManifest manifest,
+  }) async {
+    try {
+      await _verifyAnchorForManifest(
+        meta: meta,
+        manifest: manifest,
+        allowMissingAnchor: true,
+        allowNewerManifest: true,
+      );
+      await _writeAnchorForManifest(meta: meta, manifest: manifest);
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
+  }
+
+  Future<void> verifyManifestAgainstAnchor({
+    required VaultMeta meta,
+    required VaultManifest manifest,
+    bool allowMissingAnchor = false,
+    bool allowNewerManifest = false,
+  }) {
+    return _verifyAnchorForManifest(
+      meta: meta,
+      manifest: manifest,
+      allowMissingAnchor: allowMissingAnchor,
+      allowNewerManifest: allowNewerManifest,
+    );
+  }
+
+  Future<void> clearLocalVault() async {
+    final meta = await repository.metaDao.get();
+    try {
+      await repository.transaction((txn) async {
+        await txn.itemsDao.deleteAll();
+        await txn.manifestDao.deleteAll();
+        await txn.metaDao.deleteAll();
+        await txn.settingsDao.deleteAll();
+      });
+      await _deleteAnchorForMeta(meta);
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
+    _session.lock();
   }
 
   Future<List<EncryptedVaultItem>> reencryptItemsForCurrentVault({
@@ -709,7 +814,7 @@ class VaultService {
     }
   }
 
-  Future<void> _verifyExistingManifest({
+  Future<VaultManifest> _verifyExistingManifest({
     required VaultMeta meta,
     required Uint8List dek,
   }) async {
@@ -724,9 +829,57 @@ class VaultService {
       items: items,
       manifest: manifest,
     );
+    return manifest;
   }
 
-  Future<void> _saveManifestForMetadataUpdate({
+  Future<void> _verifyAnchorForManifest({
+    required VaultMeta meta,
+    required VaultManifest manifest,
+    required bool allowMissingAnchor,
+    bool allowNewerManifest = false,
+  }) async {
+    try {
+      final result = await _anchorService.verifyAgainstAnchor(
+        vaultId: meta.id,
+        manifest: manifest,
+        allowNewerManifest: allowNewerManifest,
+      );
+      if (result == VaultAnchorVerificationResult.missing &&
+          !allowMissingAnchor) {
+        throw const VaultIntegrityException();
+      }
+    } on VaultAnchorException {
+      throw const VaultIntegrityException();
+    }
+  }
+
+  Future<void> _writeAnchorForManifest({
+    required VaultMeta meta,
+    required VaultManifest manifest,
+  }) async {
+    try {
+      await _anchorService.writeAcceptedManifest(
+        vaultId: meta.id,
+        manifest: manifest,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+    } on VaultAnchorException {
+      throw const VaultIntegrityException();
+    }
+  }
+
+  Future<void> _deleteAnchorForMeta(VaultMeta? meta) async {
+    if (meta == null) {
+      return;
+    }
+    try {
+      await _anchorService.deleteAnchor(vaultId: meta.id);
+    } on VaultAnchorException {
+      throw const VaultIntegrityException();
+    }
+  }
+
+  Future<VaultManifest> _saveManifestForMetadataUpdate({
     required VaultRepository txn,
     required Uint8List dek,
     required VaultMeta currentMeta,
@@ -744,6 +897,11 @@ class VaultService {
       items: items,
       manifest: previous,
     );
+    await _verifyAnchorForManifest(
+      meta: currentMeta,
+      manifest: previous,
+      allowMissingAnchor: false,
+    );
     final manifest = await _manifestService.createManifest(
       dek: dek,
       meta: updatedMeta,
@@ -752,6 +910,7 @@ class VaultService {
       updatedAt: updatedAt,
     );
     await txn.manifestDao.save(manifest);
+    return manifest;
   }
 
   Future<T> _rewriteManifestForMutation<T>({
@@ -759,8 +918,8 @@ class VaultService {
     required Future<T> Function(VaultRepository txn, Uint8List dek) mutate,
   }) async {
     try {
-      return await _session.withDekCopy((dek) async {
-        return repository.transaction((txn) async {
+      final rewrite = await _session.withDekCopy((dek) async {
+        return repository.transaction<_ManifestMutationResult<T>>((txn) async {
           final currentMeta = await txn.metaDao.get();
           if (currentMeta == null) {
             throw StateError('Vault has not been created');
@@ -775,6 +934,11 @@ class VaultService {
             meta: currentMeta,
             items: currentItems,
             manifest: previous,
+          );
+          await _verifyAnchorForManifest(
+            meta: currentMeta,
+            manifest: previous,
+            allowMissingAnchor: false,
           );
 
           final result = await mutate(txn, dek);
@@ -791,9 +955,18 @@ class VaultService {
             updatedAt: updatedAt,
           );
           await txn.manifestDao.save(manifest);
-          return result;
+          return _ManifestMutationResult<T>(
+            result: result,
+            meta: updatedMeta,
+            manifest: manifest,
+          );
         });
       });
+      await _writeAnchorForManifest(
+        meta: rewrite.meta,
+        manifest: rewrite.manifest,
+      );
+      return rewrite.result;
     } on VaultIntegrityException {
       _session.lock();
       rethrow;
@@ -945,4 +1118,16 @@ class VaultService {
     }
     bytes.fillRange(0, bytes.length, 0);
   }
+}
+
+class _ManifestMutationResult<T> {
+  const _ManifestMutationResult({
+    required this.result,
+    required this.meta,
+    required this.manifest,
+  });
+
+  final T result;
+  final VaultMeta meta;
+  final VaultManifest manifest;
 }

@@ -50,6 +50,10 @@ class VaultItemsDao {
     return _db.query('vault_items');
   }
 
+  Future<void> deleteAll() async {
+    await _db.delete('vault_items');
+  }
+
   Future<bool> updateActive(EncryptedVaultItem item) async {
     final affectedRows = await _db.update(
       'vault_items',

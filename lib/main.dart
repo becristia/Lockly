@@ -9,6 +9,8 @@ import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_anchor_service.dart';
+import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
@@ -49,6 +51,7 @@ Future<void> main() async {
     random: random,
     kdf: KdfService(),
     crypto: CryptoService(random: random),
+    anchorService: VaultAnchorService(store: SecureStorageVaultAnchorStore()),
   );
   final services = AppServices(
     hasVault: hasVault,

@@ -388,7 +388,9 @@ class BackupService {
       );
     }
 
-    return repository.transaction((txn) async {
+    final result = await repository.transaction<_BackupImportResult>((
+      txn,
+    ) async {
       final existingMeta = await txn.metaDao.get();
       final existingManifest = await txn.manifestDao.get();
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -408,29 +410,49 @@ class BackupService {
 
       switch (mode) {
         case BackupImportMode.overwrite:
-          await txn.metaDao.save(importedMeta);
-          await txn.itemsDao.executor.delete('vault_items');
-          final importedItems = <EncryptedVaultItem>[];
-          for (final item in backup.items) {
-            final importedItem = _buildImportedItem(
-              item,
-              createdAt: item.createdAt ?? now,
-              updatedAt: item.updatedAt ?? now,
+          if (hasExistingVault) {
+            await _verifyExistingManifestBeforeImportMutation(
+              txn: txn,
+              masterPassword: masterPassword,
+              meta: existingMeta,
+              manifest: existingManifest,
             );
-            importedItems.add(importedItem);
-            await txn.itemsDao.upsert(importedItem);
           }
-          await _writeManifestForImportedEnvelope(
-            txn: txn,
-            backup: backup,
+          final importedItems = backup.items
+              .map(
+                (item) => _buildImportedItem(
+                  item,
+                  createdAt: item.createdAt ?? now,
+                  updatedAt: item.updatedAt ?? now,
+                ),
+              )
+              .toList(growable: false);
+          final manifest = await vaultService.createManifestForImportedVault(
             masterPassword: masterPassword,
             meta: importedMeta,
             items: importedItems,
             previous: null,
             updatedAt: now,
           );
+          await vaultService.verifyManifestAgainstAnchor(
+            meta: importedMeta,
+            manifest: manifest,
+            allowMissingAnchor: true,
+            allowNewerManifest: true,
+          );
+          await txn.metaDao.save(importedMeta);
+          await txn.itemsDao.deleteAll();
+          for (final importedItem in importedItems) {
+            await txn.itemsDao.upsert(importedItem);
+          }
+          await txn.manifestDao.save(manifest);
           vaultService.lock();
-          return backup.items.length;
+          return _BackupImportResult(
+            importedCount: backup.items.length,
+            dataChanged: true,
+            meta: importedMeta,
+            manifest: manifest,
+          );
         case BackupImportMode.skip:
           if (!preserveExistingMeta) {
             await txn.metaDao.save(importedMeta);
@@ -456,13 +478,20 @@ class BackupService {
               'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
             );
           }
-          if (preserveExistingMeta && pendingItems.isNotEmpty) {
-            await _verifyExistingManifestBeforeImportMutation(
-              txn: txn,
-              masterPassword: masterPassword,
-              meta: existingMeta,
-              manifest: existingManifest,
-            );
+          if (preserveExistingMeta) {
+            if (pendingItems.isNotEmpty) {
+              await _verifyExistingManifestBeforeImportMutation(
+                txn: txn,
+                masterPassword: masterPassword,
+                meta: existingMeta,
+                manifest: existingManifest,
+              );
+            } else {
+              await _verifyExistingAnchorBeforeImportNoop(
+                meta: existingMeta,
+                manifest: existingManifest,
+              );
+            }
           }
           final itemsToInsert = await _prepareImportedItems(
             items: pendingItems,
@@ -473,7 +502,7 @@ class BackupService {
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
           }
-          await _rewriteManifestAfterImport(
+          final manifest = await _rewriteManifestAfterImport(
             txn: txn,
             backup: backup,
             masterPassword: masterPassword,
@@ -482,7 +511,13 @@ class BackupService {
             previous: existingManifest,
             updatedAt: now,
           );
-          return itemsToInsert.length;
+          final targetMeta = await txn.metaDao.get();
+          return _BackupImportResult(
+            importedCount: itemsToInsert.length,
+            dataChanged: manifest != null,
+            meta: targetMeta,
+            manifest: manifest,
+          );
         case BackupImportMode.merge:
           if (!preserveExistingMeta) {
             await txn.metaDao.save(importedMeta);
@@ -522,7 +557,7 @@ class BackupService {
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
           }
-          await _rewriteManifestAfterImport(
+          final manifest = await _rewriteManifestAfterImport(
             txn: txn,
             backup: backup,
             masterPassword: masterPassword,
@@ -531,9 +566,24 @@ class BackupService {
             previous: existingManifest,
             updatedAt: now,
           );
-          return backup.items.length;
+          final targetMeta = await txn.metaDao.get();
+          return _BackupImportResult(
+            importedCount: backup.items.length,
+            dataChanged: manifest != null,
+            meta: targetMeta,
+            manifest: manifest,
+          );
       }
     });
+    final targetMeta = result.meta;
+    final targetManifest = result.manifest;
+    if (result.dataChanged && targetMeta != null && targetManifest != null) {
+      await vaultService.acceptManifestForCurrentState(
+        meta: targetMeta,
+        manifest: targetManifest,
+      );
+    }
+    return result.importedCount;
   }
 
   VaultMeta _backupMetaForVerification(VaultBackup backup) {
@@ -613,7 +663,7 @@ class BackupService {
     );
   }
 
-  Future<void> _writeManifestForImportedEnvelope({
+  Future<VaultManifest> _writeManifestForImportedEnvelope({
     required VaultRepository txn,
     required VaultBackup backup,
     required String masterPassword,
@@ -630,9 +680,10 @@ class BackupService {
       updatedAt: updatedAt,
     );
     await txn.manifestDao.save(manifest);
+    return manifest;
   }
 
-  Future<void> _rewriteManifestAfterImport({
+  Future<VaultManifest?> _rewriteManifestAfterImport({
     required VaultRepository txn,
     required VaultBackup backup,
     required String masterPassword,
@@ -647,7 +698,7 @@ class BackupService {
         throw StateError('Vault has not been created');
       }
       final items = await txn.itemsDao.allItemsForManifest();
-      await _writeManifestForImportedEnvelope(
+      return _writeManifestForImportedEnvelope(
         txn: txn,
         backup: backup,
         masterPassword: masterPassword,
@@ -656,21 +707,19 @@ class BackupService {
         previous: null,
         updatedAt: updatedAt,
       );
-      return;
     }
     if (!dataChanged) {
-      return;
+      return null;
     }
     if (vaultService.isUnlocked) {
       if (previous == null) {
         throw const VaultIntegrityException();
       }
-      await vaultService.rewriteManifestForCurrentVaultAfterImport(
+      return vaultService.rewriteManifestForCurrentVaultAfterImport(
         txn: txn,
         previous: previous,
         updatedAt: updatedAt,
       );
-      return;
     }
 
     final meta = await txn.metaDao.get();
@@ -686,6 +735,7 @@ class BackupService {
       updatedAt: updatedAt,
     );
     await txn.manifestDao.save(manifest);
+    return manifest;
   }
 
   Future<void> _verifyExistingManifestBeforeImportMutation({
@@ -705,6 +755,23 @@ class BackupService {
       masterPassword: masterPassword,
       meta: meta,
       items: await txn.itemsDao.allItemsForManifest(),
+      manifest: manifest,
+    );
+    await vaultService.verifyManifestAgainstAnchor(
+      meta: meta,
+      manifest: manifest,
+    );
+  }
+
+  Future<void> _verifyExistingAnchorBeforeImportNoop({
+    required VaultMeta meta,
+    required VaultManifest? manifest,
+  }) async {
+    if (manifest == null) {
+      throw const VaultIntegrityException();
+    }
+    await vaultService.verifyManifestAgainstAnchor(
+      meta: meta,
       manifest: manifest,
     );
   }
@@ -739,6 +806,20 @@ class BackupService {
         existingMeta.encryptedDekByMasterMac ==
             backupMeta.encryptedDekByMasterMac;
   }
+}
+
+class _BackupImportResult {
+  const _BackupImportResult({
+    required this.importedCount,
+    required this.dataChanged,
+    required this.meta,
+    required this.manifest,
+  });
+
+  final int importedCount;
+  final bool dataChanged;
+  final VaultMeta? meta;
+  final VaultManifest? manifest;
 }
 
 String _readRequiredString(Map<String, Object?> json, String field) {
