@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -86,7 +87,10 @@ class AppServices {
       timeout: autoLockTimeout,
       onLock: lockVault,
     );
-    appLifecycleGuard = AppLifecycleGuard(autoLockService: autoLockService);
+    appLifecycleGuard = AppLifecycleGuard(
+      autoLockService: autoLockService,
+      clipboardService: _clipboardService,
+    );
     shellState.addListener(_syncNavigatorToShellState);
   }
 
@@ -141,6 +145,8 @@ class AppServices {
   bool? _fakeLastCreateVaultBiometricEnabled;
   int _fakeUnlockCalls = 0;
   int _fakeBiometricUnlockCalls = 0;
+  int _masterUnlockFailureCount = 0;
+  Timer? _masterUnlockRetryTimer;
 
   static AppServices fake({
     required bool hasVault,
@@ -333,11 +339,18 @@ class AppServices {
   }
 
   Future<bool> unlockWithMasterPassword(String masterPassword) async {
+    if (_masterUnlockRetryTimer?.isActive ?? false) {
+      return false;
+    }
+
     final override = _unlockOverride;
     if (override != null) {
       final unlocked = await override(masterPassword);
       if (unlocked) {
+        _resetMasterUnlockThrottle();
         markVaultUnlocked();
+      } else {
+        _recordMasterUnlockFailure();
       }
       return unlocked;
     }
@@ -345,9 +358,11 @@ class AppServices {
     try {
       await vaultService.unlock(masterPassword: masterPassword);
     } on VaultUnlockException {
+      _recordMasterUnlockFailure();
       return false;
     }
 
+    _resetMasterUnlockThrottle();
     markVaultUnlocked();
     return true;
   }
@@ -375,6 +390,7 @@ class AppServices {
       biometricService: biometricService,
     );
     if (unlocked) {
+      _resetMasterUnlockThrottle();
       markVaultUnlocked();
     }
     return unlocked;
@@ -672,6 +688,7 @@ class AppServices {
     shellState.removeListener(_syncNavigatorToShellState);
     WidgetsBinding.instance.removeObserver(appLifecycleGuard);
     autoLockService.dispose();
+    _masterUnlockRetryTimer?.cancel();
     _clipboardService?.dispose();
     shellState.dispose();
   }
@@ -684,6 +701,34 @@ class AppServices {
 
     final targetRoute = currentRouteName;
     navigator.pushNamedAndRemoveUntil(targetRoute, (route) => false);
+  }
+
+  void _recordMasterUnlockFailure() {
+    _masterUnlockFailureCount += 1;
+    final delay = _masterUnlockDelayForFailures(_masterUnlockFailureCount);
+    if (delay == Duration.zero) {
+      return;
+    }
+
+    _masterUnlockRetryTimer?.cancel();
+    _masterUnlockRetryTimer = Timer(delay, () {
+      _masterUnlockRetryTimer = null;
+    });
+  }
+
+  void _resetMasterUnlockThrottle() {
+    _masterUnlockFailureCount = 0;
+    _masterUnlockRetryTimer?.cancel();
+    _masterUnlockRetryTimer = null;
+  }
+
+  Duration _masterUnlockDelayForFailures(int failures) {
+    if (failures < 2) {
+      return Duration.zero;
+    }
+
+    final seconds = failures >= 5 ? 30 : 1 << (failures - 2);
+    return Duration(seconds: seconds);
   }
 }
 

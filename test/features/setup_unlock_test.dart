@@ -41,6 +41,38 @@ void main() {
       expect(unlocked, isTrue);
       expect(services.shellState.value, AppShellState.unlocked);
     });
+
+    test(
+      'master unlock throttling blocks immediate repeated attempts',
+      () async {
+        var unlockCalls = 0;
+        final services = AppServices(
+          hasVault: true,
+          trackActivity: false,
+          unlockOverride: (masterPassword) async {
+            unlockCalls += 1;
+            return false;
+          },
+        );
+        addTearDown(services.dispose);
+
+        expect(
+          await services.unlockWithMasterPassword('wrong-password'),
+          isFalse,
+        );
+        expect(
+          await services.unlockWithMasterPassword('wrong-password'),
+          isFalse,
+        );
+        expect(unlockCalls, 2);
+
+        expect(
+          await services.unlockWithMasterPassword('wrong-password'),
+          isFalse,
+        );
+        expect(unlockCalls, 2);
+      },
+    );
   });
 
   group('SetupPage', () {
@@ -182,7 +214,9 @@ void main() {
 
       expect(find.text('暂时无法解锁，请重试'), findsOneWidget);
       expect(
-        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '解锁')).onPressed,
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '解锁'))
+            .onPressed,
         isNotNull,
       );
     });

@@ -126,25 +126,28 @@ void main() {
     });
   });
 
-  test('updating clipboard timeout with same value does not extend cleanup', () {
-    fakeAsync((async) {
-      final service = ClipboardService(
-        clearPasswordAfter: const Duration(seconds: 30),
-      );
-      service.copyPassword('secret-password');
-      async.flushMicrotasks();
+  test(
+    'updating clipboard timeout with same value does not extend cleanup',
+    () {
+      fakeAsync((async) {
+        final service = ClipboardService(
+          clearPasswordAfter: const Duration(seconds: 30),
+        );
+        service.copyPassword('secret-password');
+        async.flushMicrotasks();
 
-      async.elapse(const Duration(seconds: 29));
-      service.updateClearPasswordAfter(const Duration(seconds: 30));
-      async.elapse(const Duration(seconds: 1));
-      async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 29));
+        service.updateClearPasswordAfter(const Duration(seconds: 30));
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
 
-      Clipboard.getData(clipboardFormat).then((data) {
-        expect(data?.text, '');
+        Clipboard.getData(clipboardFormat).then((data) {
+          expect(data?.text, '');
+        });
+        async.flushMicrotasks();
       });
-      async.flushMicrotasks();
-    });
-  });
+    },
+  );
 
   test('username clipboard does not clear after password timeout', () {
     fakeAsync((async) {
@@ -257,6 +260,80 @@ void main() {
     );
 
     expect(uncaughtError, isNull);
+  });
+
+  test('clearPendingPasswordNow clears only the pending password', () {
+    fakeAsync((async) {
+      final service = ClipboardService(
+        clearPasswordAfter: const Duration(seconds: 30),
+      );
+      service.copyPassword('secret-password');
+      async.flushMicrotasks();
+
+      Object? clearResult;
+      (service.clearPendingPasswordNow() as dynamic).then((value) {
+        clearResult = value;
+      });
+      async.flushMicrotasks();
+
+      expect(clearResult, isTrue);
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, '');
+      });
+      async.flushMicrotasks();
+    });
+  });
+
+  test('clearPendingPasswordNow does not overwrite newer clipboard data', () {
+    fakeAsync((async) {
+      final service = ClipboardService(
+        clearPasswordAfter: const Duration(seconds: 30),
+      );
+      service.copyPassword('secret-password');
+      async.flushMicrotasks();
+      Clipboard.setData(const ClipboardData(text: 'newer-value'));
+      async.flushMicrotasks();
+
+      Object? clearResult;
+      (service.clearPendingPasswordNow() as dynamic).then((value) {
+        clearResult = value;
+      });
+      async.flushMicrotasks();
+
+      expect(clearResult, isFalse);
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, 'newer-value');
+      });
+      async.flushMicrotasks();
+    });
+  });
+
+  test('app lifecycle guard clears password clipboard on background', () {
+    fakeAsync((async) {
+      final clipboardService = ClipboardService(
+        clearPasswordAfter: const Duration(seconds: 30),
+      );
+      clipboardService.copyPassword('secret-password');
+      async.flushMicrotasks();
+      var lockCount = 0;
+      final service = AutoLockService(
+        timeout: const Duration(minutes: 5),
+        onLock: () => lockCount++,
+      );
+      final guard = AppLifecycleGuard(
+        autoLockService: service,
+        clipboardService: clipboardService,
+      );
+
+      guard.didChangeAppLifecycleState(AppLifecycleState.paused);
+      async.flushMicrotasks();
+
+      expect(lockCount, 1);
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, '');
+      });
+      async.flushMicrotasks();
+    });
   });
 
   test('dispose cancels a pending password clipboard clear', () {

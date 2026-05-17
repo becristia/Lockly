@@ -61,6 +61,28 @@ void main() {
     expect(find.text('密码生成器'), findsNothing);
   });
 
+  testWidgets('bottom tab switch clears generated password state', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('vault-shell-generator-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.refresh_rounded).last);
+    await tester.pumpAndSettle();
+    expect(find.byType(SelectableText), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('vault-shell-vault-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('vault-shell-generator-tab')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SelectableText), findsNothing);
+  });
+
   testWidgets('text entry activity resets the auto-lock timer', (tester) async {
     final services = AppServices(
       hasVault: true,

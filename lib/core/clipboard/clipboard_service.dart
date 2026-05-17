@@ -51,15 +51,25 @@ class ClipboardService {
     _cancelPendingClear();
   }
 
-  Future<void> _clearPasswordIfStillPresent(String password) async {
+  Future<bool> clearPendingPasswordNow() async {
+    final pendingPassword = _pendingPasswordClear;
+    if (pendingPassword == null) {
+      return false;
+    }
+
+    _clearTimer?.cancel();
+    return _clearPasswordIfStillPresent(pendingPassword);
+  }
+
+  Future<bool> _clearPasswordIfStillPresent(String password) async {
     _pendingPasswordClear = null;
     _clearTimer = null;
     final current = await _tryGetClipboardData();
     if (current?.text != password) {
-      return;
+      return false;
     }
 
-    await _trySetClipboardData(const ClipboardData(text: ''));
+    return _trySetClipboardData(const ClipboardData(text: ''));
   }
 
   void _cancelPendingClear() {
