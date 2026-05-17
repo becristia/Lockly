@@ -4,7 +4,7 @@ import 'package:secure_box/features/password_generator/password_generator_page.d
 import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/features/setup/setup_page.dart';
 import 'package:secure_box/features/unlock/unlock_page.dart';
-import 'package:secure_box/features/vault_list/vault_list_page.dart';
+import 'package:secure_box/features/vault_shell/vault_shell_page.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
 
 class SecureBoxApp extends StatefulWidget {
@@ -107,7 +107,7 @@ class _SecureBoxAppState extends State<SecureBoxApp>
   Widget _buildPageForRoute(String routeName) {
     return switch (routeName) {
       AppServices.routeSetup => SetupPage(services: widget.services),
-      AppServices.routeVault => VaultListPage(services: widget.services),
+      AppServices.routeVault => VaultShellPage(services: widget.services),
       AppServices.routeGenerator => PasswordGeneratorPage(
         services: widget.services,
       ),
