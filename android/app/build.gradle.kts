@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.secure_box_mvp"
+    namespace = "com.lockly.securebox"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

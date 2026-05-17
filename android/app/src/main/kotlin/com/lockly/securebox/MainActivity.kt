@@ -1,4 +1,4 @@
-package com.example.secure_box_mvp
+package com.lockly.securebox
 
 import android.os.Bundle
 import android.view.WindowManager

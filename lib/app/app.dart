@@ -55,7 +55,7 @@ class _SecureBoxAppState extends State<SecureBoxApp>
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Secure Box',
+      title: 'Lockly',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
@@ -134,11 +134,18 @@ class _PrivacyCover extends StatelessWidget {
           children: [
             Icon(
               Icons.lock_outline_rounded,
-              size: 40,
+              size: 80,
               color: theme.colorScheme.primary,
             ),
             const SizedBox(height: 12),
-            Text('Secure Box', style: theme.textTheme.titleLarge),
+            Text('Lockly', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 6),
+            Text(
+              '隐私保护中……',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
           ],
         ),
       ),

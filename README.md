@@ -1,4 +1,4 @@
-# secure_box_mvp
+# Lockly
 
 A new Flutter project.
 

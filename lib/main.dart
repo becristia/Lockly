@@ -63,7 +63,7 @@ Future<void> main() async {
     ),
     biometricService: BiometricService(
       authenticator: LocalAuthBiometricAuthenticator(
-        localizedReason: '验证身份以解锁 Secure Box',
+        localizedReason: '验证身份以解锁 Lockly',
       ),
       store: SecureStorageDekStore(),
     ),

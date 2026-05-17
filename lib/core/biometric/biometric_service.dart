@@ -148,7 +148,7 @@ void _requireValidDek(Uint8List dek) {
 class LocalAuthBiometricAuthenticator implements BiometricAuthenticator {
   LocalAuthBiometricAuthenticator({
     LocalAuthentication? localAuth,
-    this.localizedReason = 'Authenticate to unlock Secure Box',
+    this.localizedReason = 'Authenticate to unlock Lockly',
   }) : _localAuth = localAuth ?? LocalAuthentication();
 
   final LocalAuthentication _localAuth;
@@ -188,7 +188,7 @@ class SecureStorageDekStore implements SecureDekStore {
   static const _defaultAndroidOptions = AndroidOptions.biometric(
     storageNamespace: 'secure_box_biometric',
     enforceBiometrics: true,
-    biometricPromptTitle: 'Unlock Secure Box',
+    biometricPromptTitle: 'Unlock Lockly',
     biometricPromptSubtitle: 'Authenticate to unlock your local vault',
     migrateWithBackup: true,
   );

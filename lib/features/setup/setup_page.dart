@@ -3,6 +3,7 @@ import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
+import 'package:secure_box/features/setup/privacy_policy_page.dart';
 
 class SetupPage extends StatefulWidget {
   const SetupPage({super.key, required this.services});
@@ -43,7 +44,7 @@ class _SetupPageState extends State<SetupPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(height: 6),
+            const SizedBox(height: 80),
             const Center(
               child: SecureIconBadge(icon: Icons.lock_rounded, size: 58),
             ),
@@ -148,7 +149,7 @@ class _SetupPageState extends State<SetupPage> {
                       },
                 title: const Text('启用生物识别快速解锁'),
                 subtitle: Text(
-                  '仅用于快速解锁本地密码库，失败时仍需输入主密码。',
+                  '生物识别仅用于快速解锁本地密码库，失败仍需输入主密码。',
                   style: theme.textTheme.bodyMedium,
                 ),
               ),
@@ -170,26 +171,69 @@ class _SetupPageState extends State<SetupPage> {
                   ),
                   const SizedBox(width: 14),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('你的数据，始终由你掌控', style: theme.textTheme.titleMedium),
-                        const SizedBox(height: 8),
-                        Text(
-                          '主密码仅存在本机，密码库使用加密保护。',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.lock_outline, size: 16, color: SecureVisualColors.blue),
+                              const SizedBox(width: 8),
+                              Text('主密码仅存储在设备本地', style: theme.textTheme.bodySmall),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.visibility_off_outlined, size: 16, color: SecureVisualColors.blue),
+                              const SizedBox(width: 8),
+                              Text('无法查看或恢复你的主密码', style: theme.textTheme.bodySmall),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.shield_outlined, size: 16, color: SecureVisualColors.blue),
+                              const SizedBox(width: 8),
+                              Text('数据采用端到端加密保护', style: theme.textTheme.bodySmall),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 10),
-            Text(
-              '生物识别仅用于快速解锁，设备重装或安全区失效后仍需依赖主密码恢复。',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall,
+            GestureDetector(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const PrivacyPolicyPage(),
+                  ),
+                );
+              },
+              child: RichText(
+                textAlign: TextAlign.center,
+                text: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '继续操作即表示你已经阅读并同意 ',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    TextSpan(
+                      text: '隐私政策',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: SecureVisualColors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
