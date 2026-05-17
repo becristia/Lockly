@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class SecurePanel extends StatelessWidget {
   const SecurePanel({
@@ -18,15 +19,11 @@ class SecurePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color ?? theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: borderColor ?? theme.colorScheme.outlineVariant,
-        ),
-      ),
-      child: Padding(padding: padding, child: child),
+    return SecureGlassCard(
+      padding: padding,
+      color: color ?? theme.colorScheme.surface.withValues(alpha: 0.92),
+      borderColor: borderColor ?? Colors.white,
+      child: child,
     );
   }
 }
@@ -47,24 +44,10 @@ class SecureSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 18, color: theme.colorScheme.primary),
-              const SizedBox(width: 8),
-            ],
-            Expanded(child: Text(title, style: theme.textTheme.titleMedium)),
-          ],
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 4),
-          Text(subtitle!, style: theme.textTheme.bodySmall),
-        ],
+        SecureSectionTitle(title: title, subtitle: subtitle, icon: icon),
         const SizedBox(height: 10),
         child,
       ],
@@ -93,6 +76,7 @@ class SecureStatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: resolvedColor.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: resolvedColor.withValues(alpha: 0.16)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

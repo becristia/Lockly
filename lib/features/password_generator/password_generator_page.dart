@@ -3,7 +3,7 @@ import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/password_generator/password_generator.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
-import 'package:secure_box/shared/widgets/secure_scaffold.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class PasswordGeneratorPage extends StatefulWidget {
   const PasswordGeneratorPage({super.key, required this.services});
@@ -75,104 +75,120 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return SecureScaffold(
-      icon: Icons.key_rounded,
-      title: '密码生成器',
-      subtitle: '在本机生成强密码，确认后直接保存到加密密码库。',
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    return SecureVisualBackground(
+      bottomInset: 84,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
         children: [
-          _ResultPanel(
-            password: _generatedPassword,
-            errorText: _errorText,
-            onGenerate: _generatePassword,
-            onSave: _savePassword,
-          ),
-          const SizedBox(height: 20),
-          SecureSection(
-            title: '生成规则',
-            subtitle: '默认保证每类已选字符至少出现一次。',
-            icon: Icons.tune_rounded,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('长度', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 10),
-                SegmentedButton<int>(
-                  segments: _lengthChoices
-                      .map(
-                        (length) => ButtonSegment<int>(
-                          value: length,
-                          label: Text(length.toString()),
-                        ),
-                      )
-                      .toList(growable: false),
-                  selected: {_length},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (selection) {
-                    widget.services.recordActivity();
-                    setState(() => _length = selection.single);
-                  },
-                ),
-                const SizedBox(height: 18),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final tileWidth = constraints.maxWidth >= 420
-                        ? (constraints.maxWidth - 12) / 2
-                        : constraints.maxWidth;
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 4,
-                      children: [
-                        _GeneratorSwitch(
-                          width: tileWidth,
-                          title: '小写字母',
-                          value: _lowercase,
-                          onChanged: (value) =>
-                              setState(() => _lowercase = value),
-                        ),
-                        _GeneratorSwitch(
-                          width: tileWidth,
-                          title: '大写字母',
-                          value: _uppercase,
-                          onChanged: (value) =>
-                              setState(() => _uppercase = value),
-                        ),
-                        _GeneratorSwitch(
-                          width: tileWidth,
-                          title: '数字',
-                          value: _numbers,
-                          onChanged: (value) =>
-                              setState(() => _numbers = value),
-                        ),
-                        _GeneratorSwitch(
-                          width: tileWidth,
-                          title: '特殊符号',
-                          value: _symbols,
-                          onChanged: (value) =>
-                              setState(() => _symbols = value),
-                        ),
-                        _GeneratorSwitch(
-                          width: tileWidth,
-                          title: '排除易混字符',
-                          value: _excludeConfusing,
-                          onChanged: (value) =>
-                              setState(() => _excludeConfusing = value),
-                        ),
-                        _GeneratorSwitch(
-                          width: tileWidth,
-                          title: '每类至少一个',
-                          value: _requireEverySelectedClass,
-                          onChanged: (value) => setState(
-                            () => _requireEverySelectedClass = value,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
+          SecureReplicaHeader(
+            title: '密码生成器',
+            leading: Icon(
+              Icons.auto_awesome_rounded,
+              color: theme.colorScheme.primary,
             ),
+            trailing: IconButton(
+              onPressed: () {},
+              icon: const Icon(Icons.history_rounded),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _ResultPanel(
+                password: _generatedPassword,
+                errorText: _errorText,
+                onGenerate: _generatePassword,
+                onSave: _savePassword,
+              ),
+              const SizedBox(height: 20),
+              SecureSection(
+                title: '生成规则',
+                subtitle: '默认保证每类已选字符至少出现一次。',
+                icon: Icons.tune_rounded,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('长度', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 10),
+                    SegmentedButton<int>(
+                      segments: _lengthChoices
+                          .map(
+                            (length) => ButtonSegment<int>(
+                              value: length,
+                              label: Text(length.toString()),
+                            ),
+                          )
+                          .toList(growable: false),
+                      selected: {_length},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (selection) {
+                        widget.services.recordActivity();
+                        setState(() => _length = selection.single);
+                      },
+                    ),
+                    const SizedBox(height: 18),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final tileWidth = constraints.maxWidth >= 420
+                            ? (constraints.maxWidth - 12) / 2
+                            : constraints.maxWidth;
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 4,
+                          children: [
+                            _GeneratorSwitch(
+                              width: tileWidth,
+                              title: '小写字母',
+                              value: _lowercase,
+                              onChanged: (value) =>
+                                  setState(() => _lowercase = value),
+                            ),
+                            _GeneratorSwitch(
+                              width: tileWidth,
+                              title: '大写字母',
+                              value: _uppercase,
+                              onChanged: (value) =>
+                                  setState(() => _uppercase = value),
+                            ),
+                            _GeneratorSwitch(
+                              width: tileWidth,
+                              title: '数字',
+                              value: _numbers,
+                              onChanged: (value) =>
+                                  setState(() => _numbers = value),
+                            ),
+                            _GeneratorSwitch(
+                              width: tileWidth,
+                              title: '特殊符号',
+                              value: _symbols,
+                              onChanged: (value) =>
+                                  setState(() => _symbols = value),
+                            ),
+                            _GeneratorSwitch(
+                              width: tileWidth,
+                              title: '排除易混字符',
+                              value: _excludeConfusing,
+                              onChanged: (value) =>
+                                  setState(() => _excludeConfusing = value),
+                            ),
+                            _GeneratorSwitch(
+                              width: tileWidth,
+                              title: '每类至少一个',
+                              value: _requireEverySelectedClass,
+                              onChanged: (value) => setState(
+                                () => _requireEverySelectedClass = value,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -198,47 +214,97 @@ class _ResultPanel extends StatelessWidget {
     final theme = Theme.of(context);
     final hasPassword = password.isNotEmpty;
 
-    return SecurePanel(
+    return Container(
       key: hasPassword ? const ValueKey('generator-result-panel') : null,
-      color: theme.colorScheme.primary.withValues(alpha: 0.08),
-      borderColor: theme.colorScheme.primary.withValues(alpha: 0.18),
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF55B4FF), Color(0xFF0B66F6), Color(0xFF9A6BFF)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: SecureVisualColors.blue.withValues(alpha: 0.24),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Icon(Icons.password_rounded, color: theme.colorScheme.primary),
-              const SizedBox(width: 8),
-              Text('生成结果', style: theme.textTheme.titleMedium),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.86),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  child: Text(
+                    '生成结果',
+                    style: TextStyle(
+                      color: SecureVisualColors.blue,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
           if (hasPassword)
-            SecurePanel(
-              color: theme.colorScheme.surface,
-              child: SelectableText(
-                password,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+            SelectableText(
+              password,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             )
           else
             Text(
               errorText ?? '点击生成后，可直接保存到新增密码页面。',
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white),
             ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Color(0xFFB9FFD0)),
+              const SizedBox(width: 8),
+              Text(
+                '强',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           FilledButton.icon(
             key: const ValueKey('generator-generate-button'),
             onPressed: onGenerate,
             icon: const Icon(Icons.refresh_rounded),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF0B66F6),
+              foregroundColor: Colors.white,
+            ),
             label: Text(hasPassword ? '重新生成' : '生成密码'),
           ),
           const SizedBox(height: 10),
           FilledButton.tonalIcon(
             onPressed: hasPassword ? onSave : null,
             icon: const Icon(Icons.save_outlined),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.82),
+              foregroundColor: SecureVisualColors.blue,
+              disabledBackgroundColor: Colors.white.withValues(alpha: 0.42),
+            ),
             label: const Text('保存此密码'),
           ),
         ],

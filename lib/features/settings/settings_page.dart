@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.services});
@@ -194,12 +195,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+    return SecureVisualBackground(
+      bottomInset: 84,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 112),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SecureReplicaHeader(title: '设置'),
+            const SizedBox(height: 24),
             SecureSection(
               key: const ValueKey('settings-section-unlock'),
               title: '解锁安全',
@@ -348,24 +353,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }) {
     return showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: destructive
-                ? FilledButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                  )
-                : null,
-            child: Text(confirmLabel),
-          ),
-        ],
+      builder: (context) => _ReplicaConfirmationDialog(
+        title: title,
+        message: message,
+        confirmLabel: confirmLabel,
+        destructive: destructive,
       ),
     );
   }
@@ -380,6 +372,82 @@ class _SettingsPageState extends State<SettingsPage> {
   static String? _validateNewPassword(String? value) {
     final result = MasterPasswordPolicy.evaluate(value ?? '');
     return result.isAcceptable ? null : result.message;
+  }
+}
+
+class _ReplicaConfirmationDialog extends StatelessWidget {
+  const _ReplicaConfirmationDialog({
+    required this.title,
+    required this.message,
+    required this.confirmLabel,
+    required this.destructive,
+  });
+
+  final String title;
+  final String message;
+  final String confirmLabel;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive
+        ? SecureVisualColors.danger
+        : Theme.of(context).colorScheme.primary;
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 22),
+      backgroundColor: Colors.transparent,
+      child: SecureGlassCard(
+        borderRadius: 28,
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SecureIconBadge(
+              icon: destructive
+                  ? Icons.delete_outline_rounded
+                  : Icons.verified_user_outlined,
+              color: color,
+              size: 82,
+            ),
+            const SizedBox(height: 20),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: color,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(confirmLabel),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -414,58 +482,96 @@ class _MasterPasswordChangeDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('修改主密码'),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _oldPasswordController,
-              decoration: const InputDecoration(labelText: '当前主密码'),
-              obscureText: true,
-              validator: _SettingsPageState._requiredPassword,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _newPasswordController,
-              decoration: const InputDecoration(labelText: '新主密码'),
-              obscureText: true,
-              validator: _SettingsPageState._validateNewPassword,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _confirmPasswordController,
-              decoration: const InputDecoration(labelText: '确认新主密码'),
-              obscureText: true,
-              validator: (value) {
-                if (value != _newPasswordController.text) {
-                  return '两次输入的主密码不一致';
-                }
-                return null;
-              },
-            ),
-            if (_errorText != null) ...[
-              const SizedBox(height: 12),
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+      backgroundColor: Colors.transparent,
+      child: SecureGlassCard(
+        borderRadius: 28,
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  onPressed: _isSaving
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+              const SecureIconBadge(icon: Icons.key_rounded, size: 76),
+              const SizedBox(height: 18),
+              Text('修改主密码', style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 8),
               Text(
-                _errorText!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                '建议定期更新密码以提升安全性。',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _oldPasswordController,
+                decoration: const InputDecoration(
+                  labelText: '当前主密码',
+                  suffixIcon: Icon(Icons.visibility_outlined),
+                ),
+                obscureText: true,
+                validator: _SettingsPageState._requiredPassword,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _newPasswordController,
+                decoration: const InputDecoration(
+                  labelText: '新主密码',
+                  suffixIcon: Icon(Icons.visibility_outlined),
+                ),
+                obscureText: true,
+                validator: _SettingsPageState._validateNewPassword,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _confirmPasswordController,
+                decoration: const InputDecoration(
+                  labelText: '确认新主密码',
+                  suffixIcon: Icon(Icons.visibility_outlined),
+                ),
+                obscureText: true,
+                validator: (value) {
+                  if (value != _newPasswordController.text) {
+                    return '两次输入的主密码不一致';
+                  }
+                  return null;
+                },
+              ),
+              if (_errorText != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _errorText!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 22),
+              SecureGradientButton(
+                onPressed: _isSaving ? null : _submit,
+                label: '保存',
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: _isSaving
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  child: const Text('取消'),
+                ),
               ),
             ],
-          ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: _isSaving ? null : _submit,
-          child: const Text('保存'),
-        ),
-      ],
     );
   }
 
@@ -526,24 +632,63 @@ class _MasterPasswordPromptDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: Form(
-        key: _formKey,
-        child: TextFormField(
-          controller: _controller,
-          decoration: const InputDecoration(labelText: '主密码'),
-          obscureText: true,
-          validator: _SettingsPageState._requiredPassword,
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+      backgroundColor: Colors.transparent,
+      child: SecureGlassCard(
+        borderRadius: 28,
+        padding: const EdgeInsets.all(28),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SecureIconBadge(icon: Icons.fingerprint_rounded, size: 82),
+              const SizedBox(height: 22),
+              Text(
+                widget.title,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '启用后，可使用指纹或面部快速解锁\n仍需输入主密码以管理设置',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 24),
+              TextFormField(
+                controller: _controller,
+                decoration: const InputDecoration(
+                  labelText: '主密码',
+                  suffixIcon: Icon(Icons.visibility_off_outlined),
+                ),
+                obscureText: true,
+                validator: _SettingsPageState._requiredPassword,
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SecureGradientButton(
+                      onPressed: _submit,
+                      label: widget.submitLabel,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text('信息仅存储在本机', style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(onPressed: _submit, child: Text(widget.submitLabel)),
-      ],
     );
   }
 

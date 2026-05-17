@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
-import 'package:secure_box/shared/widgets/secure_scaffold.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class SetupPage extends StatefulWidget {
   const SetupPage({super.key, required this.services});
@@ -38,96 +38,161 @@ class _SetupPageState extends State<SetupPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return SecureScaffold(
-      title: '创建主密码',
-      subtitle: '主密码不会上传，也无法找回。请务必牢记。',
-      body: Form(
-        key: _formKey,
+    return SecureVisualBackground(
+      child: SingleChildScrollView(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ActivityTextFormField(
-              controller: _passwordController,
-              onActivity: widget.services.recordActivity,
-              obscureText: _passwordObscured,
-              autofocus: true,
-              textInputAction: TextInputAction.next,
-              autofillHints: const [AutofillHints.newPassword],
-              decoration: InputDecoration(
-                labelText: '主密码',
-                helperText: '至少 12 个字符',
-                suffixIcon: IconButton(
-                  tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
-                  onPressed: _togglePasswordVisibility,
-                  icon: Icon(
-                    _passwordObscured
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                  ),
-                ),
-              ),
-              onChanged: _updatePasswordStrength,
-              validator: _validatePassword,
+            const SizedBox(height: 6),
+            const Center(
+              child: SecureIconBadge(icon: Icons.lock_rounded, size: 58),
             ),
-            if (_passwordController.text.isNotEmpty &&
-                _passwordStrength.isAcceptable) ...[
-              const SizedBox(height: 8),
-              _PasswordStrengthHint(strength: _passwordStrength),
-            ],
             const SizedBox(height: 12),
-            ActivityTextFormField(
-              controller: _confirmPasswordController,
-              onActivity: widget.services.recordActivity,
-              obscureText: _confirmPasswordObscured,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.newPassword],
-              decoration: InputDecoration(
-                labelText: '确认主密码',
-                suffixIcon: IconButton(
-                  tooltip: _confirmPasswordObscured ? '显示确认密码' : '隐藏确认密码',
-                  onPressed: _toggleConfirmPasswordVisibility,
-                  icon: Icon(
-                    _confirmPasswordObscured
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                  ),
+            Text(
+              '创建主密码',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '主密码不会上传，也无法找回。请务必牢记。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 14),
+            SecureGlassCard(
+              padding: const EdgeInsets.all(14),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ActivityTextFormField(
+                      controller: _passwordController,
+                      onActivity: widget.services.recordActivity,
+                      obscureText: _passwordObscured,
+                      autofocus: true,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.newPassword],
+                      decoration: InputDecoration(
+                        labelText: '主密码',
+                        helperText: '至少 12 个字符',
+                        suffixIcon: IconButton(
+                          tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
+                          onPressed: _togglePasswordVisibility,
+                          icon: Icon(
+                            _passwordObscured
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                      onChanged: _updatePasswordStrength,
+                      validator: _validatePassword,
+                    ),
+                    if (_passwordController.text.isNotEmpty &&
+                        _passwordStrength.isAcceptable) ...[
+                      const SizedBox(height: 8),
+                      _PasswordStrengthHint(strength: _passwordStrength),
+                    ],
+                    const SizedBox(height: 10),
+                    ActivityTextFormField(
+                      controller: _confirmPasswordController,
+                      onActivity: widget.services.recordActivity,
+                      obscureText: _confirmPasswordObscured,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.newPassword],
+                      decoration: InputDecoration(
+                        labelText: '确认主密码',
+                        suffixIcon: IconButton(
+                          tooltip: _confirmPasswordObscured
+                              ? '显示确认密码'
+                              : '隐藏确认密码',
+                          onPressed: _toggleConfirmPasswordVisibility,
+                          icon: Icon(
+                            _confirmPasswordObscured
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                      validator: _validateConfirmPassword,
+                      onFieldSubmitted: (_) => _submit(),
+                    ),
+                  ],
                 ),
               ),
-              validator: _validateConfirmPassword,
-              onFieldSubmitted: (_) => _submit(),
             ),
-            const SizedBox(height: 20),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _biometricEnabled,
-              onChanged: _submitting
-                  ? null
-                  : (value) {
-                      widget.services.recordActivity();
-                      setState(() {
-                        _biometricEnabled = value;
-                      });
-                    },
-              title: const Text('启用生物识别快速解锁'),
-              subtitle: Text(
-                '仅用于快速解锁本地密码库，失败时仍需输入主密码。',
-                style: theme.textTheme.bodyMedium,
+            const SizedBox(height: 10),
+            SecureGlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              child: SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                secondary: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: SecureVisualColors.blue.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.fingerprint_rounded),
+                ),
+                value: _biometricEnabled,
+                onChanged: _submitting
+                    ? null
+                    : (value) {
+                        widget.services.recordActivity();
+                        setState(() {
+                          _biometricEnabled = value;
+                        });
+                      },
+                title: const Text('启用生物识别快速解锁'),
+                subtitle: Text(
+                  '仅用于快速解锁本地密码库，失败时仍需输入主密码。',
+                  style: theme.textTheme.bodyMedium,
+                ),
               ),
             ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _submitting ? null : _submit,
-                child: Text(_submitting ? '创建中...' : '创建密码库'),
+            const SizedBox(height: 12),
+            SecureGradientButton(
+              onPressed: _submitting ? null : _submit,
+              label: _submitting ? '创建中...' : '创建密码库',
+            ),
+            const SizedBox(height: 12),
+            SecureGlassCard(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.verified_user_rounded,
+                    color: SecureVisualColors.blue,
+                    size: 58,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('你的数据，始终由你掌控', style: theme.textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Text(
+                          '主密码仅存在本机，密码库使用加密保护。',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '生物识别仅用于快速解锁，设备重装或安全区失效后仍需依赖主密码恢复。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall,
             ),
           ],
         ),
-      ),
-      footer: Text(
-        '生物识别仅用于快速解锁，设备重装或安全区失效后仍需依赖主密码恢复。',
-        style: theme.textTheme.bodyMedium,
       ),
     );
   }

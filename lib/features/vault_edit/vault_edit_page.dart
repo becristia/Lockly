@@ -3,6 +3,7 @@ import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class VaultEditPage extends StatefulWidget {
   const VaultEditPage({
@@ -151,33 +152,51 @@ class _VaultEditPageState extends State<VaultEditPage> {
   Widget build(BuildContext context) {
     final title = _isEditing ? '编辑密码' : '新增密码';
 
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
-            if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.only(top: 64),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_pageError != null)
-              _EditMessage(
-                title: '无法编辑',
-                message: _pageError!,
-                actionLabel: '重试',
-                onAction: _loadExistingItem,
-              )
-            else
-              Form(
+    return SecureVisualBackground(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          SecureReplicaHeader(
+            title: title,
+            leading: IconButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            trailing: IconButton(
+              onPressed: () {},
+              icon: const Icon(Icons.crop_free_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.only(top: 64),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_pageError != null)
+            _EditMessage(
+              title: '无法编辑',
+              message: _pageError!,
+              actionLabel: '重试',
+              onAction: _loadExistingItem,
+            )
+          else
+            SecureGlassCard(
+              padding: const EdgeInsets.all(14),
+              child: Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     ActivityTextFormField(
                       controller: _titleController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(labelText: '标题'),
+                      decoration: const InputDecoration(
+                        labelText: '标题',
+                        hintText: '例如：公司邮箱',
+                        suffixIcon: Icon(Icons.bookmark_border_rounded),
+                      ),
                       textInputAction: TextInputAction.next,
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
@@ -186,86 +205,112 @@ class _VaultEditPageState extends State<VaultEditPage> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     ActivityTextFormField(
                       controller: _websiteController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(labelText: '网址'),
+                      decoration: const InputDecoration(
+                        labelText: '网址',
+                        hintText: 'https://example.com',
+                        suffixIcon: Icon(Icons.language_rounded),
+                      ),
                       keyboardType: TextInputType.url,
                       textInputAction: TextInputAction.next,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     ActivityTextFormField(
                       controller: _usernameController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(labelText: '用户名'),
+                      decoration: const InputDecoration(
+                        labelText: '用户名',
+                        hintText: '用户名或邮箱',
+                        suffixIcon: Icon(Icons.person_outline_rounded),
+                      ),
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                     ),
-                    const SizedBox(height: 12),
-                    ActivityTextFormField(
-                      controller: _passwordController,
-                      onActivity: widget.services.recordActivity,
-                      decoration: InputDecoration(
-                        labelText: '密码',
-                        suffixIcon: IconButton(
-                          onPressed: () {
-                            widget.services.recordActivity();
-                            setState(() {
-                              _isPasswordVisible = !_isPasswordVisible;
-                            });
-                          },
-                          tooltip: _isPasswordVisible ? '隐藏密码' : '显示密码',
-                          icon: Icon(
-                            _isPasswordVisible
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: ActivityTextFormField(
+                            controller: _passwordController,
+                            onActivity: widget.services.recordActivity,
+                            decoration: InputDecoration(
+                              labelText: '密码',
+                              hintText: '输入或生成密码',
+                              suffixIcon: IconButton(
+                                onPressed: () {
+                                  widget.services.recordActivity();
+                                  setState(() {
+                                    _isPasswordVisible = !_isPasswordVisible;
+                                  });
+                                },
+                                tooltip: _isPasswordVisible ? '隐藏密码' : '显示密码',
+                                icon: Icon(
+                                  _isPasswordVisible
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                ),
+                              ),
+                            ),
+                            obscureText: !_isPasswordVisible,
+                            textInputAction: TextInputAction.next,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return '请输入密码';
+                              }
+                              return null;
+                            },
                           ),
                         ),
-                      ),
-                      obscureText: !_isPasswordVisible,
-                      textInputAction: TextInputAction.next,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return '请输入密码';
-                        }
-                        return null;
-                      },
+                        const SizedBox(width: 10),
+                        SizedBox(
+                          width: 52,
+                          height: 52,
+                          child: OutlinedButton(
+                            onPressed: () {},
+                            child: const Icon(Icons.key_rounded),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 6),
+                    _StrengthSkeleton(),
+                    const SizedBox(height: 10),
                     ActivityTextFormField(
                       controller: _notesController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(labelText: '备注'),
+                      decoration: const InputDecoration(
+                        labelText: '备注',
+                        hintText: '添加备注信息...',
+                      ),
                       keyboardType: TextInputType.multiline,
                       minLines: 4,
                       maxLines: 6,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     ActivityTextFormField(
                       controller: _tagsController,
                       onActivity: widget.services.recordActivity,
                       decoration: const InputDecoration(
                         labelText: '标签',
-                        hintText: '多个标签请用逗号分隔',
+                        hintText: '选择或创建标签',
+                        suffixIcon: Icon(Icons.sell_outlined),
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    FilledButton(
+                    const SizedBox(height: 14),
+                    SecureGradientButton(
                       onPressed: _isSaving ? null : _save,
-                      child: _isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('保存'),
+                      icon: Icons.lock_rounded,
+                      label: _isSaving ? '保存中...' : '保存',
                     ),
                   ],
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -276,6 +321,30 @@ class _VaultEditPageState extends State<VaultEditPage> {
         .map((tag) => tag.trim())
         .where((tag) => tag.isNotEmpty)
         .toList(growable: false);
+  }
+}
+
+class _StrengthSkeleton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text('密码强度', style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(width: 12),
+        for (var i = 0; i < 4; i++) ...[
+          Expanded(
+            child: Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color: SecureVisualColors.line,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
+          if (i != 3) const SizedBox(width: 8),
+        ],
+      ],
+    );
   }
 }
 

@@ -4,6 +4,7 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/features/vault_detail/vault_detail_page.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class VaultListPage extends StatefulWidget {
   const VaultListPage({super.key, required this.services});
@@ -93,38 +94,67 @@ class _VaultListPageState extends State<VaultListPage> {
     final theme = Theme.of(context);
     final hasQuery = _searchController.text.trim().isNotEmpty;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('密码库')),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _handleAdd,
-        tooltip: '新增密码',
-        child: const Icon(Icons.add_rounded),
-      ),
-      body: SafeArea(
-        child: RefreshIndicator(
+    return SecureVisualBackground(
+      bottomInset: 84,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        floatingActionButton: FloatingActionButton(
+          onPressed: _handleAdd,
+          tooltip: '新增密码',
+          backgroundColor: SecureVisualColors.blue,
+          foregroundColor: Colors.white,
+          child: const Icon(Icons.add_rounded),
+        ),
+        body: RefreshIndicator(
           onRefresh: _loadItems,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
             children: [
+              SecureReplicaHeader(
+                title: '密码库',
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.search_rounded),
+                    ),
+                    IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.more_vert_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
               _SecuritySummary(itemCount: _items.length, isLoading: _isLoading),
               const SizedBox(height: 16),
-              TextField(
-                controller: _searchController,
-                onTap: widget.services.recordActivity,
-                onChanged: (_) {
-                  widget.services.recordActivity();
-                  _loadItems();
-                },
-                decoration: const InputDecoration(
-                  labelText: '搜索',
-                  hintText: '标题、网站、用户名、备注或标签',
-                  prefixIcon: Icon(Icons.search_rounded),
+              SecureGlassCard(
+                padding: EdgeInsets.zero,
+                shadow: false,
+                child: TextField(
+                  controller: _searchController,
+                  onTap: widget.services.recordActivity,
+                  onChanged: (_) {
+                    widget.services.recordActivity();
+                    _loadItems();
+                  },
+                  decoration: const InputDecoration(
+                    labelText: '搜索',
+                    hintText: '搜索记录',
+                    prefixIcon: Icon(Icons.search_rounded),
+                    suffixIcon: Icon(Icons.tune_rounded),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
               Text(
-                hasQuery ? '搜索结果 ${_items.length} 条' : '共 ${_items.length} 条记录',
-                style: theme.textTheme.bodyMedium,
+                hasQuery ? '搜索结果 ${_items.length} 条' : '最近使用',
+                style: theme.textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
               if (_isLoading)
@@ -145,71 +175,71 @@ class _VaultListPageState extends State<VaultListPage> {
                   message: hasQuery ? '试试缩短关键词。' : '点击右下角按钮新增第一条记录。',
                 )
               else
-                ..._items.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Material(
-                      color: theme.colorScheme.surface,
-                      borderRadius: BorderRadius.circular(8),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () => _openDetail(item),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primary.withValues(
-                                    alpha: 0.10,
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  Icons.lock_outline_rounded,
-                                  color: theme.colorScheme.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      item.title,
-                                      style: theme.textTheme.titleMedium,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      item.username.isEmpty
-                                          ? '未填写用户名'
-                                          : item.username,
-                                      style: theme.textTheme.bodyMedium,
-                                    ),
-                                    if (item.website.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        item.website,
-                                        style: theme.textTheme.bodySmall,
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              const Icon(Icons.chevron_right_rounded),
-                            ],
-                          ),
+                SecureGlassCard(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      for (final item in _items)
+                        _VaultReplicaTile(
+                          item: item,
+                          onTap: () => _openDetail(item),
                         ),
-                      ),
-                    ),
+                    ],
                   ),
                 ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VaultReplicaTile extends StatelessWidget {
+  const _VaultReplicaTile({required this.item, required this.onTap});
+
+  final VaultListItem item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: SecureVisualColors.blue.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.mail_outline_rounded,
+                  color: theme.colorScheme.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.title, style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.username.isEmpty ? '未填写用户名' : item.username,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.more_horiz_rounded),
             ],
           ),
         ),
@@ -228,57 +258,78 @@ class _SecuritySummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return SecurePanel(
+    return Container(
       key: const ValueKey('vault-list-security-summary'),
-      color: theme.colorScheme.primary.withValues(alpha: 0.08),
-      borderColor: theme.colorScheme.primary.withValues(alpha: 0.18),
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0B66F6), Color(0xFF5BA7FF)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: SecureVisualColors.blue.withValues(alpha: 0.28),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.white.withValues(alpha: 0.20),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.enhanced_encryption_outlined,
-                  color: theme.colorScheme.primary,
+                  color: Colors.white,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('本地密码库', style: theme.textTheme.titleLarge),
-                    const SizedBox(height: 2),
+                    Text(
+                      '本地密码库',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     Text(
                       isLoading ? '正在校验本地加密记录' : '$itemCount 条记录仅保存在本机',
-                      style: theme.textTheme.bodyMedium,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.86),
+                      ),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: [
+            children: const [
               SecureStatusPill(
                 icon: Icons.lock_rounded,
                 label: '已加密',
-                color: theme.colorScheme.primary,
+                color: Colors.white,
               ),
               SecureStatusPill(
                 icon: Icons.offline_bolt_outlined,
                 label: '本地优先',
-                color: theme.colorScheme.tertiary,
+                color: Color(0xFFB9FFD0),
               ),
             ],
           ),

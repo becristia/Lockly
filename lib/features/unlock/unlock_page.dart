@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
-import 'package:secure_box/shared/widgets/secure_scaffold.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class UnlockPage extends StatefulWidget {
   const UnlockPage({super.key, required this.services});
@@ -45,63 +45,95 @@ class _UnlockPageState extends State<UnlockPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return SecureScaffold(
-      title: '解锁密码库',
-      subtitle: '输入主密码以解锁本地加密密码库。',
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ActivityTextFormField(
-            controller: _passwordController,
-            onActivity: widget.services.recordActivity,
-            obscureText: _passwordObscured,
-            autofocus: true,
-            enabled: !_submitting && !_isRetryLocked,
-            textInputAction: TextInputAction.done,
-            autofillHints: const [AutofillHints.password],
-            decoration: InputDecoration(
-              labelText: '主密码',
-              errorText: _errorText,
-              suffixIcon: IconButton(
-                tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
-                onPressed: _togglePasswordVisibility,
+    return SecureVisualBackground(
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                onPressed: null,
                 icon: Icon(
-                  _passwordObscured
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
+                  Icons.arrow_back_rounded,
+                  color: theme.colorScheme.primary,
                 ),
               ),
             ),
-            onFieldSubmitted: (_) => _submitUnlock(),
-          ),
-          if (_retryMessage != null) ...[
-            const SizedBox(height: 8),
-            Text(_retryMessage!, style: theme.textTheme.bodyMedium),
-          ],
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _submitting || _isRetryLocked ? null : _submitUnlock,
-              child: Text(_submitting ? '解锁中...' : '解锁'),
+            const SizedBox(height: 22),
+            const SecureIconBadge(icon: Icons.lock_rounded, size: 110),
+            const SizedBox(height: 28),
+            Text(
+              '解锁密码库',
+              style: theme.textTheme.headlineMedium,
+              textAlign: TextAlign.center,
             ),
-          ),
-          if (_biometricEnabled) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _submitting ? null : _unlockWithBiometrics,
-                icon: const Icon(Icons.fingerprint_rounded),
-                label: const Text('使用生物识别'),
+            const SizedBox(height: 10),
+            Text(
+              '输入主密码以解锁本地加密密码库。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 26),
+            SecureGlassCard(
+              padding: const EdgeInsets.all(0),
+              shadow: false,
+              child: ActivityTextFormField(
+                controller: _passwordController,
+                onActivity: widget.services.recordActivity,
+                obscureText: _passwordObscured,
+                autofocus: true,
+                enabled: !_submitting && !_isRetryLocked,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.password],
+                decoration: InputDecoration(
+                  labelText: '主密码',
+                  errorText: _errorText,
+                  suffixIcon: IconButton(
+                    tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
+                    onPressed: _togglePasswordVisibility,
+                    icon: Icon(
+                      _passwordObscured
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                    ),
+                  ),
+                ),
+                onFieldSubmitted: (_) => _submitUnlock(),
               ),
             ),
+            if (_retryMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _retryMessage!,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+            const SizedBox(height: 18),
+            SecureGradientButton(
+              onPressed: _submitting || _isRetryLocked ? null : _submitUnlock,
+              icon: Icons.lock_open_rounded,
+              label: _submitting ? '解锁中...' : '解锁',
+            ),
+            if (_biometricEnabled) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _submitting ? null : _unlockWithBiometrics,
+                  icon: const Icon(Icons.fingerprint_rounded),
+                  label: const Text('使用生物识别'),
+                ),
+              ),
+            ],
+            const SizedBox(height: 22),
+            Text(
+              '连续输错后会短暂延迟重试\n以降低暴力尝试风险',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
+            ),
           ],
-        ],
-      ),
-      footer: Text(
-        '连续输错后会短暂延迟重试，以降低暴力尝试风险。',
-        style: theme.textTheme.bodyMedium,
+        ),
       ),
     );
   }

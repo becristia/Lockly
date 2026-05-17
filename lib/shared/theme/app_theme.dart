@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const Color _trustBlue = Color(0xFF0369A1);
-  static const Color _secondaryBlue = Color(0xFF0EA5E9);
-  static const Color _securityGreen = Color(0xFF22C55E);
-  static const Color _danger = Color(0xFFB42318);
-  static const Color _lightCanvas = Color(0xFFF3F8FC);
+  static const Color _trustBlue = Color(0xFF0B66F6);
+  static const Color _secondaryBlue = Color(0xFF24D3E7);
+  static const Color _securityGreen = Color(0xFF55B965);
+  static const Color _danger = Color(0xFFE33C32);
+  static const Color _lightCanvas = Color(0xFFF4FAFF);
   static const Color _lightSurface = Color(0xFFFFFFFF);
-  static const Color _lightInk = Color(0xFF0B2536);
-  static const Color _lightMuted = Color(0xFF526D7D);
-  static const Color _lightOutline = Color(0xFFC9DDE8);
+  static const Color _lightInk = Color(0xFF08224A);
+  static const Color _lightMuted = Color(0xFF6D7F9B);
+  static const Color _lightOutline = Color(0xFFDDE9F6);
   static const Color _darkCanvas = Color(0xFF08151F);
   static const Color _darkSurface = Color(0xFF102331);
   static const Color _darkSurfaceHigh = Color(0xFF173245);
@@ -101,13 +101,13 @@ class AppTheme {
     final textTheme = base.textTheme.copyWith(
       headlineMedium: base.textTheme.headlineMedium?.copyWith(
         fontSize: 28,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w900,
         color: ink,
         letterSpacing: 0,
       ),
       titleLarge: base.textTheme.titleLarge?.copyWith(
         fontSize: 20,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w800,
         color: ink,
         letterSpacing: 0,
       ),
@@ -137,7 +137,7 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         centerTitle: false,
         elevation: 0,
-        backgroundColor: canvas,
+        backgroundColor: Colors.transparent,
         foregroundColor: ink,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: textTheme.titleLarge,
@@ -148,8 +148,11 @@ class AppTheme {
         unselectedItemColor: muted,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: surface,
-        indicatorColor: primary.withValues(alpha: 0.16),
+        height: 72,
+        backgroundColor: surface.withValues(alpha: 0.94),
+        elevation: 0,
+        shadowColor: primary.withValues(alpha: 0.10),
+        indicatorColor: primary.withValues(alpha: 0.12),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
@@ -165,8 +168,8 @@ class AppTheme {
         color: surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: outline.withValues(alpha: 0.85)),
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: outline.withValues(alpha: 0.68)),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -174,8 +177,8 @@ class AppTheme {
         iconColor: primary,
         textColor: ink,
         tileColor: surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         isDense: true,
@@ -186,23 +189,23 @@ class AppTheme {
         prefixIconColor: muted,
         suffixIconColor: muted,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: outline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: outline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: primary, width: 1.3),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: primary, width: 1.4),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: danger),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: danger, width: 1.3),
         ),
         contentPadding: const EdgeInsets.symmetric(
@@ -214,8 +217,10 @@ class AppTheme {
       filledButtonTheme: FilledButtonThemeData(style: _buttonStyle()),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          minimumSize: const Size.fromHeight(50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           side: BorderSide(color: outline),
           textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
         ),
@@ -229,15 +234,15 @@ class AppTheme {
         contentTextStyle: TextStyle(
           color: brightness == Brightness.dark ? _darkCanvas : Colors.white,
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }
 
   static ButtonStyle _buttonStyle() {
     return FilledButton.styleFrom(
-      minimumSize: const Size.fromHeight(48),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      minimumSize: const Size.fromHeight(52),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
     );
   }
