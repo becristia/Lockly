@@ -58,6 +58,8 @@ class _SecureBoxAppState extends State<SecureBoxApp>
       title: 'Secure Box',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system,
       navigatorKey: widget.services.navigatorKey,
       onGenerateInitialRoutes: (initialRouteName) => [
         MaterialPageRoute<void>(

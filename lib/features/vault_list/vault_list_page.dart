@@ -3,6 +3,7 @@ import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/features/vault_detail/vault_detail_page.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
+import 'package:secure_box/shared/widgets/secure_panel.dart';
 
 class VaultListPage extends StatefulWidget {
   const VaultListPage({super.key, required this.services});
@@ -105,6 +106,8 @@ class _VaultListPageState extends State<VaultListPage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
             children: [
+              _SecuritySummary(itemCount: _items.length, isLoading: _isLoading),
+              const SizedBox(height: 16),
               TextField(
                 controller: _searchController,
                 onTap: widget.services.recordActivity,
@@ -114,7 +117,7 @@ class _VaultListPageState extends State<VaultListPage> {
                 },
                 decoration: const InputDecoration(
                   labelText: '搜索',
-                  hintText: '标题、网址、用户名、备注或标签',
+                  hintText: '标题、网站、用户名、备注或标签',
                   prefixIcon: Icon(Icons.search_rounded),
                 ),
               ),
@@ -210,6 +213,76 @@ class _VaultListPageState extends State<VaultListPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SecuritySummary extends StatelessWidget {
+  const _SecuritySummary({required this.itemCount, required this.isLoading});
+
+  final int itemCount;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SecurePanel(
+      key: const ValueKey('vault-list-security-summary'),
+      color: theme.colorScheme.primary.withValues(alpha: 0.08),
+      borderColor: theme.colorScheme.primary.withValues(alpha: 0.18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.enhanced_encryption_outlined,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('本地密码库', style: theme.textTheme.titleLarge),
+                    const SizedBox(height: 2),
+                    Text(
+                      isLoading ? '正在校验本地加密记录' : '$itemCount 条记录仅保存在本机',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              SecureStatusPill(
+                icon: Icons.lock_rounded,
+                label: '已加密',
+                color: theme.colorScheme.primary,
+              ),
+              SecureStatusPill(
+                icon: Icons.offline_bolt_outlined,
+                label: '本地优先',
+                color: theme.colorScheme.tertiary,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

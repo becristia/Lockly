@@ -68,8 +68,6 @@ void main() {
     expect(find.text('剪贴板清理'), findsOneWidget);
     expect(find.text('导出加密备份'), findsOneWidget);
     expect(find.text('导入加密备份'), findsOneWidget);
-    expect(find.text('清除本地密码库'), findsOneWidget);
-
     await tester.scrollUntilVisible(
       find.text('清除本地密码库'),
       120,

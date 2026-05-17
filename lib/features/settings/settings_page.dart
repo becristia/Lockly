@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
-import 'package:secure_box/shared/widgets/secure_scaffold.dart';
+import 'package:secure_box/shared/widgets/secure_panel.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.services});
@@ -74,10 +74,9 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       try {
         await widget.services.enableBiometricUnlock(masterPassword);
-        if (!mounted) {
-          return;
+        if (mounted) {
+          setState(() => _biometricEnabled = true);
         }
-        setState(() => _biometricEnabled = true);
       } catch (_) {
         if (!mounted) {
           return;
@@ -195,59 +194,120 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SecureScaffold(
-      title: '设置',
-      subtitle: '管理本地密码库、安全解锁、自动锁定和加密备份。',
-      body: Column(
-        children: [
-          _ActionTile(
-            icon: Icons.password_rounded,
-            title: '修改主密码',
-            subtitle: '只重新加密 DEK，不重新加密所有条目。',
-            onTap: _changeMasterPassword,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.fingerprint_rounded),
-            title: const Text('生物识别'),
-            subtitle: const Text('仅用于快速解锁，失败时仍需主密码。'),
-            value: _biometricEnabled,
-            onChanged: _setBiometricEnabled,
-          ),
-          _DurationTile(
-            icon: Icons.lock_clock_rounded,
-            title: '自动锁定',
-            value: _autoLockTimeout,
-            choices: _autoLockChoices,
-            onChanged: _setAutoLockTimeout,
-          ),
-          _DurationTile(
-            icon: Icons.content_paste_off_rounded,
-            title: '剪贴板清理',
-            value: _clipboardCleanupTimeout,
-            choices: _clipboardChoices,
-            onChanged: _setClipboardCleanupTimeout,
-          ),
-          const SizedBox(height: 8),
-          _ActionTile(
-            icon: Icons.file_upload_outlined,
-            title: '导出加密备份',
-            subtitle: '导出本地加密备份 JSON。',
-            onTap: _exportBackup,
-          ),
-          _ActionTile(
-            icon: Icons.file_download_outlined,
-            title: '导入加密备份',
-            subtitle: '使用备份主密码验证后导入。',
-            onTap: _importBackup,
-          ),
-          _ActionTile(
-            icon: Icons.delete_outline_rounded,
-            title: '清除本地密码库',
-            subtitle: '删除本机密码库和设置。',
-            onTap: _clearLocalVault,
-          ),
-        ],
+    return Scaffold(
+      appBar: AppBar(title: const Text('设置')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            SecureSection(
+              key: const ValueKey('settings-section-unlock'),
+              title: '解锁安全',
+              subtitle: '管理主密码和生物识别快速解锁。',
+              icon: Icons.verified_user_outlined,
+              child: SecurePanel(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    _ActionTile(
+                      icon: Icons.password_rounded,
+                      title: '修改主密码',
+                      subtitle: '只重新加密 DEK，不重新加密所有条目。',
+                      onTap: _changeMasterPassword,
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                      ),
+                      secondary: const Icon(Icons.fingerprint_rounded),
+                      title: const Text('生物识别'),
+                      subtitle: const Text('失败时仍需回退到主密码。'),
+                      value: _biometricEnabled,
+                      onChanged: _setBiometricEnabled,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureSection(
+              key: const ValueKey('settings-section-privacy'),
+              title: '隐私保护',
+              subtitle: '控制自动锁定和剪贴板清理时间。',
+              icon: Icons.privacy_tip_outlined,
+              child: SecurePanel(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    _DurationTile(
+                      icon: Icons.lock_clock_rounded,
+                      title: '自动锁定',
+                      value: _autoLockTimeout,
+                      choices: _autoLockChoices,
+                      onChanged: _setAutoLockTimeout,
+                    ),
+                    const Divider(),
+                    _DurationTile(
+                      icon: Icons.content_paste_off_rounded,
+                      title: '剪贴板清理',
+                      value: _clipboardCleanupTimeout,
+                      choices: _clipboardChoices,
+                      onChanged: _setClipboardCleanupTimeout,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureSection(
+              key: const ValueKey('settings-section-backup'),
+              title: '加密备份',
+              subtitle: '备份仍需主密码才能恢复。',
+              icon: Icons.inventory_2_outlined,
+              child: SecurePanel(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    _ActionTile(
+                      icon: Icons.file_upload_outlined,
+                      title: '导出加密备份',
+                      subtitle: '导出本地加密备份 JSON。',
+                      onTap: _exportBackup,
+                    ),
+                    const Divider(),
+                    _ActionTile(
+                      icon: Icons.file_download_outlined,
+                      title: '导入加密备份',
+                      subtitle: '使用备份主密码验证后导入。',
+                      onTap: _importBackup,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureSection(
+              key: const ValueKey('settings-section-danger'),
+              title: '危险操作',
+              subtitle: '这些操作不可撤销。',
+              icon: Icons.warning_amber_rounded,
+              child: SecurePanel(
+                padding: EdgeInsets.zero,
+                borderColor: Theme.of(
+                  context,
+                ).colorScheme.error.withValues(alpha: 0.35),
+                child: _ActionTile(
+                  icon: Icons.delete_outline_rounded,
+                  title: '清除本地密码库',
+                  subtitle: '删除本机密码库和设置。',
+                  destructive: true,
+                  onTap: _clearLocalVault,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -505,21 +565,23 @@ class _ActionTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.destructive = false,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
+    final color = destructive ? Theme.of(context).colorScheme.error : null;
     return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon),
-      title: Text(title),
+      leading: Icon(icon, color: color),
+      title: Text(title, style: TextStyle(color: color)),
       subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      trailing: Icon(Icons.chevron_right_rounded, color: color),
       onTap: onTap,
     );
   }
@@ -545,7 +607,6 @@ class _DurationTile extends StatelessWidget {
     final selectedValue = choices.contains(value) ? value : choices.first;
 
     return ListTile(
-      contentPadding: EdgeInsets.zero,
       leading: Icon(icon),
       title: Text(title),
       trailing: DropdownButton<Duration>(
