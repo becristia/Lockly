@@ -104,6 +104,53 @@ void main() {
       expect(find.text('两次输入的主密码不一致'), findsOneWidget);
     });
 
+    testWidgets('rejects common weak master passwords before creating vault', (
+      tester,
+    ) async {
+      final services = AppServices.fake(hasVault: false);
+
+      await _pumpPage(
+        tester,
+        services: services,
+        home: SetupPage(services: services),
+      );
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '主密码'),
+        'password123456',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '确认主密码'),
+        'password123456',
+      );
+      await tester.tap(find.text('创建密码库'));
+      await tester.pump();
+
+      expect(find.textContaining('常见弱密码'), findsOneWidget);
+      expect(services.fakeCreateVaultCalls, 0);
+    });
+
+    testWidgets('shows master password strength feedback while typing', (
+      tester,
+    ) async {
+      final services = AppServices.fake(hasVault: false);
+
+      await _pumpPage(
+        tester,
+        services: services,
+        home: SetupPage(services: services),
+      );
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '主密码'),
+        'correct horse battery staple',
+      );
+      await tester.pump();
+
+      expect(find.textContaining('强'), findsWidgets);
+      expect(find.textContaining('密码短语'), findsOneWidget);
+    });
+
     testWidgets('submits with biometric enabled when toggle is on', (
       tester,
     ) async {

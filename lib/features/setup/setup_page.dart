@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 import 'package:secure_box/shared/widgets/secure_scaffold.dart';
 
@@ -22,6 +23,9 @@ class _SetupPageState extends State<SetupPage> {
   bool _confirmPasswordObscured = true;
   bool _biometricEnabled = false;
   bool _submitting = false;
+  MasterPasswordPolicyResult _passwordStrength = MasterPasswordPolicy.evaluate(
+    '',
+  );
 
   @override
   void dispose() {
@@ -62,8 +66,14 @@ class _SetupPageState extends State<SetupPage> {
                   ),
                 ),
               ),
+              onChanged: _updatePasswordStrength,
               validator: _validatePassword,
             ),
+            if (_passwordController.text.isNotEmpty &&
+                _passwordStrength.isAcceptable) ...[
+              const SizedBox(height: 8),
+              _PasswordStrengthHint(strength: _passwordStrength),
+            ],
             const SizedBox(height: 12),
             ActivityTextFormField(
               controller: _confirmPasswordController,
@@ -123,11 +133,8 @@ class _SetupPageState extends State<SetupPage> {
   }
 
   String? _validatePassword(String? value) {
-    final password = value ?? '';
-    if (password.length < 12) {
-      return '主密码至少需要 12 个字符';
-    }
-    return null;
+    final result = MasterPasswordPolicy.evaluate(value ?? '');
+    return result.isAcceptable ? null : result.message;
   }
 
   String? _validateConfirmPassword(String? value) {
@@ -159,11 +166,10 @@ class _SetupPageState extends State<SetupPage> {
       if (!mounted) {
         return;
       }
-      if (_biometricEnabled &&
-          biometricResult == BiometricSetupResult.failed) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('密码库已创建，但未能启用生物识别。')),
-        );
+      if (_biometricEnabled && biometricResult == BiometricSetupResult.failed) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('密码库已创建，但未能启用生物识别。')));
       }
     } catch (_) {
       if (!mounted) {
@@ -188,10 +194,53 @@ class _SetupPageState extends State<SetupPage> {
     });
   }
 
+  void _updatePasswordStrength(String value) {
+    setState(() {
+      _passwordStrength = MasterPasswordPolicy.evaluate(value);
+    });
+  }
+
   void _toggleConfirmPasswordVisibility() {
     widget.services.recordActivity();
     setState(() {
       _confirmPasswordObscured = !_confirmPasswordObscured;
     });
+  }
+}
+
+class _PasswordStrengthHint extends StatelessWidget {
+  const _PasswordStrengthHint({required this.strength});
+
+  final MasterPasswordPolicyResult strength;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final color = switch (strength.label) {
+      MasterPasswordStrengthLabel.weak => colorScheme.error,
+      MasterPasswordStrengthLabel.fair => colorScheme.tertiary,
+      MasterPasswordStrengthLabel.strong => colorScheme.primary,
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: (strength.score.clamp(0, 5) / 5).toDouble(),
+            minHeight: 6,
+            backgroundColor: colorScheme.surfaceContainerHighest,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          strength.message,
+          style: theme.textTheme.bodySmall?.copyWith(color: color),
+        ),
+      ],
+    );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/secure_scaffold.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -493,10 +494,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   static String? _validateNewPassword(String? value) {
-    if (value == null || value.length < 12) {
-      return '主密码至少需要 12 个字符';
-    }
-    return null;
+    final result = MasterPasswordPolicy.evaluate(value ?? '');
+    return result.isAcceptable ? null : result.message;
   }
 }
 

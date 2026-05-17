@@ -11,6 +11,7 @@ class ActivityTextFormField extends StatelessWidget {
     this.textInputAction,
     this.autofocus = false,
     this.enabled,
+    this.onChanged,
     this.onFieldSubmitted,
     this.keyboardType,
     this.autofillHints,
@@ -26,6 +27,7 @@ class ActivityTextFormField extends StatelessWidget {
   final TextInputAction? textInputAction;
   final bool autofocus;
   final bool? enabled;
+  final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onFieldSubmitted;
   final TextInputType? keyboardType;
   final Iterable<String>? autofillHints;
@@ -48,7 +50,10 @@ class ActivityTextFormField extends StatelessWidget {
       minLines: minLines,
       maxLines: maxLines,
       onTap: onActivity,
-      onChanged: (_) => onActivity(),
+      onChanged: (value) {
+        onActivity();
+        onChanged?.call(value);
+      },
     );
   }
 }
