@@ -5,6 +5,7 @@ import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 import 'package:secure_box/features/security_health/health_page.dart';
+import 'package:secure_box/features/tag_management/tag_management_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.services});
@@ -286,6 +287,37 @@ class _SettingsPageState extends State<SettingsPage> {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (context) => HealthPage(services: widget.services),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureSection(
+              key: const ValueKey('settings-section-tags'),
+              title: '标签管理',
+              subtitle: '管理密码库标签。',
+              icon: Icons.sell_outlined,
+              child: SecurePanel(
+                padding: EdgeInsets.zero,
+                child: ListTile(
+                  leading: Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(
+                      color: SecureVisualColors.blue.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.sell_outlined),
+                  ),
+                  title: const Text('标签管理'),
+                  subtitle: const Text('管理密码库标签'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    widget.services.recordActivity();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => TagManagementPage(services: widget.services),
                       ),
                     );
                   },
