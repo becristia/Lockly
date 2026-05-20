@@ -23,10 +23,14 @@ class _VaultListPageState extends State<VaultListPage> {
   String? _errorMessage;
   int _loadSequence = 0;
 
+  List<String> _allTags = [];
+  String? _selectedTag;
+
   @override
   void initState() {
     super.initState();
     _loadItems();
+    _loadTags();
   }
 
   @override
@@ -44,7 +48,10 @@ class _VaultListPageState extends State<VaultListPage> {
     });
 
     try {
-      final items = await widget.services.listVaultItems(query: query);
+      var items = await widget.services.listVaultItems(query: query);
+      if (_selectedTag != null && _selectedTag!.isNotEmpty) {
+        items = items.where((i) => i.tags.contains(_selectedTag)).toList();
+      }
       if (!mounted || requestId != _loadSequence) {
         return;
       }
@@ -64,6 +71,14 @@ class _VaultListPageState extends State<VaultListPage> {
     }
   }
 
+  Future<void> _loadTags() async {
+    try {
+      final tags = await widget.services.allTags();
+      if (!mounted) return;
+      setState(() => _allTags = tags);
+    } catch (_) {}
+  }
+
   Future<void> _handleAdd() async {
     widget.services.recordActivity();
     final saved = await Navigator.of(context).push<bool>(
@@ -73,6 +88,7 @@ class _VaultListPageState extends State<VaultListPage> {
     );
     if (saved == true && mounted) {
       await _loadItems();
+      _loadTags();
     }
   }
 
@@ -86,6 +102,7 @@ class _VaultListPageState extends State<VaultListPage> {
     );
     if (changed == true && mounted) {
       await _loadItems();
+      _loadTags();
     }
   }
 
@@ -138,6 +155,54 @@ class _VaultListPageState extends State<VaultListPage> {
                   ),
                 ),
               ),
+              if (_allTags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 36,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _allTags.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return FilterChip(
+                          selected: _selectedTag == null,
+                          label: const Text('全部',
+                              style: TextStyle(fontSize: 12)),
+                          onSelected: (_) {
+                            setState(() => _selectedTag = null);
+                            _loadItems();
+                          },
+                          selectedColor:
+                              SecureVisualColors.blue.withValues(alpha: 0.15),
+                          checkmarkColor: SecureVisualColors.blue,
+                          visualDensity: VisualDensity.compact,
+                        );
+                      }
+                      final tag = _allTags[index - 1];
+                      final selected = _selectedTag == tag;
+                      return FilterChip(
+                        selected: selected,
+                        label:
+                            Text(tag, style: const TextStyle(fontSize: 12)),
+                        onSelected: selected
+                            ? (_) {
+                                setState(() => _selectedTag = null);
+                                _loadItems();
+                              }
+                            : (_) {
+                                setState(() => _selectedTag = tag);
+                                _loadItems();
+                              },
+                        selectedColor:
+                            SecureVisualColors.blue.withValues(alpha: 0.15),
+                        checkmarkColor: SecureVisualColors.blue,
+                        visualDensity: VisualDensity.compact,
+                      );
+                    },
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               Text(
                 hasQuery ? '搜索结果 ${_items.length} 条' : '最近使用',
