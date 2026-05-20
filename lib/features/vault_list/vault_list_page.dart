@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/features/trash/trash_page.dart';
 import 'package:secure_box/features/vault_detail/vault_detail_page.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
@@ -25,12 +26,14 @@ class _VaultListPageState extends State<VaultListPage> {
 
   List<String> _allTags = [];
   String? _selectedTag;
+  int _deletedCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadItems();
     _loadTags();
+    _loadDeletedCount();
   }
 
   @override
@@ -59,6 +62,7 @@ class _VaultListPageState extends State<VaultListPage> {
         _items = items;
         _isLoading = false;
       });
+      _loadDeletedCount();
     } catch (_) {
       if (!mounted || requestId != _loadSequence) {
         return;
@@ -79,6 +83,14 @@ class _VaultListPageState extends State<VaultListPage> {
     } catch (_) {}
   }
 
+  Future<void> _loadDeletedCount() async {
+    try {
+      final count = await widget.services.deletedItemCount();
+      if (!mounted) return;
+      setState(() => _deletedCount = count);
+    } catch (_) {}
+  }
+
   Future<void> _handleAdd() async {
     widget.services.recordActivity();
     final saved = await Navigator.of(context).push<bool>(
@@ -89,6 +101,7 @@ class _VaultListPageState extends State<VaultListPage> {
     if (saved == true && mounted) {
       await _loadItems();
       _loadTags();
+      _loadDeletedCount();
     }
   }
 
@@ -103,6 +116,7 @@ class _VaultListPageState extends State<VaultListPage> {
     if (changed == true && mounted) {
       await _loadItems();
       _loadTags();
+      _loadDeletedCount();
     }
   }
 
@@ -237,6 +251,26 @@ class _VaultListPageState extends State<VaultListPage> {
                           onTap: () => _openDetail(item),
                         ),
                     ],
+                  ),
+                ),
+              if (_deletedCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: ListTile(
+                    leading: const Icon(Icons.delete_outline_rounded),
+                    title: Text('回收站 ($_deletedCount 条)'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () async {
+                      widget.services.recordActivity();
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              TrashPage(services: widget.services),
+                        ),
+                      );
+                      _loadItems();
+                      _loadDeletedCount();
+                    },
                   ),
                 ),
             ],
