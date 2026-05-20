@@ -452,6 +452,14 @@ class AppServices {
     return vaultService.listTotpItems();
   }
 
+  Future<List<String>> allTags() async => vaultService.allTags();
+
+  Future<void> renameTag(String oldTag, String newTag) async =>
+      vaultService.renameTag(oldTag, newTag);
+
+  Future<void> deleteTag(String tag) async =>
+      vaultService.deleteTag(tag);
+
   Future<HealthReport> analyzePasswordHealth() async {
     final override = _analyzePasswordHealthOverride;
     if (override != null) return override();

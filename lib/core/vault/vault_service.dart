@@ -874,6 +874,141 @@ class VaultService {
     });
   }
 
+  Future<List<String>> allTags() async {
+    _ensureUnlocked();
+    final items = await repository.itemsDao.allItemsForManifest();
+    final active = items.where((i) => i.deletedAt == null).toList();
+    final tags = <String>{};
+    return _session.withDekCopy((dek) async {
+      for (final item in active) {
+        try {
+          final clearBytes = await _crypto.decryptBytes(
+            key: dek,
+            payload: EncryptedPayload(
+              nonce: fromB64(item.nonce),
+              ciphertext: fromB64(item.ciphertext),
+              mac: fromB64(item.mac),
+            ),
+          );
+          final decoded = jsonDecode(utf8.decode(clearBytes));
+          if (decoded is! Map) continue;
+          final entry = PasswordEntry.fromJson(
+            Map<String, Object?>.from(decoded),
+          );
+          tags.addAll(entry.tags);
+        } catch (_) {
+          // skip items that fail to decrypt
+        }
+      }
+      final sorted = tags.toList()..sort();
+      return sorted;
+    });
+  }
+
+  Future<void> renameTag(String oldTag, String newTag) async {
+    _ensureUnlocked();
+    if (oldTag == newTag) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, dek) async {
+        final items = await txn.itemsDao.allItemsForManifest();
+        for (final item in items) {
+          if (item.deletedAt != null) continue;
+          try {
+            final clearBytes = await _crypto.decryptBytes(
+              key: dek,
+              payload: EncryptedPayload(
+                nonce: fromB64(item.nonce),
+                ciphertext: fromB64(item.ciphertext),
+                mac: fromB64(item.mac),
+              ),
+            );
+            final decoded = jsonDecode(utf8.decode(clearBytes));
+            if (decoded is! Map) continue;
+            final entry = PasswordEntry.fromJson(
+              Map<String, Object?>.from(decoded),
+            );
+            if (!entry.tags.contains(oldTag)) continue;
+            final newTags =
+                entry.tags.map((t) => t == oldTag ? newTag : t).toList();
+            final updatedEntry = PasswordEntry(
+              title: entry.title,
+              website: entry.website,
+              username: entry.username,
+              password: entry.password,
+              notes: entry.notes,
+              tags: newTags,
+              totpSecret: entry.totpSecret,
+            );
+            final updatedItem = await _encryptEntryWithDek(
+              dek: dek,
+              id: item.id,
+              entry: updatedEntry,
+              createdAt: item.createdAt,
+              updatedAt: now,
+            );
+            await txn.itemsDao.updateActive(updatedItem);
+          } catch (_) {
+            // skip items that fail to decrypt
+          }
+        }
+      },
+    );
+  }
+
+  Future<void> deleteTag(String tag) async {
+    _ensureUnlocked();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, dek) async {
+        final items = await txn.itemsDao.allItemsForManifest();
+        for (final item in items) {
+          if (item.deletedAt != null) continue;
+          try {
+            final clearBytes = await _crypto.decryptBytes(
+              key: dek,
+              payload: EncryptedPayload(
+                nonce: fromB64(item.nonce),
+                ciphertext: fromB64(item.ciphertext),
+                mac: fromB64(item.mac),
+              ),
+            );
+            final decoded = jsonDecode(utf8.decode(clearBytes));
+            if (decoded is! Map) continue;
+            final entry = PasswordEntry.fromJson(
+              Map<String, Object?>.from(decoded),
+            );
+            if (!entry.tags.contains(tag)) continue;
+            final newTags = entry.tags.where((t) => t != tag).toList();
+            final updatedEntry = PasswordEntry(
+              title: entry.title,
+              website: entry.website,
+              username: entry.username,
+              password: entry.password,
+              notes: entry.notes,
+              tags: newTags,
+              totpSecret: entry.totpSecret,
+            );
+            final updatedItem = await _encryptEntryWithDek(
+              dek: dek,
+              id: item.id,
+              entry: updatedEntry,
+              createdAt: item.createdAt,
+              updatedAt: now,
+            );
+            await txn.itemsDao.updateActive(updatedItem);
+          } catch (_) {
+            // skip items that fail to decrypt
+          }
+        }
+      },
+    );
+  }
+
   Future<VaultMeta> _requireVaultMeta() async {
     final meta = await repository.metaDao.get();
     if (meta == null) {
