@@ -6,6 +6,7 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/core/vault/vault_anchor_service.dart';
 import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
@@ -770,6 +771,64 @@ class VaultService {
         }
       },
     );
+  }
+
+  Future<Map<String, String?>> _decryptItemForHealth(
+    EncryptedVaultItem item,
+    Uint8List dek,
+  ) async {
+    final clearBytes = await _crypto.decryptBytes(
+      key: dek,
+      payload: EncryptedPayload(
+        nonce: fromB64(item.nonce),
+        ciphertext: fromB64(item.ciphertext),
+        mac: fromB64(item.mac),
+      ),
+    );
+    final decoded = jsonDecode(utf8.decode(clearBytes));
+    if (decoded is! Map) {
+      return {
+        'id': item.id,
+        'title': '',
+        'username': '',
+        'password': '',
+        'website': null,
+        'updatedAt': '${item.updatedAt}',
+        'createdAt': '${item.createdAt}',
+      };
+    }
+    final map = Map<String, Object?>.from(decoded);
+    return {
+      'id': item.id,
+      'title': map['title'] as String? ?? '',
+      'username': map['username'] as String? ?? '',
+      'password': map['password'] as String? ?? '',
+      'website': map['website'] as String?,
+      'updatedAt': '${item.updatedAt}',
+      'createdAt': '${item.createdAt}',
+    };
+  }
+
+  Future<HealthReport> analyzePasswordHealth({
+    required PasswordHealthService healthService,
+  }) async {
+    _ensureUnlocked();
+    final items = await repository.itemsDao.allItemsForManifest();
+    final activeItems = items.where((i) => i.deletedAt == null).toList();
+
+    final decryptedItems = await _session.withDekCopy((dek) async {
+      final results = <Map<String, String?>>[];
+      for (final item in activeItems) {
+        try {
+          results.add(await _decryptItemForHealth(item, dek));
+        } catch (_) {
+          // skip items that fail to decrypt
+        }
+      }
+      return results;
+    });
+
+    return healthService.analyze(decryptedItems: decryptedItems);
   }
 
   Future<VaultMeta> _requireVaultMeta() async {

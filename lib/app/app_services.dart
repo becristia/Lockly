@@ -7,6 +7,7 @@ import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/security/app_lifecycle_guard.dart';
 import 'package:secure_box/core/security/auto_lock_service.dart';
+import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 
@@ -50,6 +51,7 @@ class AppServices {
     Future<int> Function(String backupJson, String masterPassword)?
     importBackupOverride,
     Future<void> Function()? clearLocalVaultOverride,
+    Future<HealthReport> Function()? analyzePasswordHealthOverride,
     bool trackActivity = true,
   }) : _hasVault = hasVault,
        _vaultService = vaultService,
@@ -75,6 +77,7 @@ class AppServices {
        _exportBackupOverride = exportBackupOverride,
        _importBackupOverride = importBackupOverride,
        _clearLocalVaultOverride = clearLocalVaultOverride,
+       _analyzePasswordHealthOverride = analyzePasswordHealthOverride,
        _autoLockTimeout = autoLockTimeout,
        _clipboardCleanupTimeout = clipboardCleanupTimeout,
        _trackActivity = trackActivity,
@@ -99,6 +102,7 @@ class AppServices {
   static const routeVault = '/vault';
   static const routeGenerator = '/generator';
   static const routeSettings = '/settings';
+  static const routeHealth = '/health';
 
   final GlobalKey<NavigatorState> navigatorKey;
   final ValueNotifier<AppShellState> shellState;
@@ -133,6 +137,7 @@ class AppServices {
   final Future<int> Function(String backupJson, String masterPassword)?
   _importBackupOverride;
   final Future<void> Function()? _clearLocalVaultOverride;
+  final Future<HealthReport> Function()? _analyzePasswordHealthOverride;
   Duration _autoLockTimeout;
   Duration _clipboardCleanupTimeout;
   final bool _trackActivity;
@@ -155,6 +160,7 @@ class AppServices {
     bool biometricEnabled = false,
     bool biometricUnlockSucceeds = false,
     List<PasswordEntry> initialVaultItems = const <PasswordEntry>[],
+    Future<HealthReport> Function()? analyzePasswordHealthOverride,
   }) {
     AppServices? fakeServices;
     final fakeItems = <String, _FakeVaultItem>{};
@@ -292,6 +298,7 @@ class AppServices {
         fakeServices!._hasVault = false;
         fakeServices.shellState.value = AppShellState.setupRequired;
       },
+      analyzePasswordHealthOverride: analyzePasswordHealthOverride,
       trackActivity: false,
     );
 
@@ -439,6 +446,14 @@ class AppServices {
     }
 
     return vaultService.deleteItem(id);
+  }
+
+  Future<HealthReport> analyzePasswordHealth() async {
+    final override = _analyzePasswordHealthOverride;
+    if (override != null) return override();
+    return vaultService.analyzePasswordHealth(
+      healthService: PasswordHealthService(),
+    );
   }
 
   Future<void> changeMasterPassword({
@@ -649,7 +664,7 @@ class AppServices {
     }
 
     return switch (requested) {
-      routeVault || routeGenerator || routeSettings => requested,
+      routeVault || routeGenerator || routeSettings || routeHealth => requested,
       _ => routeVault,
     };
   }
