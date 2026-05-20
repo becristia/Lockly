@@ -93,7 +93,7 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.pump();
 
-      expect(find.text('Secure Box'), findsOneWidget);
+      expect(find.text('Lockly'), findsOneWidget);
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
