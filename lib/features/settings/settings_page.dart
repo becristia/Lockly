@@ -4,6 +4,7 @@ import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
+import 'package:secure_box/features/security_health/health_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.services});
@@ -257,6 +258,37 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: _setClipboardCleanupTimeout,
                     ),
                   ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureSection(
+              key: const ValueKey('settings-section-health'),
+              title: '密码健康',
+              subtitle: '检测弱密码、重复密码和过期密码。',
+              icon: Icons.health_and_safety_outlined,
+              child: SecurePanel(
+                padding: EdgeInsets.zero,
+                child: ListTile(
+                  leading: Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(
+                      color: SecureVisualColors.blue.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.health_and_safety_outlined),
+                  ),
+                  title: const Text('密码健康'),
+                  subtitle: const Text('检测弱密码、重复密码和过期密码'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    widget.services.recordActivity();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => HealthPage(services: widget.services),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
