@@ -752,6 +752,15 @@ class VaultService {
       updatedAt: now,
       mutate: (txn, dek) async {
         final existing = await _requireActiveItemFrom(txn, id);
+        final oldEntry = await _decryptEntryWithDek(existing, dek);
+        if (oldEntry.password != entry.password) {
+          await _archivePasswordHistory(
+            txn: txn,
+            entryId: id,
+            dek: dek,
+            oldPassword: oldEntry.password,
+          );
+        }
         final updatedItem = await _encryptEntryWithDek(
           dek: dek,
           id: id,
@@ -835,6 +844,7 @@ class VaultService {
           throw VaultItemNotFoundException(id);
         }
         await txn.itemsDao.hardDelete(id);
+        await txn.historyDao?.deleteAllForEntry(id);
       },
     );
   }
@@ -845,6 +855,7 @@ class VaultService {
     await _rewriteManifestForMutation(
       updatedAt: now,
       mutate: (txn, _) async {
+        await txn.historyDao?.deleteAllForDeletedEntries();
         await txn.itemsDao.hardDeleteAllDeleted();
       },
     );
@@ -853,6 +864,99 @@ class VaultService {
   Future<int> deletedItemCount() async {
     _ensureUnlocked();
     return repository.itemsDao.deletedCount();
+  }
+
+  Future<List<Map<String, dynamic>>> listPasswordHistory(
+    String entryId,
+  ) async {
+    _ensureUnlocked();
+    final historyDao = repository.historyDao;
+    if (historyDao == null) return const [];
+    final records = await historyDao.byEntryId(entryId);
+    return _session.withDekCopy((dek) async {
+      final results = <Map<String, dynamic>>[];
+      for (final r in records) {
+        try {
+          final passwordBytes = await _crypto.decryptBytes(
+            key: dek,
+            payload: EncryptedPayload(
+              nonce: fromB64(r['password_nonce'] as String),
+              ciphertext: fromB64(r['encrypted_password'] as String),
+              mac: fromB64(r['password_mac'] as String),
+            ),
+          );
+          results.add({
+            'id': r['id'],
+            'password': utf8.decode(passwordBytes),
+            'recordedAt': r['recorded_at'],
+            'entryId': r['entry_id'],
+          });
+        } catch (_) {
+          // Skip records that fail to decrypt
+        }
+      }
+      return results;
+    });
+  }
+
+  Future<void> restorePassword(String entryId, int historyId) async {
+    _ensureUnlocked();
+    final historyDao = repository.historyDao;
+    if (historyDao == null) return;
+    final historyRecord = await historyDao.byId(historyId);
+    if (historyRecord == null) return;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, dek) async {
+        final passwordBytes = await _crypto.decryptBytes(
+          key: dek,
+          payload: EncryptedPayload(
+            nonce: fromB64(historyRecord['password_nonce'] as String),
+            ciphertext: fromB64(historyRecord['encrypted_password'] as String),
+            mac: fromB64(historyRecord['password_mac'] as String),
+          ),
+        );
+        final oldPassword = utf8.decode(passwordBytes);
+
+        final existing = await _requireActiveItemFrom(txn, entryId);
+        final currentEntry = await _decryptEntryWithDek(existing, dek);
+
+        if (currentEntry.password != oldPassword) {
+          await _archivePasswordHistory(
+            txn: txn,
+            entryId: entryId,
+            dek: dek,
+            oldPassword: currentEntry.password,
+          );
+        }
+
+        final restoredEntry = PasswordEntry(
+          title: currentEntry.title,
+          website: currentEntry.website,
+          username: currentEntry.username,
+          password: oldPassword,
+          notes: currentEntry.notes,
+          tags: currentEntry.tags,
+          totpSecret: currentEntry.totpSecret,
+        );
+
+        final updatedItem = await _encryptEntryWithDek(
+          dek: dek,
+          id: entryId,
+          entry: restoredEntry,
+          createdAt: existing.createdAt,
+          updatedAt: now,
+        );
+        final updated = await txn.itemsDao.updateActive(updatedItem);
+        if (!updated) {
+          throw VaultItemNotFoundException(entryId);
+        }
+
+        await txn.historyDao?.delete(historyId);
+      },
+    );
   }
 
   Future<Map<String, String?>> _decryptItemForHealth(
@@ -1395,6 +1499,47 @@ class VaultService {
     }
 
     return PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+  }
+
+  Future<PasswordEntry> _decryptEntryWithDek(
+    EncryptedVaultItem item,
+    Uint8List dek,
+  ) async {
+    final clearBytes = await _crypto.decryptBytes(
+      key: dek,
+      payload: EncryptedPayload(
+        nonce: fromB64(item.nonce),
+        ciphertext: fromB64(item.ciphertext),
+        mac: fromB64(item.mac),
+      ),
+    );
+    final decoded = jsonDecode(utf8.decode(clearBytes));
+    if (decoded is! Map) {
+      throw const FormatException('Invalid vault item payload');
+    }
+
+    return PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+  }
+
+  Future<void> _archivePasswordHistory({
+    required VaultRepository txn,
+    required String entryId,
+    required Uint8List dek,
+    required String oldPassword,
+  }) async {
+    final historyDao = txn.historyDao;
+    if (historyDao == null) return;
+    final encryptedPayload = await _crypto.encryptBytes(
+      key: dek,
+      plaintext: utf8.encode(oldPassword),
+    );
+    await historyDao.insert(
+      entryId,
+      b64(encryptedPayload.ciphertext),
+      b64(encryptedPayload.nonce),
+      b64(encryptedPayload.mac),
+      DateTime.now().millisecondsSinceEpoch,
+    );
   }
 
   Future<void> _verifyCurrentManifestWithActiveSession() async {

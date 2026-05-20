@@ -1,3 +1,4 @@
+import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
@@ -10,6 +11,7 @@ class VaultRepository {
     required this.itemsDao,
     required this.manifestDao,
     required this.settingsDao,
+    this.historyDao,
     Database? database,
   }) : _database =
            database ??
@@ -19,6 +21,7 @@ class VaultRepository {
   final VaultItemsDao itemsDao;
   final VaultManifestDao manifestDao;
   final SettingsDao settingsDao;
+  final PasswordHistoryDao? historyDao;
   final Database? _database;
 
   Future<T> transaction<T>(
@@ -36,6 +39,7 @@ class VaultRepository {
           itemsDao: VaultItemsDao(txn),
           manifestDao: VaultManifestDao(txn),
           settingsDao: SettingsDao(txn),
+          historyDao: historyDao != null ? PasswordHistoryDao(txn) : null,
         ),
       );
     });

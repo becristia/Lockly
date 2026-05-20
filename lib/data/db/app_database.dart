@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
   static const int vaultMetaSingletonKey = 1;
   static const int vaultManifestSingletonKey = 1;
 
@@ -65,13 +65,31 @@ class AppDatabase {
           )
         ''');
         await _createVaultManifestTable(db);
+        await _createPasswordHistoryTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await _createVaultManifestTable(db);
         }
+        if (oldVersion < 3) {
+          await _createPasswordHistoryTable(db);
+        }
       },
     );
+  }
+
+  static Future<void> _createPasswordHistoryTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE password_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id TEXT NOT NULL,
+        encrypted_password TEXT NOT NULL,
+        password_nonce TEXT NOT NULL,
+        password_mac TEXT NOT NULL,
+        recorded_at INTEGER NOT NULL,
+        FOREIGN KEY (entry_id) REFERENCES vault_items(id) ON DELETE CASCADE
+      )
+    ''');
   }
 
   static Future<void> _createVaultManifestTable(DatabaseExecutor db) async {

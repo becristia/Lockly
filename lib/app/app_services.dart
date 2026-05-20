@@ -561,6 +561,16 @@ class AppServices {
     );
   }
 
+  Future<List<Map<String, dynamic>>> listPasswordHistory(
+    String entryId,
+  ) async {
+    return vaultService.listPasswordHistory(entryId);
+  }
+
+  Future<void> restorePassword(String entryId, int historyId) async {
+    return vaultService.restorePassword(entryId, historyId);
+  }
+
   Future<void> changeMasterPassword({
     required String oldPassword,
     required String newPassword,
