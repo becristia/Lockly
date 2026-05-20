@@ -32,6 +32,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _tagsController = TextEditingController();
 
+  String? _totpSecret;
+
   bool _isLoading = false;
   bool _isSaving = false;
   bool _isPasswordVisible = false;
@@ -66,6 +68,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
     _passwordController.dispose();
     _notesController.dispose();
     _tagsController.dispose();
+    _totpSecret = null;
     super.dispose();
   }
 
@@ -86,6 +89,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       _passwordController.text = entry.password;
       _notesController.text = entry.notes;
       _tagsController.text = entry.tags.join(', ');
+      _totpSecret = entry.totpSecret;
       setState(() => _isLoading = false);
     } on VaultItemNotFoundException {
       if (!mounted) {
@@ -125,6 +129,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       password: _passwordController.text,
       notes: _notesController.text.trim(),
       tags: _parseTags(_tagsController.text),
+      totpSecret: _totpSecret,
     );
 
     try {
@@ -158,6 +163,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final title = _isEditing ? '编辑密码' : '新增密码';
 
     return SecureVisualBackground(
@@ -304,6 +310,51 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     ),
                     const SizedBox(height: 6),
                     _StrengthIndicator(password: _passwordController.text),
+                    const SizedBox(height: 14),
+                    Text('TOTP 二次验证', style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    if (_totpSecret == null) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _scanQrCode,
+                              icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+                              label: const Text('扫描 QR 码', style: TextStyle(fontSize: 13)),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _showManualTotpInput,
+                              icon: const Icon(Icons.edit_rounded, size: 20),
+                              label: const Text('手动输入', style: TextStyle(fontSize: 13)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: SecureVisualColors.success.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: SecureVisualColors.success.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: SecureVisualColors.success, size: 20),
+                            const SizedBox(width: 8),
+                            const Text('TOTP 已设置', style: TextStyle(fontSize: 13, color: SecureVisualColors.success, fontWeight: FontWeight.w600)),
+                            const Spacer(),
+                            TextButton(
+                              onPressed: () => setState(() => _totpSecret = null),
+                              child: const Text('移除', style: TextStyle(fontSize: 13)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     ActivityTextFormField(
                       controller: _notesController,
@@ -338,6 +389,48 @@ class _VaultEditPageState extends State<VaultEditPage> {
             ),
         ],
       ),
+    );
+  }
+
+  void _showManualTotpInput() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('输入 TOTP 密钥'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '粘贴 Base32 密钥',
+            helperText: '例如：JBSWY3DPEHPK3PXP',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final raw = controller.text
+                  .toUpperCase()
+                  .replaceAll(RegExp(r'[^A-Z2-7]'), '');
+              if (raw.isNotEmpty) {
+                setState(() => _totpSecret = raw);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _scanQrCode() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('QR 码扫描功能需要 camera 权限')),
     );
   }
 
