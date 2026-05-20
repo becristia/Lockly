@@ -21,7 +21,7 @@ void main() {
 
     test('MainActivity supports local_auth and blocks screenshots', () {
       final mainActivity = File(
-        'android/app/src/main/kotlin/com/example/secure_box_mvp/MainActivity.kt',
+        'android/app/src/main/kotlin/com/lockly/securebox/MainActivity.kt',
       ).readAsStringSync();
 
       expect(mainActivity, contains('FlutterFragmentActivity'));
