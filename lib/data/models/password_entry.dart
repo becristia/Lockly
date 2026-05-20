@@ -6,6 +6,7 @@ class PasswordEntry {
     required this.password,
     required this.notes,
     required List<String> tags,
+    this.totpSecret,
   }) : tags = List.unmodifiable(tags);
 
   final String title;
@@ -14,6 +15,7 @@ class PasswordEntry {
   final String password;
   final String notes;
   final List<String> tags;
+  final String? totpSecret; // Base32 encoded TOTP key, null if not set
 
   Map<String, Object?> toJson() => {
     'title': title,
@@ -22,6 +24,7 @@ class PasswordEntry {
     'password': password,
     'notes': notes,
     'tags': List<String>.unmodifiable(tags),
+    if (totpSecret != null) 'totpSecret': totpSecret,
   };
 
   factory PasswordEntry.fromJson(Map<String, Object?> json) {
@@ -32,6 +35,7 @@ class PasswordEntry {
       password: _readRequiredString(json, 'password'),
       notes: _readRequiredString(json, 'notes'),
       tags: _readRequiredStringList(json, 'tags'),
+      totpSecret: json['totpSecret'] as String?,
     );
   }
 
