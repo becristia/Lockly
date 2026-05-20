@@ -56,6 +56,14 @@ class VaultListItem {
   final int updatedAt;
 }
 
+class TotpListItem {
+  TotpListItem({required this.id, required this.title, required this.username, required this.totpSecret});
+  final String id;
+  final String title;
+  final String username;
+  final String totpSecret;
+}
+
 class VaultService {
   VaultService({
     required this.repository,
@@ -829,6 +837,41 @@ class VaultService {
     });
 
     return healthService.analyze(decryptedItems: decryptedItems);
+  }
+
+  Future<List<TotpListItem>> listTotpItems() async {
+    _ensureUnlocked();
+    final items = await repository.itemsDao.allItemsForManifest();
+    final active = items.where((i) => i.deletedAt == null).toList();
+
+    return _session.withDekCopy((dek) async {
+      final results = <TotpListItem>[];
+      for (final item in active) {
+        try {
+          final clearBytes = await _crypto.decryptBytes(
+            key: dek,
+            payload: EncryptedPayload(
+              nonce: fromB64(item.nonce),
+              ciphertext: fromB64(item.ciphertext),
+              mac: fromB64(item.mac),
+            ),
+          );
+          final decoded = jsonDecode(utf8.decode(clearBytes));
+          if (decoded is! Map) continue;
+          final entry = PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+          if (entry.totpSecret == null || entry.totpSecret!.isEmpty) continue;
+          results.add(TotpListItem(
+            id: item.id,
+            title: entry.title,
+            username: entry.username,
+            totpSecret: entry.totpSecret!,
+          ));
+        } catch (_) {
+          // skip items that fail to decrypt or parse
+        }
+      }
+      return results;
+    });
   }
 
   Future<VaultMeta> _requireVaultMeta() async {

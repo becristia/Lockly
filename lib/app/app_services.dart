@@ -448,6 +448,10 @@ class AppServices {
     return vaultService.deleteItem(id);
   }
 
+  Future<List<TotpListItem>> listTotpItems() async {
+    return vaultService.listTotpItems();
+  }
+
   Future<HealthReport> analyzePasswordHealth() async {
     final override = _analyzePasswordHealthOverride;
     if (override != null) return override();

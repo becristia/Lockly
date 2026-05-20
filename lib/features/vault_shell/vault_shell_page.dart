@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/features/password_generator/password_generator_page.dart';
 import 'package:secure_box/features/settings/settings_page.dart';
+import 'package:secure_box/features/totp/totp_page.dart';
 import 'package:secure_box/features/vault_list/vault_list_page.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
@@ -23,7 +24,8 @@ class _VaultShellPageState extends State<VaultShellPage> {
       extendBody: true,
       body: switch (_selectedIndex) {
         0 => VaultListPage(services: widget.services),
-        1 => PasswordGeneratorPage(services: widget.services),
+        1 => TotpPage(services: widget.services),
+        2 => PasswordGeneratorPage(services: widget.services),
         _ => SettingsPage(services: widget.services),
       },
       bottomNavigationBar: SafeArea(
@@ -43,6 +45,12 @@ class _VaultShellPageState extends State<VaultShellPage> {
                 icon: Icon(Icons.lock_outline_rounded),
                 selectedIcon: Icon(Icons.lock_rounded),
                 label: '密码库',
+              ),
+              NavigationDestination(
+                key: ValueKey('vault-shell-totp-tab'),
+                icon: Icon(Icons.qr_code_2_outlined),
+                selectedIcon: Icon(Icons.qr_code_2_rounded),
+                label: '验证码',
               ),
               NavigationDestination(
                 key: ValueKey('vault-shell-generator-tab'),
