@@ -88,4 +88,45 @@ class VaultItemsDao {
       );
     }
   }
+
+  Future<List<EncryptedVaultItem>> deletedItems() async {
+    final rows = await _db.query(
+      'vault_items',
+      where: 'deleted_at IS NOT NULL',
+      orderBy: 'deleted_at DESC',
+    );
+    return rows.map(EncryptedVaultItem.fromDb).toList(growable: false);
+  }
+
+  Future<bool> restoreItem(String id) async {
+    final affectedRows = await _db.update(
+      'vault_items',
+      {'deleted_at': null},
+      where: 'id = ? AND deleted_at IS NOT NULL',
+      whereArgs: [id],
+    );
+    return affectedRows == 1;
+  }
+
+  Future<void> hardDelete(String id) async {
+    await _db.delete(
+      'vault_items',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> hardDeleteAllDeleted() async {
+    await _db.delete(
+      'vault_items',
+      where: 'deleted_at IS NOT NULL',
+    );
+  }
+
+  Future<int> deletedCount() async {
+    final result = await _db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM vault_items WHERE deleted_at IS NOT NULL',
+    );
+    return result.first['cnt'] as int;
+  }
 }

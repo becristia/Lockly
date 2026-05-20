@@ -52,6 +52,11 @@ class AppServices {
     importBackupOverride,
     Future<void> Function()? clearLocalVaultOverride,
     Future<HealthReport> Function()? analyzePasswordHealthOverride,
+    Future<List<VaultListItem>> Function()? listDeletedItemsOverride,
+    Future<void> Function(String id)? restoreItemOverride,
+    Future<void> Function(String id)? permanentlyDeleteItemOverride,
+    Future<void> Function()? emptyTrashOverride,
+    Future<int> Function()? deletedItemCountOverride,
     bool trackActivity = true,
   }) : _hasVault = hasVault,
        _vaultService = vaultService,
@@ -78,6 +83,11 @@ class AppServices {
        _importBackupOverride = importBackupOverride,
        _clearLocalVaultOverride = clearLocalVaultOverride,
        _analyzePasswordHealthOverride = analyzePasswordHealthOverride,
+       _listDeletedItemsOverride = listDeletedItemsOverride,
+       _restoreItemOverride = restoreItemOverride,
+       _permanentlyDeleteItemOverride = permanentlyDeleteItemOverride,
+       _emptyTrashOverride = emptyTrashOverride,
+       _deletedItemCountOverride = deletedItemCountOverride,
        _autoLockTimeout = autoLockTimeout,
        _clipboardCleanupTimeout = clipboardCleanupTimeout,
        _trackActivity = trackActivity,
@@ -138,6 +148,11 @@ class AppServices {
   _importBackupOverride;
   final Future<void> Function()? _clearLocalVaultOverride;
   final Future<HealthReport> Function()? _analyzePasswordHealthOverride;
+  final Future<List<VaultListItem>> Function()? _listDeletedItemsOverride;
+  final Future<void> Function(String id)? _restoreItemOverride;
+  final Future<void> Function(String id)? _permanentlyDeleteItemOverride;
+  final Future<void> Function()? _emptyTrashOverride;
+  final Future<int> Function()? _deletedItemCountOverride;
   Duration _autoLockTimeout;
   Duration _clipboardCleanupTimeout;
   final bool _trackActivity;
@@ -274,6 +289,47 @@ class AppServices {
           updatedAt: fakeTimestamp,
           deletedAt: fakeTimestamp,
         );
+      },
+      listDeletedItemsOverride: () async {
+        final items = fakeItems.entries
+            .where((entry) => entry.value.deletedAt != null)
+            .map((entry) => VaultListItem(
+                  id: entry.key,
+                  title: entry.value.entry.title,
+                  website: entry.value.entry.website,
+                  username: entry.value.entry.username,
+                  tags: entry.value.entry.tags,
+                  createdAt: entry.value.createdAt,
+                  updatedAt: entry.value.updatedAt,
+                  deletedAt: entry.value.deletedAt,
+                ))
+            .toList()
+          ..sort((a, b) => b.deletedAt!.compareTo(a.deletedAt!));
+        return List.unmodifiable(items);
+      },
+      restoreItemOverride: (id) async {
+        final existing = fakeItems[id];
+        if (existing == null || existing.deletedAt == null) {
+          throw VaultItemNotFoundException(id);
+        }
+        fakeTimestamp += 1;
+        fakeItems[id] = existing.copyWith(
+          updatedAt: fakeTimestamp,
+          deletedAt: null,
+        );
+      },
+      permanentlyDeleteItemOverride: (id) async {
+        final existing = fakeItems[id];
+        if (existing == null || existing.deletedAt == null) {
+          throw VaultItemNotFoundException(id);
+        }
+        fakeItems.remove(id);
+      },
+      emptyTrashOverride: () async {
+        fakeItems.removeWhere((key, value) => value.deletedAt != null);
+      },
+      deletedItemCountOverride: () async {
+        return fakeItems.values.where((item) => item.deletedAt != null).length;
       },
       changeMasterPasswordOverride: (oldPassword, newPassword) async {},
       enableBiometricOverride: (masterPassword) async {
@@ -459,6 +515,36 @@ class AppServices {
 
   Future<void> deleteTag(String tag) async =>
       vaultService.deleteTag(tag);
+
+  Future<List<VaultListItem>> listDeletedItems() async {
+    final override = _listDeletedItemsOverride;
+    if (override != null) return override();
+    return vaultService.listDeletedItems();
+  }
+
+  Future<void> restoreItem(String id) async {
+    final override = _restoreItemOverride;
+    if (override != null) return override(id);
+    return vaultService.restoreItem(id);
+  }
+
+  Future<void> permanentlyDeleteItem(String id) async {
+    final override = _permanentlyDeleteItemOverride;
+    if (override != null) return override(id);
+    return vaultService.permanentlyDeleteItem(id);
+  }
+
+  Future<void> emptyTrash() async {
+    final override = _emptyTrashOverride;
+    if (override != null) return override();
+    return vaultService.emptyTrash();
+  }
+
+  Future<int> deletedItemCount() async {
+    final override = _deletedItemCountOverride;
+    if (override != null) return override();
+    return vaultService.deletedItemCount();
+  }
 
   Future<HealthReport> analyzePasswordHealth() async {
     final override = _analyzePasswordHealthOverride;
@@ -767,6 +853,8 @@ class _FakeVaultItem {
     this.deletedAt,
   });
 
+  static const _sentinel = Object();
+
   final PasswordEntry entry;
   final int createdAt;
   final int updatedAt;
@@ -775,13 +863,13 @@ class _FakeVaultItem {
   _FakeVaultItem copyWith({
     PasswordEntry? entry,
     int? updatedAt,
-    int? deletedAt,
+    Object? deletedAt = _sentinel,
   }) {
     return _FakeVaultItem(
       entry: entry ?? this.entry,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      deletedAt: deletedAt ?? this.deletedAt,
+      deletedAt: identical(deletedAt, _sentinel) ? this.deletedAt : deletedAt as int?,
     );
   }
 }

@@ -45,6 +45,7 @@ class VaultListItem {
     required List<String> tags,
     required this.createdAt,
     required this.updatedAt,
+    this.deletedAt,
   }) : tags = List.unmodifiable(tags);
 
   final String id;
@@ -54,6 +55,7 @@ class VaultListItem {
   final List<String> tags;
   final int createdAt;
   final int updatedAt;
+  final int? deletedAt;
 }
 
 class TotpListItem {
@@ -779,6 +781,78 @@ class VaultService {
         }
       },
     );
+  }
+
+  Future<List<VaultListItem>> listDeletedItems() async {
+    _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
+    final items = await repository.itemsDao.deletedItems();
+    final results = <VaultListItem>[];
+    for (final item in items) {
+      final entry = await _decryptItem(item);
+      results.add(
+        VaultListItem(
+          id: item.id,
+          title: entry.title,
+          website: entry.website,
+          username: entry.username,
+          tags: entry.tags,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+          deletedAt: item.deletedAt,
+        ),
+      );
+    }
+    return List.unmodifiable(results);
+  }
+
+  Future<void> restoreItem(String id) async {
+    _ensureUnlocked();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, _) async {
+        final item = await txn.itemsDao.byId(id);
+        if (item == null || item.deletedAt == null) {
+          throw VaultItemNotFoundException(id);
+        }
+        final restored = await txn.itemsDao.restoreItem(id);
+        if (!restored) {
+          throw VaultItemNotFoundException(id);
+        }
+      },
+    );
+  }
+
+  Future<void> permanentlyDeleteItem(String id) async {
+    _ensureUnlocked();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, _) async {
+        final item = await txn.itemsDao.byId(id);
+        if (item == null || item.deletedAt == null) {
+          throw VaultItemNotFoundException(id);
+        }
+        await txn.itemsDao.hardDelete(id);
+      },
+    );
+  }
+
+  Future<void> emptyTrash() async {
+    _ensureUnlocked();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, _) async {
+        await txn.itemsDao.hardDeleteAllDeleted();
+      },
+    );
+  }
+
+  Future<int> deletedItemCount() async {
+    _ensureUnlocked();
+    return repository.itemsDao.deletedCount();
   }
 
   Future<Map<String, String?>> _decryptItemForHealth(
