@@ -18,21 +18,24 @@ class MasterPasswordPolicy {
   static const minLength = 12;
 
   static const _commonPasswords = <String>{
-    'password',
-    'password1',
-    'password12',
-    'password123',
-    'password1234',
-    'password12345',
-    'password123456',
-    '123456789012',
-    'qwerty123456',
-    'qwertyuiop12',
-    'admin123456',
-    'letmein123456',
-    'iloveyou123456',
+    'password', 'password1', 'password12', 'password123', 'password1234',
+    'password12345', 'password123456', 'password1234567', 'password12345678',
+    'password123456789', '123456789012', '1234567890', '123456789',
+    'qwerty123456', 'qwertyuiop12', 'qwertyuiop', 'qwerty123',
+    'admin123456', 'admin123', 'administrator', 'letmein123456',
+    'iloveyou123456', 'monkey123456', 'dragon123456', 'master123456',
+    'abc123456789', 'trustno1123', 'welcome1234', 'login123456',
+    'princess1234', 'sunshine123', 'football123', 'baseball123',
+    'hunter12345', 'michael1234', 'shadow12345', '654321', '123321',
+    '111111111111', '000000000000', '121212121212', 'qazwsx123456',
+    '1q2w3e4r5t6y', 'zxcvbn123456', 'asdfgh123456', 'zaq12wsxcde',
+    '!qaz2wsx3edc', '#edc4rfv5tgb', 'passw0rd12345', 'p@ssword123',
+    'P@ssw0rd12345', 'Pa\$\$word1234', 'changeme1234', 'secret123456',
+    'access123456', 'abc123!@#', 'test12345678',
   };
 
+  // Note: Unicode NFC normalization is not applied.
+  // Dart lacks built-in NFC; would require a package like `unicode_normalization`.
   static MasterPasswordPolicyResult evaluate(String password) {
     final trimmed = password.trim();
     if (trimmed.length < minLength) {
@@ -44,8 +47,8 @@ class MasterPasswordPolicy {
       );
     }
 
-    final normalized = trimmed.toLowerCase().replaceAll(RegExp(r'\s+'), '');
-    if (_commonPasswords.contains(normalized)) {
+    final forMatch = trimmed.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    if (_commonPasswords.contains(forMatch)) {
       return const MasterPasswordPolicyResult(
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
@@ -63,27 +66,42 @@ class MasterPasswordPolicy {
       );
     }
 
+    if (_isKeyboardWalk(trimmed)) {
+      return const MasterPasswordPolicyResult(
+        isAcceptable: false,
+        label: MasterPasswordStrengthLabel.weak,
+        score: 1,
+        message: '主密码不能是键盘序列',
+      );
+    }
+
     final score = _score(trimmed);
     final isPassphrase = _isPassphrase(trimmed);
     final hasAllCharacterClasses = _classCount(trimmed) >= 4;
-    final isAcceptable = isPassphrase || score >= 3;
+    final hasDictionaryWeakness = _hasDictionaryPattern(trimmed);
+    final adjustedScore = hasDictionaryWeakness ? (score - 1).clamp(0, 5) : score;
+
+    final isAcceptable = isPassphrase || adjustedScore >= 3;
     if (!isAcceptable) {
       return MasterPasswordPolicyResult(
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
-        score: score,
+        score: adjustedScore,
         message: '请使用更长的密码短语，或混合大小写、数字和符号',
       );
     }
 
-    final isStrong = score >= 4 || isPassphrase || hasAllCharacterClasses;
+    final isStrong =
+        (adjustedScore >= 4 && !hasDictionaryWeakness) ||
+        isPassphrase ||
+        (hasAllCharacterClasses && trimmed.length >= 16 && !hasDictionaryWeakness);
     if (isPassphrase) {
       return MasterPasswordPolicyResult(
         isAcceptable: true,
         label: isStrong
             ? MasterPasswordStrengthLabel.strong
             : MasterPasswordStrengthLabel.fair,
-        score: score,
+        score: adjustedScore,
         message: '强：密码短语更容易记忆且更难猜',
       );
     }
@@ -93,9 +111,45 @@ class MasterPasswordPolicy {
       label: isStrong
           ? MasterPasswordStrengthLabel.strong
           : MasterPasswordStrengthLabel.fair,
-      score: score,
+      score: adjustedScore,
       message: isStrong ? '强：长度和字符组合较好' : '中：建议继续增强主密码',
     );
+  }
+
+  static bool _isKeyboardWalk(String password) {
+    final lower = password.toLowerCase();
+    const rows = <String>[
+      '`1234567890-=',
+      'qwertyuiop[]\\',
+      'asdfghjkl;\'',
+      'zxcvbnm,./',
+    ];
+    for (final row in rows) {
+      for (var i = 0; i <= row.length - 3; i++) {
+        final forward = row.substring(i, i + 3);
+        final backward = String.fromCharCodes(forward.runes.toList().reversed);
+        if (lower.contains(forward) || lower.contains(backward)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static bool _hasDictionaryPattern(String password) {
+    final lower = password.toLowerCase();
+    final dictionaryWords = <String>[
+      'password', 'admin', 'login', 'welcome', 'letmein', 'monkey',
+      'dragon', 'master', 'sunshine', 'princess', 'football', 'baseball',
+      'hunter', 'shadow', 'trustno', 'secret', 'access', 'changeme',
+      'abc123', 'qwerty', 'asdfgh', 'zxcvbn', 'iloveyou',
+    ];
+    for (final word in dictionaryWords) {
+      if (lower.contains(word)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static bool _isRepeated(String password) {
@@ -126,10 +180,10 @@ class MasterPasswordPolicy {
       score += 1;
     }
     final classCount = _classCount(password);
-    if (classCount >= 3) {
+    if (classCount >= 4) {
       score += 1;
     }
-    if (classCount >= 4) {
+    if (classCount == 4 && password.length >= 16) {
       score += 1;
     }
     if (_isPassphrase(password)) {

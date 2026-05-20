@@ -197,6 +197,7 @@ class VaultService {
     final result = await biometricService.unlock();
     final dek = result.dek;
     if (result.status != BiometricUnlockStatus.unlocked || dek == null) {
+      _zeroBytes(dek);
       _session.lock();
       return false;
     }
@@ -955,6 +956,7 @@ class VaultService {
             updatedAt: updatedAt,
           );
           await txn.manifestDao.save(manifest);
+          await _writeAnchorForManifest(meta: updatedMeta, manifest: manifest);
           return _ManifestMutationResult<T>(
             result: result,
             meta: updatedMeta,
@@ -962,10 +964,6 @@ class VaultService {
           );
         });
       });
-      await _writeAnchorForManifest(
-        meta: rewrite.meta,
-        manifest: rewrite.manifest,
-      );
       return rewrite.result;
     } on VaultIntegrityException {
       _session.lock();

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
@@ -6,7 +7,7 @@ import 'package:hashlib/hashlib.dart' as hashlib;
 
 const int _minimumPbkdf2Iterations = 100000;
 const int _minimumArgon2MemoryKiB = 1024;
-const int _minimumArgon2Iterations = 1;
+const int _minimumArgon2Iterations = 2;
 const int _minimumArgon2Parallelism = 1;
 const int _requiredDerivedKeyBits = 256;
 const int _minimumSaltLength = 16;
@@ -177,17 +178,48 @@ class KdfService {
       );
     }
 
+    final passwordBytes = Uint8List.fromList(utf8.encode(password));
+    final hashLength = params.bits ~/ 8;
+    try {
+      final result = await Isolate.run(
+        () => _argon2Convert(
+          passwordBytes,
+          salt,
+          memoryKiB,
+          params.iterations,
+          parallelism,
+          hashLength,
+        ),
+      );
+      return Uint8List.fromList(result);
+    } finally {
+      // Zero the copy in this isolate; Isolate.run copies data so
+      // the worker-isolate bytes live until the isolate exits.
+      for (var i = 0; i < passwordBytes.length; i++) {
+        passwordBytes[i] = 0;
+      }
+    }
+  }
+
+  static List<int> _argon2Convert(
+    Uint8List passwordBytes,
+    Uint8List salt,
+    int memoryKiB,
+    int iterations,
+    int parallelism,
+    int hashLength,
+  ) {
     final algorithm = hashlib.Argon2(
       type: hashlib.Argon2Type.argon2id,
       version: hashlib.Argon2Version.v13,
       parallelism: parallelism,
       memorySizeKB: memoryKiB,
-      iterations: params.iterations,
-      hashLength: params.bits ~/ 8,
+      iterations: iterations,
+      hashLength: hashLength,
       salt: salt,
     );
-    final digest = algorithm.convert(utf8.encode(password));
-    return Uint8List.fromList(digest.bytes);
+    final digest = algorithm.convert(passwordBytes);
+    return digest.bytes;
   }
 
   void _validateCommonSaltAndBits({

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/password_entry.dart';
+import 'package:secure_box/features/password_generator/password_generator_page.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
@@ -40,6 +42,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
   @override
   void initState() {
     super.initState();
+    _passwordController.addListener(_onPasswordChanged);
     if (_isEditing) {
       _loadExistingItem();
     } else if (widget.initialPassword != null) {
@@ -49,6 +52,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
 
   @override
   void dispose() {
+    _passwordController.removeListener(_onPasswordChanged);
     _titleController.clear();
     _websiteController.clear();
     _usernameController.clear();
@@ -100,6 +104,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
         _pageError = '暂时无法加载记录，请重试。';
       });
     }
+  }
+
+  void _onPasswordChanged() {
+    setState(() {});
   }
 
   Future<void> _save() async {
@@ -270,14 +278,32 @@ class _VaultEditPageState extends State<VaultEditPage> {
                           width: 52,
                           height: 52,
                           child: OutlinedButton(
-                            onPressed: () {},
-                            child: const Icon(Icons.key_rounded),
+                            onPressed: () async {
+                              widget.services.recordActivity();
+                              final generated = await Navigator.of(context)
+                                  .push<String>(
+                                MaterialPageRoute<String>(
+                                  builder: (context) => PasswordGeneratorPage(
+                                    services: widget.services,
+                                  ),
+                                ),
+                              );
+                              if (generated != null && mounted) {
+                                setState(() {
+                                  _passwordController.text = generated;
+                                });
+                              }
+                            },
+                            child: Tooltip(
+                              message: '生成密码',
+                              child: const Icon(Icons.key_rounded),
+                            ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    _StrengthSkeleton(),
+                    _StrengthIndicator(password: _passwordController.text),
                     const SizedBox(height: 10),
                     ActivityTextFormField(
                       controller: _notesController,
@@ -324,9 +350,21 @@ class _VaultEditPageState extends State<VaultEditPage> {
   }
 }
 
-class _StrengthSkeleton extends StatelessWidget {
+class _StrengthIndicator extends StatelessWidget {
+  const _StrengthIndicator({required this.password});
+
+  final String password;
+
   @override
   Widget build(BuildContext context) {
+    final result = MasterPasswordPolicy.evaluate(password);
+    final filledBars = result.score.clamp(0, 5);
+    final color = switch (result.label) {
+      MasterPasswordStrengthLabel.weak => Colors.red,
+      MasterPasswordStrengthLabel.fair => Colors.orange,
+      MasterPasswordStrengthLabel.strong => Colors.green,
+    };
+
     return Row(
       children: [
         Text('密码强度', style: Theme.of(context).textTheme.bodySmall),
@@ -336,7 +374,7 @@ class _StrengthSkeleton extends StatelessWidget {
             child: Container(
               height: 4,
               decoration: BoxDecoration(
-                color: SecureVisualColors.line,
+                color: i < (filledBars * 4 ~/ 5) ? color : SecureVisualColors.line,
                 borderRadius: BorderRadius.circular(99),
               ),
             ),

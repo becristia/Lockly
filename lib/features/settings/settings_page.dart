@@ -467,6 +467,9 @@ class _MasterPasswordChangeDialogState
 
   String? _errorText;
   bool _isSaving = false;
+  bool _oldObscured = true;
+  bool _newObscured = true;
+  bool _confirmObscured = true;
 
   @override
   void dispose() {
@@ -511,31 +514,46 @@ class _MasterPasswordChangeDialogState
                 const SizedBox(height: 20),
                 TextFormField(
                   controller: _oldPasswordController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: '当前主密码',
-                    suffixIcon: Icon(Icons.visibility_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(() => _oldObscured = !_oldObscured),
+                      icon: Icon(
+                        _oldObscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      ),
+                    ),
                   ),
-                  obscureText: true,
+                  obscureText: _oldObscured,
                   validator: _SettingsPageState._requiredPassword,
                 ),
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _newPasswordController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: '新主密码',
-                    suffixIcon: Icon(Icons.visibility_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(() => _newObscured = !_newObscured),
+                      icon: Icon(
+                        _newObscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      ),
+                    ),
                   ),
-                  obscureText: true,
+                  obscureText: _newObscured,
                   validator: _SettingsPageState._validateNewPassword,
                 ),
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _confirmPasswordController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: '确认新主密码',
-                    suffixIcon: Icon(Icons.visibility_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(() => _confirmObscured = !_confirmObscured),
+                      icon: Icon(
+                        _confirmObscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      ),
+                    ),
                   ),
-                  obscureText: true,
+                  obscureText: _confirmObscured,
                   validator: (value) {
                     if (value != _newPasswordController.text) {
                       return '两次输入的主密码不一致';
