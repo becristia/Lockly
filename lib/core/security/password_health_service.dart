@@ -17,7 +17,8 @@ class HealthFinding {
   final Set<HealthCategory> categories;
   final String detail;
 
-  int get severity {
+  // Lower values = more severe. Used for sorting findings by severity.
+  int get sortOrder {
     if (categories.contains(HealthCategory.weak)) return 0;
     if (categories.contains(HealthCategory.reused)) return 1;
     if (categories.contains(HealthCategory.stale)) return 2;
@@ -53,12 +54,13 @@ class PasswordHealthService {
     final findings = <HealthFinding>[];
 
     for (final item in decryptedItems) {
-      final id = item['id']!;
+      final id = item['id'] ?? '';
+      if (id.isEmpty) continue;
       final password = item['password'] ?? '';
       final title = item['title'] ?? '';
       final website = item['website'];
-      final updatedAt = int.parse(item['updatedAt'] ?? '0');
-      final createdAt = int.parse(item['createdAt'] ?? '0');
+      final updatedAt = int.tryParse(item['updatedAt'] ?? '') ?? 0;
+      final createdAt = int.tryParse(item['createdAt'] ?? '') ?? 0;
       final username = item['username'] ?? '';
 
       final categories = <HealthCategory>{};
@@ -79,7 +81,7 @@ class PasswordHealthService {
       }
     }
 
-    findings.sort((a, b) => a.severity.compareTo(b.severity));
+    findings.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
     final categoryCounts = <HealthCategory, int>{};
     for (final f in findings) {
@@ -112,9 +114,10 @@ class PasswordHealthService {
   ) {
     final passwordMap = <String, List<String>>{};
     for (final item in items) {
+      final id = item['id'];
       final pw = item['password'];
-      if (pw == null || pw.isEmpty) continue;
-      passwordMap.putIfAbsent(pw, () => []).add(item['id']!);
+      if (id == null || pw == null || pw.isEmpty) continue;
+      passwordMap.putIfAbsent(pw, () => []).add(id);
     }
     final affected = <String, Set<HealthCategory>>{};
     for (final entry in passwordMap.entries) {
