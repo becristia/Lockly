@@ -24,6 +24,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
   bool _isPasswordVisible = false;
   bool _isDeleting = false;
   String? _errorMessage;
+  List<Map<String, dynamic>> _passwordHistory = [];
+  bool _historyExpanded = false;
+  final Set<int> _revealedHistoryIds = {};
+  bool _isRestoring = false;
 
   @override
   void initState() {
@@ -53,6 +57,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
         _entry = entry;
         _isLoading = false;
       });
+      _loadHistory();
     } on VaultItemNotFoundException {
       if (!mounted) {
         return;
@@ -237,6 +242,29 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   ),
                 ],
               ),
+              if (_passwordHistory.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: () => setState(() => _historyExpanded = !_historyExpanded),
+                  child: Row(
+                    children: [
+                      Icon(Icons.history_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text('密码历史 (${_passwordHistory.length})', style: Theme.of(context).textTheme.titleSmall),
+                      const Spacer(),
+                      AnimatedRotation(
+                        turns: _historyExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(Icons.chevron_right_rounded, size: 20),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_historyExpanded) ...[
+                  const SizedBox(height: 8),
+                  ..._passwordHistory.map((record) => _buildHistoryItem(record, context)),
+                ],
+              ],
               const SizedBox(height: 16),
               _DetailSection(
                 children: [
@@ -271,6 +299,125 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       return '未填写';
     }
     return value;
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final history = await widget.services.listPasswordHistory(widget.itemId);
+      if (!mounted) return;
+      setState(() => _passwordHistory = history);
+    } catch (_) {
+      // History is optional; silently fail
+    }
+  }
+
+  Widget _buildHistoryItem(Map<String, dynamic> record, BuildContext context) {
+    final id = record['id'] as int;
+    final password = record['password'] as String;
+    final recordedAt = record['recordedAt'] as int;
+    final isRevealed = _revealedHistoryIds.contains(id);
+    final dateStr = _formatRelativeTime(recordedAt);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(dateStr, style: Theme.of(context).textTheme.bodySmall),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _isRestoring ? null : () => _confirmRestore(record),
+                icon: const Icon(Icons.restore_rounded, size: 16),
+                label: const Text('恢复', style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  isRevealed ? password : '••••••••',
+                  style: TextStyle(
+                    fontFamily: isRevealed ? 'monospace' : null,
+                    fontSize: isRevealed ? 14 : 16,
+                    letterSpacing: isRevealed ? 0 : 2,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  isRevealed ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                  size: 18,
+                ),
+                onPressed: () {
+                  setState(() {
+                    if (isRevealed) {
+                      _revealedHistoryIds.remove(id);
+                    } else {
+                      _revealedHistoryIds.add(id);
+                    }
+                  });
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatRelativeTime(int timestampMs) {
+    final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(timestampMs));
+    if (diff.inDays > 0) return '${diff.inDays} 天前';
+    if (diff.inHours > 0) return '${diff.inHours} 小时前';
+    if (diff.inMinutes > 0) return '${diff.inMinutes} 分钟前';
+    return '刚刚';
+  }
+
+  void _confirmRestore(Map<String, dynamic> record) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('恢复密码'),
+        content: const Text('将当前密码归档到历史记录，并用此密码替换。确认恢复？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(onPressed: () async {
+            Navigator.pop(ctx);
+            setState(() => _isRestoring = true);
+            try {
+              await widget.services.restorePassword(widget.itemId, record['id'] as int);
+              if (!mounted) return;
+              await _loadItem();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('密码已恢复')),
+              );
+            } catch (_) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('恢复失败')),
+              );
+            } finally {
+              if (mounted) setState(() => _isRestoring = false);
+            }
+          }, child: const Text('确认恢复')),
+        ],
+      ),
+    );
   }
 }
 
