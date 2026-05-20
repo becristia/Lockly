@@ -26,6 +26,7 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.services.recordActivity();
+    widget.services.themeModeNotifier.addListener(_onThemeModeChanged);
   }
 
   @override
@@ -33,6 +34,7 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     WidgetsBinding.instance.removeObserver(this);
     _activityFocusNode.dispose();
     _privacyCoverVisible.dispose();
+    widget.services.themeModeNotifier.removeListener(_onThemeModeChanged);
     widget.services.dispose();
     super.dispose();
   }
@@ -52,6 +54,10 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     }
   }
 
+  void _onThemeModeChanged() {
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -59,7 +65,7 @@ class _SecureBoxAppState extends State<SecureBoxApp>
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.system,
+      themeMode: widget.services.themeMode,
       navigatorKey: widget.services.navigatorKey,
       onGenerateInitialRoutes: (initialRouteName) => [
         MaterialPageRoute<void>(

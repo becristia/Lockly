@@ -116,6 +116,13 @@ class AppServices {
 
   final GlobalKey<NavigatorState> navigatorKey;
   final ValueNotifier<AppShellState> shellState;
+  final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.system);
+
+  ThemeMode get themeMode => themeModeNotifier.value;
+  set themeMode(ThemeMode mode) {
+    themeModeNotifier.value = mode;
+  }
+
   final VaultService? _vaultService;
   final BackupService? _backupService;
   final BiometricService? _biometricService;

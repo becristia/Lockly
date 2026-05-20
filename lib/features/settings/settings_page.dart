@@ -204,6 +204,29 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 22),
             SecureSection(
+              key: const ValueKey('settings-section-theme'),
+              title: '主题',
+              subtitle: '选择浅色、深色或跟随系统主题。',
+              icon: Icons.palette_outlined,
+              child: SecurePanel(
+                padding: const EdgeInsets.all(12),
+                child: SegmentedButton<ThemeMode>(
+                  segments: const [
+                    ButtonSegment(value: ThemeMode.light, label: Text('浅色'), icon: Icon(Icons.light_mode_outlined)),
+                    ButtonSegment(value: ThemeMode.dark, label: Text('深色'), icon: Icon(Icons.dark_mode_outlined)),
+                    ButtonSegment(value: ThemeMode.system, label: Text('跟随系统'), icon: Icon(Icons.settings_brightness_outlined)),
+                  ],
+                  selected: {widget.services.themeMode},
+                  onSelectionChanged: (modes) {
+                    widget.services.recordActivity();
+                    widget.services.themeMode = modes.first;
+                    setState(() {});
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureSection(
               key: const ValueKey('settings-section-unlock'),
               title: '解锁安全',
               subtitle: '管理主密码和生物识别快速解锁。',
