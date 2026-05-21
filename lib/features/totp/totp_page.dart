@@ -84,14 +84,8 @@ class _TotpPageState extends State<TotpPage> {
               )
             : RefreshIndicator(
                 onRefresh: _loadItems,
-                child: GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.88,
-                  ),
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(10, 54, 10, 120),
                   itemCount: _items.length,
                   itemBuilder: (context, index) => _TotpCard(
                     services: widget.services,
@@ -150,56 +144,63 @@ class _TotpCard extends StatelessWidget {
         );
       },
       child: SecureGlassCard(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(22, 26, 22, 24),
+        borderRadius: 28,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SizedBox(
-              width: 48,
-              height: 48,
+              width: 66,
+              height: 66,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   SizedBox(
-                    width: 48,
-                    height: 48,
+                    width: 66,
+                    height: 66,
                     child: CircularProgressIndicator(
                       value: progress,
                       color: color,
-                      strokeWidth: 3,
+                      backgroundColor: SecureVisualColors.line.withValues(
+                        alpha: 0.52,
+                      ),
+                      strokeWidth: 4,
                     ),
                   ),
                   Text(
                     '${remaining}s',
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
                       color: color,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 26),
             Text(
               TotpService.formatCode(code),
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 3,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                color: SecureVisualColors.text,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 4,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 18),
             Text(
               item.title,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: SecureVisualColors.muted,
+                fontWeight: FontWeight.w800,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
+            const SizedBox(height: 4),
             Text(
               item.username.isNotEmpty ? item.username : '-',
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context).textTheme.bodyMedium,
               overflow: TextOverflow.ellipsis,
             ),
           ],

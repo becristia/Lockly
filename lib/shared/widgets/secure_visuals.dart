@@ -13,6 +13,8 @@ class SecureVisualColors {
   static const line = Color(0xFFDDE9F6);
   static const danger = Color(0xFFE33C32);
   static const success = Color(0xFF55B965);
+  static const warning = Color(0xFFF5A623);
+  static const softSurface = Color(0xFFF7FBFF);
 }
 
 class SecureVisualBackground extends StatelessWidget {
@@ -30,22 +32,67 @@ class SecureVisualBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
+      body: DecoratedBox(
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFF8FCFF), Color(0xFFEAF5FF), Color(0xFFFDFEFF)],
+          gradient: RadialGradient(
+            center: Alignment.topRight,
+            radius: 1.28,
+            colors: [
+              Color(0xFFFFFFFF),
+              Color(0xFFF2F9FF),
+              Color(0xFFEAF5FF),
+            ],
           ),
         ),
-        child: SafeArea(
-          child: Padding(
-            padding: padding,
-            child: Padding(
-              padding: EdgeInsets.only(bottom: bottomInset),
-              child: child,
+        child: Stack(
+          children: [
+            const Positioned(
+              top: 80,
+              right: -26,
+              child: _SecureBackgroundMark(
+                icon: Icons.shield_outlined,
+                size: 120,
+              ),
             ),
-          ),
+            const Positioned(
+              bottom: 118,
+              left: -28,
+              child: _SecureBackgroundMark(
+                icon: Icons.local_offer_outlined,
+                size: 110,
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: padding,
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: bottomInset),
+                  child: child,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SecureBackgroundMark extends StatelessWidget {
+  const _SecureBackgroundMark({required this.icon, required this.size});
+
+  final IconData icon;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Transform.rotate(
+        angle: -0.42,
+        child: Icon(
+          icon,
+          size: size,
+          color: SecureVisualColors.blue.withValues(alpha: 0.045),
         ),
       ),
     );
@@ -80,13 +127,16 @@ class SecureGlassCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: color ?? SecureVisualColors.card,
             borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: borderColor ?? Colors.white, width: 1.2),
+            border: Border.all(
+              color: borderColor ?? Colors.white.withValues(alpha: 0.86),
+              width: 1.2,
+            ),
             boxShadow: shadow
                 ? [
                     BoxShadow(
-                      color: const Color(0xFF7DADE3).withValues(alpha: 0.16),
-                      blurRadius: 28,
-                      offset: const Offset(0, 14),
+                      color: const Color(0xFF7DADE3).withValues(alpha: 0.18),
+                      blurRadius: 34,
+                      offset: const Offset(0, 18),
                     ),
                   ]
                 : null,
@@ -104,7 +154,7 @@ class SecureGradientButton extends StatelessWidget {
     required this.onPressed,
     required this.label,
     this.icon,
-    this.height = 54,
+    this.height = 58,
   });
 
   final VoidCallback? onPressed;
@@ -123,17 +173,19 @@ class SecureGradientButton extends StatelessWidget {
           gradient: disabled
               ? null
               : const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
                   colors: [Color(0xFF0B65F0), Color(0xFF28D7E4)],
                 ),
           color: disabled ? const Color(0xFFD4E0EF) : null,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(18),
           boxShadow: disabled
               ? null
               : [
                   BoxShadow(
-                    color: SecureVisualColors.blue.withValues(alpha: 0.26),
-                    blurRadius: 18,
-                    offset: const Offset(0, 10),
+                    color: SecureVisualColors.blue.withValues(alpha: 0.28),
+                    blurRadius: 24,
+                    offset: const Offset(0, 12),
                   ),
                 ],
         ),
@@ -144,8 +196,9 @@ class SecureGradientButton extends StatelessWidget {
             disabledBackgroundColor: Colors.transparent,
             shadowColor: Colors.transparent,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
             ),
+            textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
           ),
           icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 18),
           label: Text(label),

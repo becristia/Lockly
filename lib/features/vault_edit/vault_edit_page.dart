@@ -167,7 +167,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
     final title = _isEditing ? '编辑密码' : '新增密码';
 
     return SecureVisualBackground(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
@@ -197,7 +197,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
             )
           else
             SecureGlassCard(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+              borderRadius: 28,
               child: Form(
                 key: _formKey,
                 child: Column(
@@ -219,7 +220,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     ActivityTextFormField(
                       controller: _websiteController,
                       onActivity: widget.services.recordActivity,
@@ -231,7 +232,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                       keyboardType: TextInputType.url,
                       textInputAction: TextInputAction.next,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     ActivityTextFormField(
                       controller: _usernameController,
                       onActivity: widget.services.recordActivity,
@@ -243,7 +244,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -279,10 +280,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
                             },
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 12),
                         SizedBox(
-                          width: 52,
-                          height: 52,
+                          width: 58,
+                          height: 58,
                           child: OutlinedButton(
                             onPressed: () async {
                               widget.services.recordActivity();
@@ -355,7 +356,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 14),
                     ActivityTextFormField(
                       controller: _notesController,
                       onActivity: widget.services.recordActivity,
@@ -364,10 +365,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
                         hintText: '添加备注信息...',
                       ),
                       keyboardType: TextInputType.multiline,
-                      minLines: 4,
+                      minLines: 5,
                       maxLines: 6,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     ActivityTextFormField(
                       controller: _tagsController,
                       onActivity: widget.services.recordActivity,
@@ -377,10 +378,11 @@ class _VaultEditPageState extends State<VaultEditPage> {
                         suffixIcon: Icon(Icons.sell_outlined),
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     SecureGradientButton(
                       onPressed: _isSaving ? null : _save,
                       icon: Icons.lock_rounded,
+                      height: 62,
                       label: _isSaving ? '保存中...' : '保存',
                     ),
                   ],
