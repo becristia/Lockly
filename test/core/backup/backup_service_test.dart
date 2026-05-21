@@ -91,6 +91,28 @@ void main() {
     );
   });
 
+  test('import rejects excessive KDF work factors before verification', () {
+    expect(
+      () => VaultBackup(
+        version: 1,
+        kdf: 'argon2id',
+        kdfParams: {
+          'name': 'argon2id',
+          'iterations': 3,
+          'bits': 256,
+          'memoryKiB': 1048576,
+          'parallelism': 1,
+        },
+        salt: 'salt',
+        encryptedDekByMaster: 'encrypted-dek',
+        encryptedDekByMasterNonce: 'nonce',
+        encryptedDekByMasterMac: 'mac',
+        items: const [],
+      ),
+      throwsA(isA<BackupFormatException>()),
+    );
+  });
+
   test(
     'exportBackup includes encrypted vault metadata and active items only',
     () async {

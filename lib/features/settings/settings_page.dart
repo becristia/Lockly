@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
@@ -131,7 +130,10 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       await showDialog<void>(
         context: context,
-        builder: (context) => _BackupExportDialog(backupJson: backupJson),
+        builder: (context) => _BackupExportDialog(
+          services: widget.services,
+          backupJson: backupJson,
+        ),
       );
     } catch (_) {
       if (!mounted) {
@@ -920,8 +922,12 @@ class _BackupImportDialogState extends State<_BackupImportDialog> {
 }
 
 class _BackupExportDialog extends StatefulWidget {
-  const _BackupExportDialog({required this.backupJson});
+  const _BackupExportDialog({
+    required this.services,
+    required this.backupJson,
+  });
 
+  final AppServices services;
   final String backupJson;
 
   @override
@@ -932,14 +938,23 @@ class _BackupExportDialogState extends State<_BackupExportDialog> {
   bool _copied = false;
 
   Future<void> _copyBackupJson() async {
-    await Clipboard.setData(ClipboardData(text: widget.backupJson));
+    final copied = await widget.services.copySensitiveTemporary(
+      widget.backupJson,
+      clearAfter: const Duration(seconds: 30),
+    );
     if (!mounted) {
       return;
     }
-    setState(() => _copied = true);
+    setState(() => _copied = copied);
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('加密备份已复制。')));
+    ).showSnackBar(
+      SnackBar(
+        content: Text(
+          copied ? '加密备份已复制，30 秒后将自动清理剪贴板。' : '复制失败，请重试。',
+        ),
+      ),
+    );
   }
 
   @override

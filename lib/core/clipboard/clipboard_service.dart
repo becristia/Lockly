@@ -22,13 +22,20 @@ class ClipboardService {
   }
 
   Future<bool> copyPassword(String password) async {
-    final didWrite = await _trySetClipboardData(ClipboardData(text: password));
+    return copySensitiveTemporary(password, clearAfter: clearPasswordAfter);
+  }
+
+  Future<bool> copySensitiveTemporary(
+    String value, {
+    required Duration clearAfter,
+  }) async {
+    final didWrite = await _trySetClipboardData(ClipboardData(text: value));
     if (!didWrite) {
       return false;
     }
 
     _cancelPendingClear();
-    _schedulePasswordClear(password);
+    _schedulePasswordClear(value, clearAfter: clearAfter);
     return true;
   }
 
@@ -44,7 +51,7 @@ class ClipboardService {
     }
 
     _clearTimer?.cancel();
-    _schedulePasswordClear(pendingPassword);
+    _schedulePasswordClear(pendingPassword, clearAfter: clearPasswordAfter);
   }
 
   void dispose() {
@@ -78,9 +85,9 @@ class ClipboardService {
     _pendingPasswordClear = null;
   }
 
-  void _schedulePasswordClear(String password) {
+  void _schedulePasswordClear(String password, {required Duration clearAfter}) {
     _pendingPasswordClear = password;
-    _clearTimer = Timer(clearPasswordAfter, () {
+    _clearTimer = Timer(clearAfter, () {
       unawaited(_clearPasswordIfStillPresent(password));
     });
   }

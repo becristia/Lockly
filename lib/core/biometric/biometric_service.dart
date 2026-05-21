@@ -190,7 +190,7 @@ class SecureStorageDekStore implements SecureDekStore {
     enforceBiometrics: true,
     biometricPromptTitle: 'Unlock Lockly',
     biometricPromptSubtitle: 'Authenticate to unlock your local vault',
-    migrateWithBackup: true,
+    migrateWithBackup: false,
   );
   @visibleForTesting
   static const defaultAndroidOptionsForTest = _defaultAndroidOptions;

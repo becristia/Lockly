@@ -1,6 +1,6 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/password_generator/totp_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
@@ -8,6 +8,7 @@ import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class TotpPage extends StatefulWidget {
   const TotpPage({super.key, required this.services});
+
   final AppServices services;
 
   @override
@@ -41,7 +42,10 @@ class _TotpPageState extends State<TotpPage> {
     try {
       final items = await widget.services.listTotpItems();
       if (!mounted) return;
-      setState(() { _items = items; _isLoading = false; });
+      setState(() {
+        _items = items;
+        _isLoading = false;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -56,43 +60,61 @@ class _TotpPageState extends State<TotpPage> {
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _items.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.qr_code_2_rounded, size: 64,
-                            color: Theme.of(context).colorScheme.primary),
-                        const SizedBox(height: 12),
-                        Text('No TOTP items',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 4),
-                        Text('Edit an item to add a TOTP secret',
-                            style: Theme.of(context).textTheme.bodyMedium),
-                      ],
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.qr_code_2_rounded,
+                      size: 64,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: _loadItems,
-                    child: GridView.builder(
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 0.88,
-                      ),
-                      itemCount: _items.length,
-                      itemBuilder: (context, index) =>
-                          _TotpCard(item: _items[index], nowMs: nowMs, totpService: _totpService),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No TOTP items',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Edit an item to add a TOTP secret',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              )
+            : RefreshIndicator(
+                onRefresh: _loadItems,
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.88,
                   ),
+                  itemCount: _items.length,
+                  itemBuilder: (context, index) => _TotpCard(
+                    services: widget.services,
+                    item: _items[index],
+                    nowMs: nowMs,
+                    totpService: _totpService,
+                  ),
+                ),
+              ),
       ),
     );
   }
 }
 
 class _TotpCard extends StatelessWidget {
-  const _TotpCard({required this.item, required this.nowMs, required this.totpService});
+  const _TotpCard({
+    required this.services,
+    required this.item,
+    required this.nowMs,
+    required this.totpService,
+  });
+
+  final AppServices services;
   final TotpListItem item;
   final int nowMs;
   final TotpService totpService;
@@ -104,15 +126,27 @@ class _TotpCard extends StatelessWidget {
     final color = remaining > 10
         ? SecureVisualColors.success
         : remaining > 5
-            ? const Color(0xFFF5A623)
-            : SecureVisualColors.danger;
-    final code = totpService.generate(base32Secret: item.totpSecret, timestampMs: nowMs);
+        ? const Color(0xFFF5A623)
+        : SecureVisualColors.danger;
+    final code = totpService.generate(
+      base32Secret: item.totpSecret,
+      timestampMs: nowMs,
+    );
 
     return GestureDetector(
-      onTap: () {
-        Clipboard.setData(ClipboardData(text: code));
+      onTap: () async {
+        final copied = await services.copySensitiveTemporary(
+          code,
+          clearAfter: Duration(seconds: remaining),
+        );
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Code copied'), duration: Duration(seconds: 1)),
+          SnackBar(
+            content: Text(
+              copied ? 'Code copied. Clipboard clears on expiry.' : 'Copy failed.',
+            ),
+            duration: const Duration(seconds: 1),
+          ),
         );
       },
       child: SecureGlassCard(
@@ -121,30 +155,53 @@ class _TotpCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SizedBox(
-              width: 48, height: 48,
+              width: 48,
+              height: 48,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   SizedBox(
-                    width: 48, height: 48,
+                    width: 48,
+                    height: 48,
                     child: CircularProgressIndicator(
-                      value: progress, color: color, strokeWidth: 3,
+                      value: progress,
+                      color: color,
+                      strokeWidth: 3,
                     ),
                   ),
-                  Text('${remaining}s', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+                  Text(
+                    '${remaining}s',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 12),
             Text(
               TotpService.formatCode(code),
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 3),
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 3,
+              ),
             ),
             const SizedBox(height: 8),
-            Text(item.title, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis),
-            Text(item.username.isNotEmpty ? item.username : '——', style: Theme.of(context).textTheme.bodySmall,
-                overflow: TextOverflow.ellipsis),
+            Text(
+              item.title,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              item.username.isNotEmpty ? item.username : '-',
+              style: Theme.of(context).textTheme.bodySmall,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),

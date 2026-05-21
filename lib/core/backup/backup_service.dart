@@ -12,6 +12,10 @@ import 'package:uuid/uuid.dart';
 const int _legacyBackupVersion = 1;
 const int _currentBackupVersion = 2;
 const String _backupMagic = 'secure-box-backup';
+const int _maximumImportedPbkdf2Iterations = 2000000;
+const int _maximumImportedArgon2MemoryKiB = 262144;
+const int _maximumImportedArgon2Iterations = 6;
+const int _maximumImportedArgon2Parallelism = 4;
 
 class BackupFormatException extends FormatException {
   const BackupFormatException(super.message, [super.source, super.offset]);
@@ -890,5 +894,28 @@ KdfParams _parseKdfParams({
       'Invalid "kdf_params.name": expected "$kdf" but found "${params.name}"',
     );
   }
+  _validateImportedKdfCost(params);
   return params;
+}
+
+void _validateImportedKdfCost(KdfParams params) {
+  if (params.name == 'pbkdf2-hmac-sha256' &&
+      params.iterations > _maximumImportedPbkdf2Iterations) {
+    throw BackupFormatException(
+      'Invalid "kdf_params.iterations": exceeds $_maximumImportedPbkdf2Iterations',
+    );
+  }
+  if (params.name == 'argon2id') {
+    final memoryKiB = params.memoryKiB;
+    final parallelism = params.parallelism;
+    if (memoryKiB == null ||
+        memoryKiB > _maximumImportedArgon2MemoryKiB ||
+        params.iterations > _maximumImportedArgon2Iterations ||
+        parallelism == null ||
+        parallelism > _maximumImportedArgon2Parallelism) {
+      throw const BackupFormatException(
+        'Invalid "kdf_params": Argon2id cost is outside the supported import range',
+      );
+    }
+  }
 }

@@ -726,6 +726,13 @@ class AppServices {
     return clipboardService.copyPassword(password);
   }
 
+  Future<bool> copySensitiveTemporary(
+    String value, {
+    Duration clearAfter = const Duration(seconds: 30),
+  }) {
+    return clipboardService.copySensitiveTemporary(value, clearAfter: clearAfter);
+  }
+
   bool get hasVault => _hasVault;
 
   VaultService get vaultService {

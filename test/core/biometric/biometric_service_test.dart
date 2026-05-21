@@ -264,12 +264,12 @@ void main() {
 
     expect(params['storageNamespace'], 'secure_box_biometric');
     expect(params['enforceBiometrics'], 'true');
-    expect(params['biometricPromptTitle'], 'Unlock Secure Box');
+    expect(params['biometricPromptTitle'], 'Unlock Lockly');
     expect(
       params['biometricPromptSubtitle'],
       'Authenticate to unlock your local vault',
     );
-    expect(params['migrateWithBackup'], 'true');
+    expect(params['migrateWithBackup'], 'false');
     expect(params['keyCipherAlgorithm'], 'AES_GCM_NoPadding');
     expect(params['storageCipherAlgorithm'], 'AES_GCM_NoPadding');
   });
