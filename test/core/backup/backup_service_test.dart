@@ -1171,6 +1171,71 @@ void main() {
   );
 
   test(
+    'importBackup merge preserves local password history for duplicates',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Imported',
+          website: 'https://imported.example',
+          username: 'imported@example.com',
+          password: 'imported-password',
+          notes: 'incoming duplicate',
+          tags: const ['backup'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final localId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local',
+          website: 'https://local.example',
+          username: 'local@example.com',
+          password: 'local-old-password',
+          notes: 'local duplicate',
+          tags: const ['local'],
+        ),
+      );
+      await target.vaultService.updateItem(
+        localId,
+        PasswordEntry(
+          title: 'Local',
+          website: 'https://local.example',
+          username: 'local@example.com',
+          password: 'local-new-password',
+          notes: 'local duplicate',
+          tags: const ['local'],
+        ),
+      );
+      final importedJson = _backupJsonWithItemIdReplacement(
+        backup: backup,
+        fromId: sourceId,
+        toId: localId,
+      );
+
+      await target.backupService.importBackup(
+        json: importedJson,
+        masterPassword: 'source-master',
+        mode: BackupImportMode.merge,
+        allowLegacyBackups: true,
+      );
+
+      final imported = await target.vaultService.getItem(localId);
+      final history = await target.vaultService.listPasswordHistory(localId);
+      expect(imported.password, 'imported-password');
+      expect(
+        history.map((entry) => entry['password']),
+        contains('local-old-password'),
+      );
+    },
+  );
+
+  test(
     'importBackup merge preserves existing vault meta and biometric state while replacing duplicate rows from a different vault envelope',
     () async {
       final source = await _buildHarness();

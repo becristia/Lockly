@@ -641,8 +641,7 @@ void main() {
         throwsA(isA<VaultIntegrityException>()),
       );
 
-      final second = await service.getItem(secondId);
-      expect(second.password, 'second-new');
+      expect(service.isUnlocked, isFalse);
     },
   );
 
@@ -731,6 +730,74 @@ void main() {
 
     final history = await service.listPasswordHistory(id);
     expect(history.single['password'], '123');
+  });
+
+  test('listPasswordHistory locks when history payload integrity fails', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    final session = await service.unlock(masterPassword: 'master-passphrase');
+    final id = await service.createItem(_entry(password: 'current-password'));
+    const recordedAt = 1760000000000;
+
+    await session.withDekCopy((dek) async {
+      final encrypted = await CryptoService(random: SecureRandom())
+          .encryptBytes(
+            key: dek,
+            plaintext: utf8.encode(
+              jsonEncode({
+                'version': 1,
+                'entry_id': 'different-entry',
+                'password': 'old-password',
+                'recorded_at': recordedAt,
+              }),
+            ),
+          );
+      await service.repository.historyDao!.insert(
+        id,
+        b64(encrypted.ciphertext),
+        b64(encrypted.nonce),
+        b64(encrypted.mac),
+        recordedAt,
+      );
+      final meta = (await service.repository.metaDao.get())!;
+      final previous = await service.repository.manifestDao.get();
+      final manifest =
+          await VaultManifestService(
+            crypto: CryptoService(random: SecureRandom()),
+          ).createManifest(
+            dek: dek,
+            meta: meta,
+            items: await service.repository.itemsDao.allItemsForManifest(),
+            historyRecords:
+                (await service.repository.historyDao!.allRowsForManifest())
+                    .cast<Map<String, Object?>>(),
+            previous: previous,
+            updatedAt: recordedAt,
+          );
+      await service.repository.manifestDao.save(manifest);
+      await service.acceptManifestForCurrentState(
+        meta: meta,
+        manifest: manifest,
+      );
+    });
+
+    await expectLater(
+      service.listPasswordHistory(id),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(service.isUnlocked, isFalse);
+  });
+
+  test('restorePassword throws when history record is missing', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+    final id = await service.createItem(_entry(password: 'current-password'));
+
+    await expectLater(
+      service.restorePassword(id, 404),
+      throwsA(isA<VaultItemNotFoundException>()),
+    );
   });
 
   test(

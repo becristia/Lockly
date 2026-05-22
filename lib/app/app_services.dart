@@ -8,6 +8,7 @@ import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/security/app_lifecycle_guard.dart';
 import 'package:secure_box/core/security/auto_lock_service.dart';
 import 'package:secure_box/core/security/password_health_service.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 
@@ -576,11 +577,21 @@ class AppServices {
   }
 
   Future<List<Map<String, dynamic>>> listPasswordHistory(String entryId) async {
-    return vaultService.listPasswordHistory(entryId);
+    try {
+      return await vaultService.listPasswordHistory(entryId);
+    } on VaultIntegrityException {
+      lockVault();
+      rethrow;
+    }
   }
 
   Future<void> restorePassword(String entryId, int historyId) async {
-    return vaultService.restorePassword(entryId, historyId);
+    try {
+      return await vaultService.restorePassword(entryId, historyId);
+    } on VaultIntegrityException {
+      lockVault();
+      rethrow;
+    }
   }
 
   Future<void> changeMasterPassword({

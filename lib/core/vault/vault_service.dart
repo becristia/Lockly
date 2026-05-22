@@ -887,120 +887,132 @@ class VaultService {
   }
 
   Future<List<Map<String, dynamic>>> listPasswordHistory(String entryId) async {
-    _ensureUnlocked();
-    await _verifyCurrentManifestWithActiveSession();
-    final historyDao = repository.historyDao;
-    if (historyDao == null) return const [];
-    final records = await historyDao.byEntryId(entryId);
-    return _session.withDekCopy((dek) async {
-      final results = <Map<String, dynamic>>[];
-      for (final r in records) {
-        Uint8List? passwordBytes;
-        try {
-          passwordBytes = await _crypto.decryptBytes(
-            key: dek,
-            payload: EncryptedPayload(
-              nonce: fromB64(r['password_nonce'] as String),
-              ciphertext: fromB64(r['encrypted_password'] as String),
-              mac: fromB64(r['password_mac'] as String),
-            ),
-          );
-          final password = _decodeHistoryPassword(
-            record: r,
-            clearBytes: passwordBytes,
-          );
-          results.add({
-            'id': r['id'],
-            'password': password,
-            'recordedAt': r['recorded_at'],
-            'entryId': r['entry_id'],
-          });
-        } catch (_) {
-          throw const VaultIntegrityException(
-            'Password history integrity check failed',
-          );
-        } finally {
-          _zeroBytes(passwordBytes);
+    try {
+      _ensureUnlocked();
+      await _verifyCurrentManifestWithActiveSession();
+      final historyDao = repository.historyDao;
+      if (historyDao == null) return const [];
+      final records = await historyDao.byEntryId(entryId);
+      return await _session.withDekCopy((dek) async {
+        final results = <Map<String, dynamic>>[];
+        for (final r in records) {
+          Uint8List? passwordBytes;
+          try {
+            passwordBytes = await _crypto.decryptBytes(
+              key: dek,
+              payload: EncryptedPayload(
+                nonce: fromB64(r['password_nonce'] as String),
+                ciphertext: fromB64(r['encrypted_password'] as String),
+                mac: fromB64(r['password_mac'] as String),
+              ),
+            );
+            final password = _decodeHistoryPassword(
+              record: r,
+              clearBytes: passwordBytes,
+            );
+            results.add({
+              'id': r['id'],
+              'password': password,
+              'recordedAt': r['recorded_at'],
+              'entryId': r['entry_id'],
+            });
+          } catch (_) {
+            throw const VaultIntegrityException(
+              'Password history integrity check failed',
+            );
+          } finally {
+            _zeroBytes(passwordBytes);
+          }
         }
-      }
-      return results;
-    });
+        return results;
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
   }
 
   Future<void> restorePassword(String entryId, int historyId) async {
-    _ensureUnlocked();
-    final historyDao = repository.historyDao;
-    if (historyDao == null) return;
-    final historyRecord = await historyDao.byId(historyId);
-    if (historyRecord == null) return;
-    if (historyRecord['entry_id'] != entryId) {
-      throw const VaultIntegrityException(
-        'Password history record does not belong to this vault item',
-      );
-    }
+    try {
+      _ensureUnlocked();
+      final historyDao = repository.historyDao;
+      if (historyDao == null) return;
+      final historyRecord = await historyDao.byId(historyId);
+      if (historyRecord == null) {
+        throw VaultItemNotFoundException(entryId);
+      }
+      if (historyRecord['entry_id'] != entryId) {
+        throw const VaultIntegrityException(
+          'Password history record does not belong to this vault item',
+        );
+      }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _rewriteManifestForMutation(
-      updatedAt: now,
-      mutate: (txn, dek) async {
-        Uint8List? passwordBytes;
-        final String oldPassword;
-        try {
-          passwordBytes = await _crypto.decryptBytes(
-            key: dek,
-            payload: EncryptedPayload(
-              nonce: fromB64(historyRecord['password_nonce'] as String),
-              ciphertext: fromB64(
-                historyRecord['encrypted_password'] as String,
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await _rewriteManifestForMutation(
+        updatedAt: now,
+        mutate: (txn, dek) async {
+          Uint8List? passwordBytes;
+          final String oldPassword;
+          try {
+            passwordBytes = await _crypto.decryptBytes(
+              key: dek,
+              payload: EncryptedPayload(
+                nonce: fromB64(historyRecord['password_nonce'] as String),
+                ciphertext: fromB64(
+                  historyRecord['encrypted_password'] as String,
+                ),
+                mac: fromB64(historyRecord['password_mac'] as String),
               ),
-              mac: fromB64(historyRecord['password_mac'] as String),
-            ),
-          );
-          oldPassword = _decodeHistoryPassword(
-            record: historyRecord,
-            clearBytes: passwordBytes,
-          );
-        } finally {
-          _zeroBytes(passwordBytes);
-        }
+            );
+            oldPassword = _decodeHistoryPassword(
+              record: historyRecord,
+              clearBytes: passwordBytes,
+            );
+          } finally {
+            _zeroBytes(passwordBytes);
+          }
 
-        final existing = await _requireActiveItemFrom(txn, entryId);
-        final currentEntry = await _decryptEntryWithDek(existing, dek);
+          final existing = await _requireActiveItemFrom(txn, entryId);
+          final currentEntry = await _decryptEntryWithDek(existing, dek);
 
-        if (currentEntry.password != oldPassword) {
-          await _archivePasswordHistory(
-            txn: txn,
-            entryId: entryId,
+          if (currentEntry.password != oldPassword) {
+            await _archivePasswordHistory(
+              txn: txn,
+              entryId: entryId,
+              dek: dek,
+              oldPassword: currentEntry.password,
+            );
+          }
+
+          final restoredEntry = PasswordEntry(
+            title: currentEntry.title,
+            website: currentEntry.website,
+            username: currentEntry.username,
+            password: oldPassword,
+            notes: currentEntry.notes,
+            tags: currentEntry.tags,
+            totpSecret: currentEntry.totpSecret,
+          );
+
+          final updatedItem = await _encryptEntryWithDek(
             dek: dek,
-            oldPassword: currentEntry.password,
+            id: entryId,
+            entry: restoredEntry,
+            createdAt: existing.createdAt,
+            updatedAt: now,
           );
-        }
+          final updated = await txn.itemsDao.updateActive(updatedItem);
+          if (!updated) {
+            throw VaultItemNotFoundException(entryId);
+          }
 
-        final restoredEntry = PasswordEntry(
-          title: currentEntry.title,
-          website: currentEntry.website,
-          username: currentEntry.username,
-          password: oldPassword,
-          notes: currentEntry.notes,
-          tags: currentEntry.tags,
-          totpSecret: currentEntry.totpSecret,
-        );
-
-        final updatedItem = await _encryptEntryWithDek(
-          dek: dek,
-          id: entryId,
-          entry: restoredEntry,
-          createdAt: existing.createdAt,
-          updatedAt: now,
-        );
-        final updated = await txn.itemsDao.updateActive(updatedItem);
-        if (!updated) {
-          throw VaultItemNotFoundException(entryId);
-        }
-
-        await txn.historyDao?.delete(historyId);
-      },
-    );
+          await txn.historyDao?.delete(historyId);
+        },
+      );
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
   }
 
   Future<Map<String, String?>> _decryptItemForHealth(
@@ -1449,7 +1461,6 @@ class VaultService {
             updatedAt: updatedAt,
           );
           await txn.manifestDao.save(manifest);
-          await _writeAnchorForManifest(meta: updatedMeta, manifest: manifest);
           return _ManifestMutationResult<T>(
             result: result,
             meta: updatedMeta,
@@ -1457,6 +1468,10 @@ class VaultService {
           );
         });
       });
+      await _writeAnchorForManifest(
+        meta: rewrite.meta,
+        manifest: rewrite.manifest,
+      );
       return rewrite.result;
     } on VaultIntegrityException {
       _session.lock();

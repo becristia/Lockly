@@ -1,5 +1,5 @@
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite/sqflite.dart' show DatabaseExecutor;
 
 class VaultItemsDao {
   VaultItemsDao(this._db);
@@ -9,11 +9,20 @@ class VaultItemsDao {
   DatabaseExecutor get executor => _db;
 
   Future<void> upsert(EncryptedVaultItem item) async {
-    await _db.insert(
+    final affectedRows = await _db.update(
       'vault_items',
       item.toDb(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      where: 'id = ?',
+      whereArgs: [item.id],
     );
+    if (affectedRows > 1) {
+      throw StateError(
+        'Expected to update at most one vault_items row for id "${item.id}", but updated $affectedRows rows.',
+      );
+    }
+    if (affectedRows == 0) {
+      await _db.insert('vault_items', item.toDb());
+    }
   }
 
   Future<List<EncryptedVaultItem>> activeItems() async {

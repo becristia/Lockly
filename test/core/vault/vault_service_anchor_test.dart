@@ -7,6 +7,7 @@ import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_anchor.dart';
 import 'package:secure_box/core/vault/vault_anchor_service.dart';
 import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
@@ -187,6 +188,63 @@ void main() {
     expect(await harness.service.repository.itemsDao.rawRowsForTest(), isEmpty);
     expect(harness.service.isUnlocked, isFalse);
   });
+
+  test(
+    'item mutation rollback after manifest rewrite does not advance anchor',
+    () async {
+      final harness = await buildHarness();
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+      final meta = await harness.service.repository.metaDao.get();
+      final before = await harness.anchorStore.read(vaultId: meta!.id);
+
+      final rollbackService = VaultService(
+        repository: _RollbackAfterTransactionActionRepository(harness.db),
+        random: SecureRandom(),
+        kdf: KdfService(),
+        crypto: CryptoService(random: SecureRandom()),
+        anchorService: VaultAnchorService(store: harness.anchorStore),
+      );
+      await rollbackService.unlock(masterPassword: 'master-passphrase');
+
+      await expectLater(
+        rollbackService.createItem(_entry('Rolled back')),
+        throwsA(isA<_RollbackAfterTransactionAction>()),
+      );
+
+      expect(
+        await rollbackService.repository.itemsDao.rawRowsForTest(),
+        isEmpty,
+      );
+      final after = await harness.anchorStore.read(vaultId: meta.id);
+      expect(after!.manifestCounter, before!.manifestCounter);
+      expect(after.manifestDigest, before.manifestDigest);
+    },
+  );
+
+  test(
+    'item mutation locks when anchor write fails after database commit',
+    () async {
+      final anchorStore = _FailingAnchorWriteStore();
+      final harness = await buildHarness(anchorStore: anchorStore);
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+      final meta = await harness.service.repository.metaDao.get();
+      final before = await harness.anchorStore.read(vaultId: meta!.id);
+      anchorStore.failNextWrite = true;
+
+      await expectLater(
+        harness.service.createItem(_entry('Anchor failure')),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect(harness.service.isUnlocked, isFalse);
+      final after = await harness.anchorStore.read(vaultId: meta.id);
+      expect(after!.manifestCounter, before!.manifestCounter);
+      final manifest = await harness.service.repository.manifestDao.get();
+      expect(manifest!.counter, greaterThan(after.manifestCounter));
+    },
+  );
 
   test('master unlock rejects database advanced beyond stale anchor', () async {
     final harness = await buildHarness();
@@ -378,6 +436,53 @@ class _Harness {
   final VaultService service;
   final MemoryVaultAnchorStore anchorStore;
   final Database db;
+}
+
+class _RollbackAfterTransactionAction implements Exception {
+  const _RollbackAfterTransactionAction();
+}
+
+class _RollbackAfterTransactionActionRepository extends VaultRepository {
+  _RollbackAfterTransactionActionRepository(Database db)
+    : _db = db,
+      super(
+        metaDao: VaultMetaDao(db),
+        itemsDao: VaultItemsDao(db),
+        manifestDao: VaultManifestDao(db),
+        settingsDao: SettingsDao(db),
+      );
+
+  final Database _db;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(VaultRepository repository) action,
+  ) async {
+    return _db.transaction((txn) async {
+      await action(
+        VaultRepository(
+          metaDao: VaultMetaDao(txn),
+          itemsDao: VaultItemsDao(txn),
+          manifestDao: VaultManifestDao(txn),
+          settingsDao: SettingsDao(txn),
+        ),
+      );
+      throw const _RollbackAfterTransactionAction();
+    });
+  }
+}
+
+class _FailingAnchorWriteStore extends MemoryVaultAnchorStore {
+  var failNextWrite = false;
+
+  @override
+  Future<void> write(VaultAnchor anchor) {
+    if (failNextWrite) {
+      failNextWrite = false;
+      throw const VaultAnchorException();
+    }
+    return super.write(anchor);
+  }
 }
 
 PasswordEntry _entry(String title) {

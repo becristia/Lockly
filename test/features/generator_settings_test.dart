@@ -7,13 +7,16 @@ import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
+import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -281,6 +284,87 @@ void main() {
 
     expect(await harness.vaultService.repository.manifestDao.get(), isNull);
   });
+
+  test('password history integrity failure locks the app shell', () async {
+    final harness = await _buildBiometricHarness();
+    harness.services.markVaultUnlocked();
+    final id = await harness.vaultService.createItem(
+      PasswordEntry(
+        title: 'History',
+        website: 'https://history.example',
+        username: 'history@example.com',
+        password: 'old-password',
+        notes: 'history test',
+        tags: const ['history'],
+      ),
+    );
+    await harness.vaultService.updateItem(
+      id,
+      PasswordEntry(
+        title: 'History',
+        website: 'https://history.example',
+        username: 'history@example.com',
+        password: 'new-password',
+        notes: 'history test',
+        tags: const ['history'],
+      ),
+    );
+    expect(harness.services.shellState.value, AppShellState.unlocked);
+    await harness.vaultService.repository.historyDao!.deleteAll();
+
+    await expectLater(
+      harness.services.listPasswordHistory(id),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+
+    expect(harness.services.shellState.value, AppShellState.locked);
+    expect(harness.vaultService.isUnlocked, isFalse);
+  });
+
+  test('restore password integrity failure locks the app shell', () async {
+    final harness = await _buildBiometricHarness();
+    harness.services.markVaultUnlocked();
+    final firstId = await harness.vaultService.createItem(
+      PasswordEntry(
+        title: 'First',
+        website: 'https://first.example',
+        username: 'first@example.com',
+        password: 'first-old',
+        notes: 'first item',
+        tags: const ['history'],
+      ),
+    );
+    final secondId = await harness.vaultService.createItem(
+      PasswordEntry(
+        title: 'Second',
+        website: 'https://second.example',
+        username: 'second@example.com',
+        password: 'second-old',
+        notes: 'second item',
+        tags: const ['history'],
+      ),
+    );
+    await harness.vaultService.updateItem(
+      firstId,
+      PasswordEntry(
+        title: 'First',
+        website: 'https://first.example',
+        username: 'first@example.com',
+        password: 'first-new',
+        notes: 'first item',
+        tags: const ['history'],
+      ),
+    );
+    final history = await harness.vaultService.listPasswordHistory(firstId);
+
+    await expectLater(
+      harness.services.restorePassword(secondId, history.single['id'] as int),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+
+    expect(harness.services.shellState.value, AppShellState.locked);
+    expect(harness.vaultService.isUnlocked, isFalse);
+  });
 }
 
 Future<_BiometricHarness> _buildBiometricHarness() async {
@@ -291,6 +375,7 @@ Future<_BiometricHarness> _buildBiometricHarness() async {
     itemsDao: VaultItemsDao(db),
     manifestDao: VaultManifestDao(db),
     settingsDao: SettingsDao(db),
+    historyDao: PasswordHistoryDao(db),
   );
   final random = SecureRandom();
   final vaultService = VaultService(
