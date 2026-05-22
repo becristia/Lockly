@@ -64,6 +64,18 @@ void main() {
   });
 
   test(
+    'database enables foreign key enforcement for cascade deletes',
+    () async {
+      final db = await AppDatabase.openInMemory();
+      addTearDown(db.close);
+
+      final pragmaRows = await db.rawQuery('PRAGMA foreign_keys');
+
+      expect(pragmaRows.single.values.single, 1);
+    },
+  );
+
+  test(
     'current schema creates vault manifest without plaintext fields',
     () async {
       final db = await AppDatabase.openInMemory();

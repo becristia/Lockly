@@ -11,6 +11,7 @@ import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
+import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
@@ -36,6 +37,7 @@ void main() {
         itemsDao: VaultItemsDao(db),
         manifestDao: VaultManifestDao(db),
         settingsDao: SettingsDao(db),
+        historyDao: PasswordHistoryDao(db),
       ),
       random: SecureRandom(),
       kdf: KdfService(),
@@ -519,6 +521,44 @@ void main() {
   });
 
   test(
+    'auxiliary decrypted views fail closed when the live manifest is tampered',
+    () async {
+      final tagsService = await buildService();
+      await tagsService.createVault(masterPassword: 'master-passphrase');
+      await tagsService.unlock(masterPassword: 'master-passphrase');
+      await tagsService.createItem(
+        _entry(title: 'GitHub', tags: ['dev'], totpSecret: 'JBSWY3DPEHPK3PXP'),
+      );
+      final tagsManifest = await tagsService.repository.manifestDao.get();
+      await tagsService.repository.manifestDao.save(
+        _tamperManifestMac(tagsManifest!),
+      );
+
+      await expectLater(
+        tagsService.allTags(),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(tagsService.isUnlocked, isFalse);
+
+      final totpService = await buildService();
+      await totpService.createVault(masterPassword: 'master-passphrase');
+      await totpService.unlock(masterPassword: 'master-passphrase');
+      await totpService.createItem(
+        _entry(title: 'GitHub', totpSecret: 'JBSWY3DPEHPK3PXP'),
+      );
+      final totpManifest = await totpService.repository.manifestDao.get();
+      await totpService.repository.manifestDao.save(
+        _tamperManifestMac(totpManifest!),
+      );
+      await expectLater(
+        totpService.listTotpItems(),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(totpService.isUnlocked, isFalse);
+    },
+  );
+
+  test(
     'item mutation fails closed when manifest is missing for created vault',
     () async {
       final service = await buildService();
@@ -556,6 +596,54 @@ void main() {
       isTrue,
     );
   });
+
+  test('clearLocalVault removes encrypted password history rows', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+    final id = await service.createItem(_entry(password: 'old-password'));
+    await service.updateItem(id, _entry(password: 'new-password'));
+
+    expect(await service.listPasswordHistory(id), hasLength(1));
+
+    await service.clearLocalVault();
+
+    final remainingHistory = await service.repository.historyDao!.executor
+        .query('password_history');
+    expect(remainingHistory, isEmpty);
+  });
+
+  test(
+    'restorePassword rejects history records that belong to another item',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      final firstId = await service.createItem(
+        _entry(title: 'First', password: 'first-old'),
+      );
+      final secondId = await service.createItem(
+        _entry(title: 'Second', password: 'second-old'),
+      );
+      await service.updateItem(
+        firstId,
+        _entry(title: 'First', password: 'first-new'),
+      );
+      await service.updateItem(
+        secondId,
+        _entry(title: 'Second', password: 'second-new'),
+      );
+      final firstHistory = await service.listPasswordHistory(firstId);
+
+      await expectLater(
+        service.restorePassword(secondId, firstHistory.single['id'] as int),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      final second = await service.getItem(secondId);
+      expect(second.password, 'second-new');
+    },
+  );
 
   test(
     'changing a pbkdf2 vault password migrates metadata to argon2id',
@@ -705,8 +793,8 @@ void main() {
       session.lock();
       expect(afterChange!.epoch, beforeChange!.epoch);
       expect(afterChange.counter, beforeChange.counter + 1);
-      expect(
-        () => service.unlock(masterPassword: 'old-master'),
+      await expectLater(
+        service.unlock(masterPassword: 'old-master'),
         throwsA(isA<VaultUnlockException>()),
       );
       await service.unlock(masterPassword: 'new-master');
@@ -925,14 +1013,20 @@ VaultManifest _tamperManifestMac(VaultManifest manifest) {
   return manifest.copyWith(mac: _tamperBase64(manifest.mac));
 }
 
-PasswordEntry _entry({required String title}) {
+PasswordEntry _entry({
+  String title = 'GitHub',
+  String password = 'secret-password',
+  List<String> tags = const ['dev'],
+  String? totpSecret,
+}) {
   return PasswordEntry(
     title: title,
     website: 'https://github.com',
     username: 'user@example.com',
-    password: 'secret-password',
+    password: password,
     notes: 'private note',
-    tags: ['dev'],
+    tags: tags,
+    totpSecret: totpSecret,
   );
 }
 

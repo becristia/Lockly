@@ -22,6 +22,7 @@ class AppDatabase {
       singleInstance: singleInstance,
       version: schemaVersion,
       onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
         await db.execute('PRAGMA secure_delete = ON');
       },
       onCreate: (db, version) async {

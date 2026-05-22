@@ -630,6 +630,7 @@ class VaultService {
     final meta = await repository.metaDao.get();
     try {
       await repository.transaction((txn) async {
+        await txn.historyDao?.deleteAll();
         await txn.itemsDao.deleteAll();
         await txn.manifestDao.deleteAll();
         await txn.metaDao.deleteAll();
@@ -873,14 +874,16 @@ class VaultService {
 
   Future<List<Map<String, dynamic>>> listPasswordHistory(String entryId) async {
     _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
     final historyDao = repository.historyDao;
     if (historyDao == null) return const [];
     final records = await historyDao.byEntryId(entryId);
     return _session.withDekCopy((dek) async {
       final results = <Map<String, dynamic>>[];
       for (final r in records) {
+        Uint8List? passwordBytes;
         try {
-          final passwordBytes = await _crypto.decryptBytes(
+          passwordBytes = await _crypto.decryptBytes(
             key: dek,
             payload: EncryptedPayload(
               nonce: fromB64(r['password_nonce'] as String),
@@ -896,6 +899,8 @@ class VaultService {
           });
         } catch (_) {
           // Skip records that fail to decrypt
+        } finally {
+          _zeroBytes(passwordBytes);
         }
       }
       return results;
@@ -908,20 +913,33 @@ class VaultService {
     if (historyDao == null) return;
     final historyRecord = await historyDao.byId(historyId);
     if (historyRecord == null) return;
+    if (historyRecord['entry_id'] != entryId) {
+      throw const VaultIntegrityException(
+        'Password history record does not belong to this vault item',
+      );
+    }
 
     final now = DateTime.now().millisecondsSinceEpoch;
     await _rewriteManifestForMutation(
       updatedAt: now,
       mutate: (txn, dek) async {
-        final passwordBytes = await _crypto.decryptBytes(
-          key: dek,
-          payload: EncryptedPayload(
-            nonce: fromB64(historyRecord['password_nonce'] as String),
-            ciphertext: fromB64(historyRecord['encrypted_password'] as String),
-            mac: fromB64(historyRecord['password_mac'] as String),
-          ),
-        );
-        final oldPassword = utf8.decode(passwordBytes);
+        Uint8List? passwordBytes;
+        final String oldPassword;
+        try {
+          passwordBytes = await _crypto.decryptBytes(
+            key: dek,
+            payload: EncryptedPayload(
+              nonce: fromB64(historyRecord['password_nonce'] as String),
+              ciphertext: fromB64(
+                historyRecord['encrypted_password'] as String,
+              ),
+              mac: fromB64(historyRecord['password_mac'] as String),
+            ),
+          );
+          oldPassword = utf8.decode(passwordBytes);
+        } finally {
+          _zeroBytes(passwordBytes);
+        }
 
         final existing = await _requireActiveItemFrom(txn, entryId);
         final currentEntry = await _decryptEntryWithDek(existing, dek);
@@ -966,42 +984,48 @@ class VaultService {
     EncryptedVaultItem item,
     Uint8List dek,
   ) async {
-    final clearBytes = await _crypto.decryptBytes(
-      key: dek,
-      payload: EncryptedPayload(
-        nonce: fromB64(item.nonce),
-        ciphertext: fromB64(item.ciphertext),
-        mac: fromB64(item.mac),
-      ),
-    );
-    final decoded = jsonDecode(utf8.decode(clearBytes));
-    if (decoded is! Map) {
+    Uint8List? clearBytes;
+    try {
+      clearBytes = await _crypto.decryptBytes(
+        key: dek,
+        payload: EncryptedPayload(
+          nonce: fromB64(item.nonce),
+          ciphertext: fromB64(item.ciphertext),
+          mac: fromB64(item.mac),
+        ),
+      );
+      final decoded = jsonDecode(utf8.decode(clearBytes));
+      if (decoded is! Map) {
+        return {
+          'id': item.id,
+          'title': '',
+          'username': '',
+          'password': '',
+          'website': null,
+          'updatedAt': '${item.updatedAt}',
+          'createdAt': '${item.createdAt}',
+        };
+      }
+      final map = Map<String, Object?>.from(decoded);
       return {
         'id': item.id,
-        'title': '',
-        'username': '',
-        'password': '',
-        'website': null,
+        'title': map['title'] as String? ?? '',
+        'username': map['username'] as String? ?? '',
+        'password': map['password'] as String? ?? '',
+        'website': map['website'] as String?,
         'updatedAt': '${item.updatedAt}',
         'createdAt': '${item.createdAt}',
       };
+    } finally {
+      _zeroBytes(clearBytes);
     }
-    final map = Map<String, Object?>.from(decoded);
-    return {
-      'id': item.id,
-      'title': map['title'] as String? ?? '',
-      'username': map['username'] as String? ?? '',
-      'password': map['password'] as String? ?? '',
-      'website': map['website'] as String?,
-      'updatedAt': '${item.updatedAt}',
-      'createdAt': '${item.createdAt}',
-    };
   }
 
   Future<HealthReport> analyzePasswordHealth({
     required PasswordHealthService healthService,
   }) async {
     _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
     final items = await repository.itemsDao.allItemsForManifest();
     final activeItems = items.where((i) => i.deletedAt == null).toList();
 
@@ -1022,14 +1046,16 @@ class VaultService {
 
   Future<List<TotpListItem>> listTotpItems() async {
     _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
     final items = await repository.itemsDao.allItemsForManifest();
     final active = items.where((i) => i.deletedAt == null).toList();
 
     return _session.withDekCopy((dek) async {
       final results = <TotpListItem>[];
       for (final item in active) {
+        Uint8List? clearBytes;
         try {
-          final clearBytes = await _crypto.decryptBytes(
+          clearBytes = await _crypto.decryptBytes(
             key: dek,
             payload: EncryptedPayload(
               nonce: fromB64(item.nonce),
@@ -1053,6 +1079,8 @@ class VaultService {
           );
         } catch (_) {
           // skip items that fail to decrypt or parse
+        } finally {
+          _zeroBytes(clearBytes);
         }
       }
       return results;
@@ -1061,13 +1089,15 @@ class VaultService {
 
   Future<List<String>> allTags() async {
     _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
     final items = await repository.itemsDao.allItemsForManifest();
     final active = items.where((i) => i.deletedAt == null).toList();
     final tags = <String>{};
     return _session.withDekCopy((dek) async {
       for (final item in active) {
+        Uint8List? clearBytes;
         try {
-          final clearBytes = await _crypto.decryptBytes(
+          clearBytes = await _crypto.decryptBytes(
             key: dek,
             payload: EncryptedPayload(
               nonce: fromB64(item.nonce),
@@ -1083,6 +1113,8 @@ class VaultService {
           tags.addAll(entry.tags);
         } catch (_) {
           // skip items that fail to decrypt
+        } finally {
+          _zeroBytes(clearBytes);
         }
       }
       final sorted = tags.toList()..sort();
@@ -1101,8 +1133,9 @@ class VaultService {
         final items = await txn.itemsDao.allItemsForManifest();
         for (final item in items) {
           if (item.deletedAt != null) continue;
+          Uint8List? clearBytes;
           try {
-            final clearBytes = await _crypto.decryptBytes(
+            clearBytes = await _crypto.decryptBytes(
               key: dek,
               payload: EncryptedPayload(
                 nonce: fromB64(item.nonce),
@@ -1138,6 +1171,8 @@ class VaultService {
             await txn.itemsDao.updateActive(updatedItem);
           } catch (_) {
             // skip items that fail to decrypt
+          } finally {
+            _zeroBytes(clearBytes);
           }
         }
       },
@@ -1154,8 +1189,9 @@ class VaultService {
         final items = await txn.itemsDao.allItemsForManifest();
         for (final item in items) {
           if (item.deletedAt != null) continue;
+          Uint8List? clearBytes;
           try {
-            final clearBytes = await _crypto.decryptBytes(
+            clearBytes = await _crypto.decryptBytes(
               key: dek,
               payload: EncryptedPayload(
                 nonce: fromB64(item.nonce),
@@ -1189,6 +1225,8 @@ class VaultService {
             await txn.itemsDao.updateActive(updatedItem);
           } catch (_) {
             // skip items that fail to decrypt
+          } finally {
+            _zeroBytes(clearBytes);
           }
         }
       },
@@ -1493,40 +1531,50 @@ class VaultService {
   }
 
   Future<PasswordEntry> _decryptItem(EncryptedVaultItem item) async {
-    final clearBytes = await _session.decrypt(
-      crypto: _crypto,
-      payload: EncryptedPayload(
-        nonce: fromB64(item.nonce),
-        ciphertext: fromB64(item.ciphertext),
-        mac: fromB64(item.mac),
-      ),
-    );
-    final decoded = jsonDecode(utf8.decode(clearBytes));
-    if (decoded is! Map) {
-      throw const FormatException('Invalid vault item payload');
-    }
+    Uint8List? clearBytes;
+    try {
+      clearBytes = await _session.decrypt(
+        crypto: _crypto,
+        payload: EncryptedPayload(
+          nonce: fromB64(item.nonce),
+          ciphertext: fromB64(item.ciphertext),
+          mac: fromB64(item.mac),
+        ),
+      );
+      final decoded = jsonDecode(utf8.decode(clearBytes));
+      if (decoded is! Map) {
+        throw const FormatException('Invalid vault item payload');
+      }
 
-    return PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+      return PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+    } finally {
+      _zeroBytes(clearBytes);
+    }
   }
 
   Future<PasswordEntry> _decryptEntryWithDek(
     EncryptedVaultItem item,
     Uint8List dek,
   ) async {
-    final clearBytes = await _crypto.decryptBytes(
-      key: dek,
-      payload: EncryptedPayload(
-        nonce: fromB64(item.nonce),
-        ciphertext: fromB64(item.ciphertext),
-        mac: fromB64(item.mac),
-      ),
-    );
-    final decoded = jsonDecode(utf8.decode(clearBytes));
-    if (decoded is! Map) {
-      throw const FormatException('Invalid vault item payload');
-    }
+    Uint8List? clearBytes;
+    try {
+      clearBytes = await _crypto.decryptBytes(
+        key: dek,
+        payload: EncryptedPayload(
+          nonce: fromB64(item.nonce),
+          ciphertext: fromB64(item.ciphertext),
+          mac: fromB64(item.mac),
+        ),
+      );
+      final decoded = jsonDecode(utf8.decode(clearBytes));
+      if (decoded is! Map) {
+        throw const FormatException('Invalid vault item payload');
+      }
 
-    return PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+      return PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+    } finally {
+      _zeroBytes(clearBytes);
+    }
   }
 
   Future<void> _archivePasswordHistory({

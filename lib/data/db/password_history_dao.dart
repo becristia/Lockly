@@ -80,4 +80,8 @@ class PasswordHistoryDao {
       whereArgs: [entryId],
     );
   }
+
+  Future<void> deleteAll() async {
+    await _db.delete('password_history');
+  }
 }
