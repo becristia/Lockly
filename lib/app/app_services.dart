@@ -615,13 +615,9 @@ class AppServices {
       () => vaultService.changeMasterPassword(
         oldPassword: oldPassword,
         newPassword: newPassword,
+        biometricService: _biometricService,
       ),
     );
-    try {
-      await _biometricService?.disable();
-    } catch (error) {
-      throw MasterPasswordChangedBiometricCleanupException(error);
-    }
   }
 
   Future<void> enableBiometricUnlock(String masterPassword) async {
@@ -846,7 +842,7 @@ class AppServices {
     }
 
     return switch (requested) {
-      routeVault || routeGenerator || routeSettings || routeHealth => requested,
+      routeVault || routeGenerator || routeSettings => requested,
       _ => routeVault,
     };
   }

@@ -107,10 +107,10 @@ class VaultItemsDao {
     return rows.map(EncryptedVaultItem.fromDb).toList(growable: false);
   }
 
-  Future<bool> restoreItem(String id) async {
+  Future<bool> restoreItem(String id, {required int updatedAt}) async {
     final affectedRows = await _db.update(
       'vault_items',
-      {'deleted_at': null},
+      {'deleted_at': null, 'updated_at': updatedAt},
       where: 'id = ? AND deleted_at IS NOT NULL',
       whereArgs: [id],
     );

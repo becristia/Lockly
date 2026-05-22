@@ -7,6 +7,7 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
@@ -329,6 +330,7 @@ void main() {
         service.changeMasterPassword(
           oldPassword: 'old-master',
           newPassword: 'new-master',
+          biometricService: _memoryBiometricService(),
         ),
         throwsA(isA<VaultIntegrityException>()),
       );
@@ -352,6 +354,7 @@ void main() {
         service.changeMasterPassword(
           oldPassword: 'old-master',
           newPassword: 'new-master',
+          biometricService: _memoryBiometricService(),
           beforePersist: () async {
             await service.repository.manifestDao.save(tamperedManifest);
           },
@@ -459,6 +462,24 @@ void main() {
     },
   );
 
+  test('restore item updates timestamp metadata', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+
+    final id = await service.createItem(_entry(title: 'GitHub'));
+    final beforeDelete = await service.repository.itemsDao.byId(id);
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    await service.deleteItem(id);
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+
+    await service.restoreItem(id);
+
+    final restored = await service.repository.itemsDao.byId(id);
+    expect(restored!.deletedAt, isNull);
+    expect(restored.updatedAt, greaterThan(beforeDelete!.updatedAt));
+  });
+
   test(
     'tampering with item after manifest rewrite fails closed on unlock and list',
     () async {
@@ -560,6 +581,110 @@ void main() {
   );
 
   test(
+    'auxiliary decrypted views fail closed on malformed item payloads',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      final session = await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(
+        _entry(title: 'GitHub', tags: ['dev']),
+      );
+
+      await session.withDekCopy((dek) async {
+        final encrypted = await CryptoService(
+          random: SecureRandom(),
+        ).encryptBytes(key: dek, plaintext: utf8.encode('[]'));
+        final existing = (await service.repository.itemsDao.byId(id))!;
+        final malformed = EncryptedVaultItem(
+          id: existing.id,
+          nonce: b64(encrypted.nonce),
+          ciphertext: b64(encrypted.ciphertext),
+          mac: b64(encrypted.mac),
+          createdAt: existing.createdAt,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+        await service.repository.itemsDao.upsert(malformed);
+        final meta = (await service.repository.metaDao.get())!;
+        final previous = await service.repository.manifestDao.get();
+        final manifest =
+            await VaultManifestService(
+              crypto: CryptoService(random: SecureRandom()),
+            ).createManifest(
+              dek: dek,
+              meta: meta,
+              items: await service.repository.itemsDao.allItemsForManifest(),
+              historyRecords:
+                  (await service.repository.historyDao?.allRowsForManifest()) ??
+                  const <Map<String, Object?>>[],
+              previous: previous,
+              updatedAt: DateTime.now().millisecondsSinceEpoch,
+            );
+        await service.repository.manifestDao.save(manifest);
+        await service.acceptManifestForCurrentState(
+          meta: meta,
+          manifest: manifest,
+        );
+      });
+
+      await expectLater(
+        service.analyzePasswordHealth(healthService: PasswordHealthService()),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+
+      final tagService = await buildService();
+      await tagService.createVault(masterPassword: 'master-passphrase');
+      final tagSession = await tagService.unlock(
+        masterPassword: 'master-passphrase',
+      );
+      final tagId = await tagService.createItem(_entry(title: 'Tags'));
+      await tagSession.withDekCopy((dek) async {
+        final encrypted = await CryptoService(
+          random: SecureRandom(),
+        ).encryptBytes(key: dek, plaintext: utf8.encode('[]'));
+        final existing = (await tagService.repository.itemsDao.byId(tagId))!;
+        await tagService.repository.itemsDao.upsert(
+          EncryptedVaultItem(
+            id: existing.id,
+            nonce: b64(encrypted.nonce),
+            ciphertext: b64(encrypted.ciphertext),
+            mac: b64(encrypted.mac),
+            createdAt: existing.createdAt,
+            updatedAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+        final meta = (await tagService.repository.metaDao.get())!;
+        final previous = await tagService.repository.manifestDao.get();
+        final manifest =
+            await VaultManifestService(
+              crypto: CryptoService(random: SecureRandom()),
+            ).createManifest(
+              dek: dek,
+              meta: meta,
+              items: await tagService.repository.itemsDao.allItemsForManifest(),
+              historyRecords:
+                  (await tagService.repository.historyDao
+                      ?.allRowsForManifest()) ??
+                  const <Map<String, Object?>>[],
+              previous: previous,
+              updatedAt: DateTime.now().millisecondsSinceEpoch,
+            );
+        await tagService.repository.manifestDao.save(manifest);
+        await tagService.acceptManifestForCurrentState(
+          meta: meta,
+          manifest: manifest,
+        );
+      });
+
+      await expectLater(
+        tagService.renameTag('dev', 'prod'),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(tagService.isUnlocked, isFalse);
+    },
+  );
+
+  test(
     'item mutation fails closed when manifest is missing for created vault',
     () async {
       final service = await buildService();
@@ -586,6 +711,7 @@ void main() {
     await service.changeMasterPassword(
       oldPassword: 'old-master',
       newPassword: 'new-master',
+      biometricService: _memoryBiometricService(),
     );
 
     expect(
@@ -857,6 +983,7 @@ void main() {
       await service.changeMasterPassword(
         oldPassword: 'old-master',
         newPassword: 'new-master',
+        biometricService: _memoryBiometricService(),
       );
 
       final meta = await service.repository.metaDao.get();
@@ -950,6 +1077,7 @@ void main() {
       await service.changeMasterPassword(
         oldPassword: 'old-master',
         newPassword: 'new-master',
+        biometricService: _memoryBiometricService(),
       );
       final afterChange = await service.repository.manifestDao.get();
 
@@ -1113,6 +1241,16 @@ void main() {
       final remainingItems = await service.listItems();
       expect(remainingItems.map((item) => item.id), [githubId]);
     },
+  );
+}
+
+BiometricService _memoryBiometricService() {
+  return BiometricService(
+    authenticator: FakeBiometricAuthenticator(
+      canAuthenticate: true,
+      succeeds: true,
+    ),
+    store: MemorySecureDekStore(),
   );
 }
 

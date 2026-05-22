@@ -103,7 +103,68 @@ void main() {
   );
 
   test(
-    'master unlock rejects a missing anchor after initial vault creation',
+    'unlocked reads reject database rollback below anchor counter',
+    () async {
+      final harness = await buildHarness();
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+      final oldManifest = await harness.service.repository.manifestDao.get();
+      await harness.service.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'rollback test',
+          tags: const ['dev'],
+        ),
+      );
+
+      await harness.service.repository.itemsDao.deleteAll();
+      await harness.service.repository.manifestDao.save(oldManifest!);
+
+      await expectLater(
+        harness.service.listItems(),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(harness.service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'backup export rejects database rollback below anchor counter',
+    () async {
+      final harness = await buildHarness();
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+      final oldManifest = await harness.service.repository.manifestDao.get();
+      await harness.service.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'rollback test',
+          tags: const ['dev'],
+        ),
+      );
+
+      await harness.service.repository.itemsDao.deleteAll();
+      await harness.service.repository.manifestDao.save(oldManifest!);
+
+      await expectLater(
+        harness.service.createVerifiedManifestForBackup(
+          items: const [],
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(harness.service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'master unlock repairs a missing anchor after manifest verification',
     () async {
       final harness = await buildHarness();
       await harness.service.createVault(masterPassword: 'master-passphrase');
@@ -111,13 +172,12 @@ void main() {
       await harness.anchorStore.delete(vaultId: meta!.id);
       harness.service.lock();
 
-      await expectLater(
-        harness.service.unlock(masterPassword: 'master-passphrase'),
-        throwsA(isA<VaultIntegrityException>()),
+      final session = await harness.service.unlock(
+        masterPassword: 'master-passphrase',
       );
 
-      expect(await harness.anchorStore.read(vaultId: meta.id), isNull);
-      expect(harness.service.isUnlocked, isFalse);
+      expect(session.isUnlocked, isTrue);
+      expect(await harness.anchorStore.read(vaultId: meta.id), isNotNull);
     },
   );
 
@@ -361,6 +421,7 @@ void main() {
     await harness.service.changeMasterPassword(
       oldPassword: 'master-passphrase',
       newPassword: 'new-master-passphrase',
+      biometricService: _memoryBiometricService(),
     );
 
     final anchor = await harness.anchorStore.read(vaultId: meta!.id);
@@ -419,6 +480,7 @@ void main() {
         harness.service.changeMasterPassword(
           oldPassword: 'master-passphrase',
           newPassword: 'new-master-passphrase',
+          biometricService: biometric,
           beforePersist: biometric.disable,
         ),
         throwsA(isA<VaultIntegrityException>()),
@@ -427,6 +489,16 @@ void main() {
       expect(store.deleteCount, 0);
       expect(await store.readDek(), isNotNull);
     },
+  );
+}
+
+BiometricService _memoryBiometricService() {
+  return BiometricService(
+    authenticator: FakeBiometricAuthenticator(
+      canAuthenticate: true,
+      succeeds: true,
+    ),
+    store: MemorySecureDekStore(),
   );
 }
 

@@ -61,6 +61,16 @@ void main() {
     expect(find.text('密码生成器'), findsNothing);
   });
 
+  test('health route falls back to vault shell when unlocked', () {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+    addTearDown(services.dispose);
+
+    expect(
+      services.resolveRouteName(AppServices.routeHealth),
+      AppServices.routeVault,
+    );
+  });
+
   testWidgets('bottom tab switch clears generated password state', (
     tester,
   ) async {

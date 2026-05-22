@@ -187,7 +187,7 @@ class VaultService {
       await _verifyAnchorForManifest(
         meta: meta,
         manifest: manifest,
-        allowMissingAnchor: false,
+        allowMissingAnchor: true,
       );
       await _writeAnchorForManifest(meta: meta, manifest: manifest);
       _session.unlock(dek);
@@ -371,6 +371,7 @@ class VaultService {
   Future<void> changeMasterPassword({
     required String oldPassword,
     required String newPassword,
+    BiometricService? biometricService,
     Future<void> Function()? beforePersist,
   }) async {
     final meta = await _requireVaultMeta();
@@ -416,6 +417,13 @@ class VaultService {
         encryptedDekByBiometricMac: null,
       );
 
+      final service = biometricService;
+      if (service == null) {
+        throw StateError(
+          'A biometric service is required when changing the master password so any biometric DEK copy can be cleared.',
+        );
+      }
+      await service.disable();
       await beforePersist?.call();
       final manifest = await repository.transaction((txn) async {
         final manifest = await _saveManifestForMetadataUpdate(
@@ -475,6 +483,11 @@ class VaultService {
           items: currentItems,
           historyRecords: currentHistoryRecords,
           manifest: manifest,
+        );
+        await _verifyAnchorForManifest(
+          meta: meta,
+          manifest: manifest,
+          allowMissingAnchor: false,
         );
         return _manifestService.createManifest(
           dek: dek,
@@ -893,7 +906,7 @@ class VaultService {
         if (item == null || item.deletedAt == null) {
           throw VaultItemNotFoundException(id);
         }
-        final restored = await txn.itemsDao.restoreItem(id);
+        final restored = await txn.itemsDao.restoreItem(id, updatedAt: now);
         if (!restored) {
           throw VaultItemNotFoundException(id);
         }
@@ -1080,23 +1093,15 @@ class VaultService {
       );
       final decoded = jsonDecode(utf8.decode(clearBytes));
       if (decoded is! Map) {
-        return {
-          'id': item.id,
-          'title': '',
-          'username': '',
-          'password': '',
-          'website': null,
-          'updatedAt': '${item.updatedAt}',
-          'createdAt': '${item.createdAt}',
-        };
+        throw const VaultIntegrityException('Health item payload is malformed');
       }
-      final map = Map<String, Object?>.from(decoded);
+      final entry = PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
       return {
         'id': item.id,
-        'title': map['title'] as String? ?? '',
-        'username': map['username'] as String? ?? '',
-        'password': map['password'] as String? ?? '',
-        'website': map['website'] as String?,
+        'title': entry.title,
+        'username': entry.username,
+        'password': entry.password,
+        'website': entry.website,
         'updatedAt': '${item.updatedAt}',
         'createdAt': '${item.createdAt}',
       };
@@ -1108,102 +1113,139 @@ class VaultService {
   Future<HealthReport> analyzePasswordHealth({
     required PasswordHealthService healthService,
   }) async {
-    _ensureUnlocked();
-    await _verifyCurrentManifestWithActiveSession();
-    final items = await repository.itemsDao.allItemsForManifest();
-    final activeItems = items.where((i) => i.deletedAt == null).toList();
+    try {
+      _ensureUnlocked();
+      await _verifyCurrentManifestWithActiveSession();
+      final items = await repository.itemsDao.allItemsForManifest();
+      final activeItems = items.where((i) => i.deletedAt == null).toList();
 
-    final decryptedItems = await _session.withDekCopy((dek) async {
-      final results = <Map<String, String?>>[];
-      for (final item in activeItems) {
-        try {
-          results.add(await _decryptItemForHealth(item, dek));
-        } catch (_) {
-          // skip items that fail to decrypt
+      final decryptedItems = await _session.withDekCopy((dek) async {
+        final results = <Map<String, String?>>[];
+        for (final item in activeItems) {
+          try {
+            results.add(await _decryptItemForHealth(item, dek));
+          } on VaultIntegrityException {
+            rethrow;
+          } on Object {
+            throw const VaultIntegrityException(
+              'Health item payload could not be processed',
+            );
+          }
         }
-      }
-      return results;
-    });
+        return results;
+      });
 
-    return healthService.analyze(decryptedItems: decryptedItems);
+      return healthService.analyze(decryptedItems: decryptedItems);
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
   }
 
   Future<List<TotpListItem>> listTotpItems() async {
-    _ensureUnlocked();
-    await _verifyCurrentManifestWithActiveSession();
-    final items = await repository.itemsDao.allItemsForManifest();
-    final active = items.where((i) => i.deletedAt == null).toList();
+    try {
+      _ensureUnlocked();
+      await _verifyCurrentManifestWithActiveSession();
+      final items = await repository.itemsDao.allItemsForManifest();
+      final active = items.where((i) => i.deletedAt == null).toList();
 
-    return _session.withDekCopy((dek) async {
-      final results = <TotpListItem>[];
-      for (final item in active) {
-        Uint8List? clearBytes;
-        try {
-          clearBytes = await _crypto.decryptBytes(
-            key: dek,
-            payload: EncryptedPayload(
-              nonce: fromB64(item.nonce),
-              ciphertext: fromB64(item.ciphertext),
-              mac: fromB64(item.mac),
-            ),
-          );
-          final decoded = jsonDecode(utf8.decode(clearBytes));
-          if (decoded is! Map) continue;
-          final entry = PasswordEntry.fromJson(
-            Map<String, Object?>.from(decoded),
-          );
-          if (entry.totpSecret == null || entry.totpSecret!.isEmpty) continue;
-          results.add(
-            TotpListItem(
-              id: item.id,
-              title: entry.title,
-              username: entry.username,
-              totpSecret: entry.totpSecret!,
-            ),
-          );
-        } catch (_) {
-          // skip items that fail to decrypt or parse
-        } finally {
-          _zeroBytes(clearBytes);
+      return await _session.withDekCopy((dek) async {
+        final results = <TotpListItem>[];
+        for (final item in active) {
+          Uint8List? clearBytes;
+          try {
+            clearBytes = await _crypto.decryptBytes(
+              key: dek,
+              payload: EncryptedPayload(
+                nonce: fromB64(item.nonce),
+                ciphertext: fromB64(item.ciphertext),
+                mac: fromB64(item.mac),
+              ),
+            );
+            final decoded = jsonDecode(utf8.decode(clearBytes));
+            if (decoded is! Map) {
+              throw const VaultIntegrityException(
+                'TOTP item payload is malformed',
+              );
+            }
+            final entry = PasswordEntry.fromJson(
+              Map<String, Object?>.from(decoded),
+            );
+            if (entry.totpSecret == null || entry.totpSecret!.isEmpty) {
+              continue;
+            }
+            results.add(
+              TotpListItem(
+                id: item.id,
+                title: entry.title,
+                username: entry.username,
+                totpSecret: entry.totpSecret!,
+              ),
+            );
+          } on VaultIntegrityException {
+            rethrow;
+          } on Object {
+            throw const VaultIntegrityException(
+              'TOTP item payload could not be processed',
+            );
+          } finally {
+            _zeroBytes(clearBytes);
+          }
         }
-      }
-      return results;
-    });
+        return results;
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
   }
 
   Future<List<String>> allTags() async {
-    _ensureUnlocked();
-    await _verifyCurrentManifestWithActiveSession();
-    final items = await repository.itemsDao.allItemsForManifest();
-    final active = items.where((i) => i.deletedAt == null).toList();
-    final tags = <String>{};
-    return _session.withDekCopy((dek) async {
-      for (final item in active) {
-        Uint8List? clearBytes;
-        try {
-          clearBytes = await _crypto.decryptBytes(
-            key: dek,
-            payload: EncryptedPayload(
-              nonce: fromB64(item.nonce),
-              ciphertext: fromB64(item.ciphertext),
-              mac: fromB64(item.mac),
-            ),
-          );
-          final decoded = jsonDecode(utf8.decode(clearBytes));
-          if (decoded is! Map) continue;
-          final entry = PasswordEntry.fromJson(
-            Map<String, Object?>.from(decoded),
-          );
-          tags.addAll(entry.tags);
-        } catch (_) {
-          // skip items that fail to decrypt
-        } finally {
-          _zeroBytes(clearBytes);
+    try {
+      _ensureUnlocked();
+      await _verifyCurrentManifestWithActiveSession();
+      final items = await repository.itemsDao.allItemsForManifest();
+      final active = items.where((i) => i.deletedAt == null).toList();
+      final tags = <String>{};
+      return await _session.withDekCopy((dek) async {
+        for (final item in active) {
+          Uint8List? clearBytes;
+          try {
+            clearBytes = await _crypto.decryptBytes(
+              key: dek,
+              payload: EncryptedPayload(
+                nonce: fromB64(item.nonce),
+                ciphertext: fromB64(item.ciphertext),
+                mac: fromB64(item.mac),
+              ),
+            );
+            final decoded = jsonDecode(utf8.decode(clearBytes));
+            if (decoded is! Map) {
+              throw const VaultIntegrityException(
+                'Tag item payload is malformed',
+              );
+            }
+            final entry = PasswordEntry.fromJson(
+              Map<String, Object?>.from(decoded),
+            );
+            tags.addAll(entry.tags);
+          } on VaultIntegrityException {
+            rethrow;
+          } on Object {
+            throw const VaultIntegrityException(
+              'Tag item payload could not be processed',
+            );
+          } finally {
+            _zeroBytes(clearBytes);
+          }
         }
-      }
-      final sorted = tags.toList()..sort();
-      return sorted;
-    });
+        final sorted = tags.toList()..sort();
+        return sorted;
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
   }
 
   Future<void> renameTag(String oldTag, String newTag) async {
@@ -1228,7 +1270,11 @@ class VaultService {
               ),
             );
             final decoded = jsonDecode(utf8.decode(clearBytes));
-            if (decoded is! Map) continue;
+            if (decoded is! Map) {
+              throw const VaultIntegrityException(
+                'Tag rename item payload is malformed',
+              );
+            }
             final entry = PasswordEntry.fromJson(
               Map<String, Object?>.from(decoded),
             );
@@ -1288,7 +1334,11 @@ class VaultService {
               ),
             );
             final decoded = jsonDecode(utf8.decode(clearBytes));
-            if (decoded is! Map) continue;
+            if (decoded is! Map) {
+              throw const VaultIntegrityException(
+                'Tag delete item payload is malformed',
+              );
+            }
             final entry = PasswordEntry.fromJson(
               Map<String, Object?>.from(decoded),
             );
@@ -1764,7 +1814,12 @@ class VaultService {
     try {
       await _session.withDekCopy((dek) async {
         final meta = await _requireVaultMeta();
-        await _verifyExistingManifest(meta: meta, dek: dek);
+        final manifest = await _verifyExistingManifest(meta: meta, dek: dek);
+        await _verifyAnchorForManifest(
+          meta: meta,
+          manifest: manifest,
+          allowMissingAnchor: false,
+        );
       });
     } on VaultIntegrityException {
       _session.lock();
