@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -644,6 +645,93 @@ void main() {
       expect(second.password, 'second-new');
     },
   );
+
+  test(
+    'tampering with password history fails closed on manifest verification',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(_entry(password: 'old-password'));
+      final otherId = await service.createItem(
+        _entry(title: 'Other', password: 'other-password'),
+      );
+      await service.updateItem(id, _entry(password: 'new-password'));
+
+      await service.repository.historyDao!.executor.update('password_history', {
+        'entry_id': otherId,
+      });
+
+      await expectLater(
+        service.getItem(id),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
+  test(
+    'deleting password history fails closed on manifest verification',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(_entry(password: 'old-password'));
+      await service.updateItem(id, _entry(password: 'new-password'));
+
+      await service.repository.historyDao!.executor.delete('password_history');
+
+      await expectLater(
+        service.getItem(id),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+    },
+  );
+
+  test('legacy history password can be a JSON literal string', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    final session = await service.unlock(masterPassword: 'master-passphrase');
+    final id = await service.createItem(_entry(password: 'current-password'));
+    const recordedAt = 1760000000000;
+
+    await session.withDekCopy((dek) async {
+      final encrypted = await CryptoService(
+        random: SecureRandom(),
+      ).encryptBytes(key: dek, plaintext: utf8.encode('123'));
+      await service.repository.historyDao!.insert(
+        id,
+        b64(encrypted.ciphertext),
+        b64(encrypted.nonce),
+        b64(encrypted.mac),
+        recordedAt,
+      );
+      final meta = (await service.repository.metaDao.get())!;
+      final previous = await service.repository.manifestDao.get();
+      final manifest =
+          await VaultManifestService(
+            crypto: CryptoService(random: SecureRandom()),
+          ).createManifest(
+            dek: dek,
+            meta: meta,
+            items: await service.repository.itemsDao.allItemsForManifest(),
+            historyRecords:
+                (await service.repository.historyDao!.allRowsForManifest())
+                    .cast<Map<String, Object?>>(),
+            previous: previous,
+            updatedAt: recordedAt,
+          );
+      await service.repository.manifestDao.save(manifest);
+      await service.acceptManifestForCurrentState(
+        meta: meta,
+        manifest: manifest,
+      );
+    });
+
+    final history = await service.listPasswordHistory(id);
+    expect(history.single['password'], '123');
+  });
 
   test(
     'changing a pbkdf2 vault password migrates metadata to argon2id',

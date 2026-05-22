@@ -1,12 +1,16 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart'
+    show Hkdf, Hmac, SecretKey, Sha256;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
-import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
+import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 
 void main() {
@@ -225,6 +229,85 @@ void main() {
       throwsA(isA<VaultIntegrityException>()),
     );
   });
+
+  test('verify rejects legacy manifest when password history exists', () async {
+    final legacyManifest = await _legacyManifest(
+      dek: dek,
+      meta: meta,
+      items: items,
+      updatedAt: 3000,
+    );
+
+    expect(
+      () => service.verifyManifest(
+        dek: dek,
+        meta: meta,
+        items: items,
+        historyRecords: const [
+          {
+            'id': 1,
+            'entry_id': 'item-a',
+            'encrypted_password': 'ciphertext',
+            'password_nonce': 'nonce',
+            'password_mac': 'mac',
+            'recorded_at': 3100,
+          },
+        ],
+        manifest: legacyManifest,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
+}
+
+Future<VaultManifest> _legacyManifest({
+  required Uint8List dek,
+  required VaultMeta meta,
+  required List<EncryptedVaultItem> items,
+  required int updatedAt,
+}) async {
+  final hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
+  final key = Uint8List.fromList(
+    await (await hkdf.deriveKey(
+      secretKey: SecretKey(dek),
+      info: utf8.encode('secure-box:vault-manifest:v1'),
+    )).extractBytes(),
+  );
+  final crypto = CryptoService(random: SecureRandom());
+  final payload = {
+    'version': 1,
+    'vault_id': meta.id,
+    'epoch': 1,
+    'counter': 1,
+    'kdf': meta.kdf,
+    'meta_digest': await _digestObject(_metaDescriptor(meta)),
+    'kdf_params_digest': await _digestObject(meta.kdfParams.toJson()),
+    'encrypted_dek_digest': await _digestObject({
+      'encrypted_dek_by_master': meta.encryptedDekByMaster,
+      'encrypted_dek_by_master_nonce': meta.encryptedDekByMasterNonce,
+      'encrypted_dek_by_master_mac': meta.encryptedDekByMasterMac,
+    }),
+    'active_item_count': items.where((item) => item.deletedAt == null).length,
+    'deleted_item_count': items.where((item) => item.deletedAt != null).length,
+    'items_digest': await _digestObject(_itemDescriptors(items)),
+  };
+  try {
+    final encrypted = await crypto.encryptBytes(
+      key: key,
+      plaintext: utf8.encode(_canonicalJson(payload)),
+    );
+    return VaultManifest(
+      version: 1,
+      epoch: 1,
+      counter: 1,
+      nonce: b64(encrypted.nonce),
+      ciphertext: b64(encrypted.ciphertext),
+      mac: b64(encrypted.mac),
+      updatedAt: updatedAt,
+    );
+  } finally {
+    key.fillRange(0, key.length, 0);
+  }
 }
 
 VaultMeta _meta({
@@ -275,4 +358,73 @@ EncryptedVaultItem _itemB({String? ciphertext}) {
     updatedAt: 2200,
     deletedAt: 2300,
   );
+}
+
+Map<String, Object?> _metaDescriptor(VaultMeta meta) {
+  return {
+    'id': meta.id,
+    'version': meta.version,
+    'kdf': meta.kdf,
+    'kdf_params': meta.kdfParams.toJson(),
+    'salt': meta.salt,
+    'encrypted_dek_by_master': meta.encryptedDekByMaster,
+    'encrypted_dek_by_master_nonce': meta.encryptedDekByMasterNonce,
+    'encrypted_dek_by_master_mac': meta.encryptedDekByMasterMac,
+    'biometric_enabled': meta.biometricEnabled,
+    'encrypted_dek_by_biometric': meta.encryptedDekByBiometric,
+    'encrypted_dek_by_biometric_nonce': meta.encryptedDekByBiometricNonce,
+    'encrypted_dek_by_biometric_mac': meta.encryptedDekByBiometricMac,
+    'created_at': meta.createdAt,
+    'updated_at': meta.updatedAt,
+  };
+}
+
+List<Map<String, Object?>> _itemDescriptors(List<EncryptedVaultItem> items) {
+  final descriptors = items
+      .map(
+        (item) => {
+          'id': item.id,
+          'nonce': item.nonce,
+          'ciphertext': item.ciphertext,
+          'mac': item.mac,
+          'created_at': item.createdAt,
+          'updated_at': item.updatedAt,
+          'deleted_at': item.deletedAt,
+        },
+      )
+      .toList();
+  descriptors.sort((left, right) {
+    final idComparison = (left['id']! as String).compareTo(
+      right['id']! as String,
+    );
+    if (idComparison != 0) {
+      return idComparison;
+    }
+    return _canonicalJson(left).compareTo(_canonicalJson(right));
+  });
+  return descriptors;
+}
+
+Future<String> _digestObject(Object? value) async {
+  final digest = await Sha256().hash(utf8.encode(_canonicalJson(value)));
+  return b64(Uint8List.fromList(digest.bytes));
+}
+
+String _canonicalJson(Object? value) {
+  return jsonEncode(_canonicalize(value));
+}
+
+Object? _canonicalize(Object? value) {
+  if (value is Map) {
+    final sorted = <String, Object?>{};
+    final keys = value.keys.map((key) => key.toString()).toList()..sort();
+    for (final key in keys) {
+      sorted[key] = _canonicalize(value[key]);
+    }
+    return sorted;
+  }
+  if (value is Iterable) {
+    return value.map(_canonicalize).toList(growable: false);
+  }
+  return value;
 }

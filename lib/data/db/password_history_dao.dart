@@ -62,6 +62,13 @@ class PasswordHistoryDao {
     return rows.single;
   }
 
+  Future<List<Map<String, dynamic>>> allRowsForManifest() async {
+    return _db.query(
+      'password_history',
+      orderBy: 'entry_id ASC, recorded_at ASC, id ASC',
+    );
+  }
+
   Future<void> delete(int id) async {
     await _db.delete('password_history', where: 'id = ?', whereArgs: [id]);
   }

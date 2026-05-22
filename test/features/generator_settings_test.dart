@@ -233,7 +233,7 @@ void main() {
   });
 
   test(
-    'biometric delete failure prevents master password metadata change',
+    'biometric delete failure happens after master password metadata change',
     () async {
       final harness = await _buildBiometricHarness();
       await harness.vaultService.enableBiometricUnlock(
@@ -247,18 +247,18 @@ void main() {
           oldPassword: 'old-master-password',
           newPassword: 'new-master-password',
         ),
-        throwsA(isA<StateError>()),
+        throwsA(isA<MasterPasswordChangedBiometricCleanupException>()),
       );
 
       harness.vaultService.lock();
-      await harness.vaultService.unlock(masterPassword: 'old-master-password');
       await expectLater(
-        harness.vaultService.unlock(masterPassword: 'new-master-password'),
+        harness.vaultService.unlock(masterPassword: 'old-master-password'),
         throwsA(isA<VaultUnlockException>()),
       );
+      await harness.vaultService.unlock(masterPassword: 'new-master-password');
       expect(
         (await harness.vaultService.repository.metaDao.get())?.biometricEnabled,
-        isTrue,
+        isFalse,
       );
     },
   );

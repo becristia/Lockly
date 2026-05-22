@@ -13,6 +13,8 @@ const _manifestVersion = 1;
 const _manifestKeyInfo = 'secure-box:vault-manifest:v1';
 const _manifestKeyLength = 32;
 
+enum VaultManifestVerificationResult { current, legacy }
+
 class VaultIntegrityException implements Exception {
   const VaultIntegrityException([
     this.message = 'Vault integrity check failed',
@@ -38,6 +40,7 @@ class VaultManifestService {
     required Uint8List dek,
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    List<Map<String, Object?>> historyRecords = const [],
     required VaultManifest? previous,
     required int updatedAt,
   }) async {
@@ -46,8 +49,10 @@ class VaultManifestService {
     final payload = await _buildPayload(
       meta: meta,
       items: items,
+      historyRecords: historyRecords,
       epoch: epoch,
       counter: counter,
+      includeHistory: true,
     );
     final manifestKey = await _deriveManifestKey(dek);
     try {
@@ -69,10 +74,11 @@ class VaultManifestService {
     }
   }
 
-  Future<void> verifyManifest({
+  Future<VaultManifestVerificationResult> verifyManifest({
     required Uint8List dek,
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    List<Map<String, Object?>> historyRecords = const [],
     required VaultManifest manifest,
   }) async {
     if (manifest.version != _manifestVersion) {
@@ -89,13 +95,32 @@ class VaultManifestService {
       final expected = await _buildPayload(
         meta: meta,
         items: items,
+        historyRecords: historyRecords,
         epoch: manifest.epoch,
         counter: manifest.counter,
+        includeHistory: true,
       );
 
       if (_canonicalJson(decoded) != _canonicalJson(expected)) {
-        throw const VaultIntegrityException();
+        if (decoded.containsKey('history_count') ||
+            decoded.containsKey('history_digest') ||
+            historyRecords.isNotEmpty) {
+          throw const VaultIntegrityException();
+        }
+        final legacyExpected = await _buildPayload(
+          meta: meta,
+          items: items,
+          historyRecords: const [],
+          epoch: manifest.epoch,
+          counter: manifest.counter,
+          includeHistory: false,
+        );
+        if (_canonicalJson(decoded) != _canonicalJson(legacyExpected)) {
+          throw const VaultIntegrityException();
+        }
+        return VaultManifestVerificationResult.legacy;
       }
+      return VaultManifestVerificationResult.current;
     } finally {
       manifestKey.fillRange(0, manifestKey.length, 0);
     }
@@ -153,10 +178,12 @@ class VaultManifestService {
   Future<Map<String, Object?>> _buildPayload({
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    required List<Map<String, Object?>> historyRecords,
     required int epoch,
     required int counter,
+    required bool includeHistory,
   }) async {
-    return {
+    final payload = {
       'version': _manifestVersion,
       'vault_id': meta.id,
       'epoch': epoch,
@@ -175,6 +202,13 @@ class VaultManifestService {
           .length,
       'items_digest': await _digestObject(_itemDescriptors(items)),
     };
+    if (includeHistory) {
+      payload['history_count'] = historyRecords.length;
+      payload['history_digest'] = await _digestObject(
+        _historyDescriptors(historyRecords),
+      );
+    }
+    return payload;
   }
 
   Map<String, Object?> _metaDescriptor(VaultMeta meta) {
@@ -218,6 +252,39 @@ class VaultManifestService {
         return idComparison;
       }
       return _canonicalJson(left).compareTo(_canonicalJson(right));
+    });
+    return descriptors;
+  }
+
+  List<Map<String, Object?>> _historyDescriptors(
+    List<Map<String, Object?>> records,
+  ) {
+    final descriptors = records
+        .map(
+          (record) => {
+            'id': record['id'],
+            'entry_id': record['entry_id'],
+            'encrypted_password': record['encrypted_password'],
+            'password_nonce': record['password_nonce'],
+            'password_mac': record['password_mac'],
+            'recorded_at': record['recorded_at'],
+          },
+        )
+        .toList();
+    descriptors.sort((left, right) {
+      final entryComparison = (left['entry_id']! as String).compareTo(
+        right['entry_id']! as String,
+      );
+      if (entryComparison != 0) {
+        return entryComparison;
+      }
+      final recordedComparison = (left['recorded_at']! as int).compareTo(
+        right['recorded_at']! as int,
+      );
+      if (recordedComparison != 0) {
+        return recordedComparison;
+      }
+      return (left['id']! as int).compareTo(right['id']! as int);
     });
     return descriptors;
   }

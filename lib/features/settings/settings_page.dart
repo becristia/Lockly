@@ -728,6 +728,14 @@ class _MasterPasswordChangeDialogState
       if (mounted) {
         Navigator.of(context).pop(true);
       }
+    } on MasterPasswordChangedBiometricCleanupException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSaving = false;
+        _errorText = '主密码已修改，但生物识别清理失败。请使用新主密码重新进入设置并重试关闭生物识别。';
+      });
     } catch (_) {
       if (!mounted) {
         return;

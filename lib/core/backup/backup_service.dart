@@ -516,13 +516,13 @@ class BackupService {
           final pendingItems = <EncryptedVaultItem>[];
           for (final item in backup.items) {
             final existingItem = await txn.itemsDao.byId(item.id);
-            if (existingItem != null) {
+            if (existingItem != null && existingItem.deletedAt == null) {
               continue;
             }
             pendingItems.add(
               _buildImportedItem(
                 item,
-                createdAt: item.createdAt ?? now,
+                createdAt: existingItem?.createdAt ?? item.createdAt ?? now,
                 updatedAt: item.updatedAt ?? now,
               ),
             );
@@ -732,6 +732,7 @@ class BackupService {
       masterPassword: masterPassword,
       meta: meta,
       items: items,
+      historyRecords: const [],
       previous: previous,
       updatedAt: updatedAt,
     );
@@ -783,10 +784,16 @@ class BackupService {
       throw StateError('Vault has not been created');
     }
     final items = await txn.itemsDao.allItemsForManifest();
+    final historyRecords =
+        (await txn.historyDao?.allRowsForManifest())
+            ?.map((row) => Map<String, Object?>.from(row))
+            .toList(growable: false) ??
+        const <Map<String, Object?>>[];
     final manifest = await vaultService.createManifestForImportedVault(
       masterPassword: masterPassword,
       meta: meta,
       items: items,
+      historyRecords: historyRecords,
       previous: previous,
       updatedAt: updatedAt,
     );
@@ -811,6 +818,11 @@ class BackupService {
       masterPassword: masterPassword,
       meta: meta,
       items: await txn.itemsDao.allItemsForManifest(),
+      historyRecords:
+          (await txn.historyDao?.allRowsForManifest())
+              ?.map((row) => Map<String, Object?>.from(row))
+              .toList(growable: false) ??
+          const <Map<String, Object?>>[],
       manifest: manifest,
     );
     await vaultService.verifyManifestAgainstAnchor(

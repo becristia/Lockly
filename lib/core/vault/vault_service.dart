@@ -155,6 +155,7 @@ class VaultService {
           dek: dek!,
           meta: meta,
           items: const [],
+          historyRecords: const [],
           previous: null,
           updatedAt: now,
         );
@@ -225,10 +226,12 @@ class VaultService {
         return false;
       }
       final items = await _readItemsForManifest(repository);
+      final historyRecords = await _readHistoryForManifest(repository);
       await _manifestService.verifyManifest(
         dek: dek,
         meta: meta,
         items: items,
+        historyRecords: historyRecords,
         manifest: manifest,
       );
       await _verifyAnchorForManifest(
@@ -464,16 +467,19 @@ class VaultService {
           throw const VaultIntegrityException();
         }
         final currentItems = await _readItemsForManifest(repository);
+        final historyRecords = await _readHistoryForManifest(repository);
         await _manifestService.verifyManifest(
           dek: dek,
           meta: meta,
           items: currentItems,
+          historyRecords: historyRecords,
           manifest: manifest,
         );
         return _manifestService.createManifest(
           dek: dek,
           meta: meta,
           items: items,
+          historyRecords: const [],
           previous: manifest,
           updatedAt: updatedAt,
         );
@@ -489,6 +495,7 @@ class VaultService {
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
     required VaultManifest manifest,
+    List<Map<String, Object?>> historyRecords = const [],
   }) async {
     Uint8List? dek;
     try {
@@ -500,6 +507,7 @@ class VaultService {
         dek: dek,
         meta: meta,
         items: items,
+        historyRecords: historyRecords,
         manifest: manifest,
       );
     } finally {
@@ -511,6 +519,7 @@ class VaultService {
     required String masterPassword,
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    List<Map<String, Object?>> historyRecords = const [],
     required VaultManifest? previous,
     required int updatedAt,
   }) async {
@@ -524,6 +533,7 @@ class VaultService {
         dek: dek,
         meta: meta,
         items: items,
+        historyRecords: historyRecords,
         previous: previous,
         updatedAt: updatedAt,
       );
@@ -547,10 +557,12 @@ class VaultService {
           throw const VaultIntegrityException();
         }
         final items = await _readItemsForManifest(txn);
+        final historyRecords = await _readHistoryForManifest(txn);
         await _manifestService.verifyManifest(
           dek: dek,
           meta: currentMeta,
           items: items,
+          historyRecords: historyRecords,
           manifest: previous,
         );
         await _verifyAnchorForManifest(
@@ -578,10 +590,12 @@ class VaultService {
           throw StateError('Vault has not been created');
         }
         final items = await _readItemsForManifest(txn);
+        final historyRecords = await _readHistoryForManifest(txn);
         final manifest = await _manifestService.createManifest(
           dek: dek,
           meta: currentMeta,
           items: items,
+          historyRecords: historyRecords,
           previous: previous,
           updatedAt: updatedAt,
         );
@@ -891,14 +905,20 @@ class VaultService {
               mac: fromB64(r['password_mac'] as String),
             ),
           );
+          final password = _decodeHistoryPassword(
+            record: r,
+            clearBytes: passwordBytes,
+          );
           results.add({
             'id': r['id'],
-            'password': utf8.decode(passwordBytes),
+            'password': password,
             'recordedAt': r['recorded_at'],
             'entryId': r['entry_id'],
           });
         } catch (_) {
-          // Skip records that fail to decrypt
+          throw const VaultIntegrityException(
+            'Password history integrity check failed',
+          );
         } finally {
           _zeroBytes(passwordBytes);
         }
@@ -936,7 +956,10 @@ class VaultService {
               mac: fromB64(historyRecord['password_mac'] as String),
             ),
           );
-          oldPassword = utf8.decode(passwordBytes);
+          oldPassword = _decodeHistoryPassword(
+            record: historyRecord,
+            clearBytes: passwordBytes,
+          );
         } finally {
           _zeroBytes(passwordBytes);
         }
@@ -1285,10 +1308,12 @@ class VaultService {
       throw const VaultIntegrityException();
     }
     final items = await _readItemsForManifest(repository);
+    final historyRecords = await _readHistoryForManifest(repository);
     await _manifestService.verifyManifest(
       dek: dek,
       meta: meta,
       items: items,
+      historyRecords: historyRecords,
       manifest: manifest,
     );
     return manifest;
@@ -1353,10 +1378,12 @@ class VaultService {
       throw const VaultIntegrityException();
     }
     final items = await _readItemsForManifest(txn);
+    final historyRecords = await _readHistoryForManifest(txn);
     await _manifestService.verifyManifest(
       dek: dek,
       meta: currentMeta,
       items: items,
+      historyRecords: historyRecords,
       manifest: previous,
     );
     await _verifyAnchorForManifest(
@@ -1368,6 +1395,7 @@ class VaultService {
       dek: dek,
       meta: updatedMeta,
       items: items,
+      historyRecords: historyRecords,
       previous: previous,
       updatedAt: updatedAt,
     );
@@ -1391,10 +1419,12 @@ class VaultService {
             throw const VaultIntegrityException();
           }
           final currentItems = await _readItemsForManifest(txn);
+          final currentHistory = await _readHistoryForManifest(txn);
           await _manifestService.verifyManifest(
             dek: dek,
             meta: currentMeta,
             items: currentItems,
+            historyRecords: currentHistory,
             manifest: previous,
           );
           await _verifyAnchorForManifest(
@@ -1409,10 +1439,12 @@ class VaultService {
             throw StateError('Vault has not been created');
           }
           final updatedItems = await _readItemsForManifest(txn);
+          final updatedHistory = await _readHistoryForManifest(txn);
           final manifest = await _manifestService.createManifest(
             dek: dek,
             meta: updatedMeta,
             items: updatedItems,
+            historyRecords: updatedHistory,
             previous: previous,
             updatedAt: updatedAt,
           );
@@ -1451,6 +1483,25 @@ class VaultService {
   ) async {
     try {
       return await repository.itemsDao.allItemsForManifest();
+    } on FormatException {
+      throw const VaultIntegrityException();
+    } on StateError {
+      throw const VaultIntegrityException();
+    } on ArgumentError {
+      throw const VaultIntegrityException();
+    }
+  }
+
+  Future<List<Map<String, Object?>>> _readHistoryForManifest(
+    VaultRepository repository,
+  ) async {
+    try {
+      final historyDao = repository.historyDao;
+      if (historyDao == null) return const [];
+      final rows = await historyDao.allRowsForManifest();
+      return rows
+          .map((row) => Map<String, Object?>.from(row))
+          .toList(growable: false);
     } on FormatException {
       throw const VaultIntegrityException();
     } on StateError {
@@ -1585,17 +1636,56 @@ class VaultService {
   }) async {
     final historyDao = txn.historyDao;
     if (historyDao == null) return;
+    final recordedAt = DateTime.now().millisecondsSinceEpoch;
+    final payload = {
+      'version': 1,
+      'entry_id': entryId,
+      'password': oldPassword,
+      'recorded_at': recordedAt,
+    };
     final encryptedPayload = await _crypto.encryptBytes(
       key: dek,
-      plaintext: utf8.encode(oldPassword),
+      plaintext: utf8.encode(jsonEncode(payload)),
     );
     await historyDao.insert(
       entryId,
       b64(encryptedPayload.ciphertext),
       b64(encryptedPayload.nonce),
       b64(encryptedPayload.mac),
-      DateTime.now().millisecondsSinceEpoch,
+      recordedAt,
     );
+  }
+
+  String _decodeHistoryPassword({
+    required Map<String, dynamic> record,
+    required Uint8List clearBytes,
+  }) {
+    final text = utf8.decode(clearBytes);
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) {
+        return text;
+      }
+      final payload = Map<String, Object?>.from(decoded);
+      if (!payload.containsKey('version')) {
+        return text;
+      }
+      if (payload['version'] != 1 ||
+          payload['entry_id'] != record['entry_id'] ||
+          payload['recorded_at'] != record['recorded_at'] ||
+          payload['password'] is! String) {
+        throw const VaultIntegrityException(
+          'Password history payload does not match its record',
+        );
+      }
+      return payload['password']! as String;
+    } on FormatException {
+      return text;
+    } on ArgumentError {
+      throw const VaultIntegrityException(
+        'Password history payload is malformed',
+      );
+    }
   }
 
   Future<void> _verifyCurrentManifestWithActiveSession() async {

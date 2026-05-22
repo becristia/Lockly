@@ -56,6 +56,19 @@ void main() {
       expect(lightStyles, contains('Theme.AppCompat.DayNight.NoActionBar'));
       expect(darkStyles, contains('Theme.AppCompat.DayNight.NoActionBar'));
     });
+
+    test('release build enables shrinking and obfuscation rules', () {
+      final buildFile = File('android/app/build.gradle.kts').readAsStringSync();
+
+      expect(buildFile, contains('release {'));
+      expect(buildFile, contains('isMinifyEnabled = true'));
+      expect(buildFile, contains('isShrinkResources = true'));
+      expect(
+        buildFile,
+        contains('getDefaultProguardFile("proguard-android-optimize.txt")'),
+      );
+      expect(buildFile, contains('"proguard-rules.pro"'));
+    });
   });
 }
 

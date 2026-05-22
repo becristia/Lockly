@@ -17,6 +17,7 @@ import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
+import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
@@ -810,6 +811,119 @@ void main() {
     expect(added.password, 'docs-password');
   });
 
+  test('importBackup skip restores a soft-deleted duplicate row', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final sourceId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'Imported',
+        website: 'https://import.example',
+        username: 'import@example.com',
+        password: 'imported-password',
+        notes: 'from backup',
+        tags: const ['backup'],
+      ),
+    );
+    final backup = await source.backupService.exportBackup();
+
+    final target = await _buildHarness();
+    await target.vaultService.createVault(masterPassword: 'target-master');
+    await target.vaultService.unlock(masterPassword: 'target-master');
+    final localId = await target.vaultService.createItem(
+      PasswordEntry(
+        title: 'Local',
+        website: 'https://local.example',
+        username: 'local@example.com',
+        password: 'local-password',
+        notes: 'deleted local row',
+        tags: const ['local'],
+      ),
+    );
+    await target.vaultService.deleteItem(localId);
+    final importedJson = _backupJsonWithItemIdReplacement(
+      backup: backup,
+      fromId: sourceId,
+      toId: localId,
+    );
+
+    final importedCount = await target.backupService.importBackup(
+      json: importedJson,
+      masterPassword: 'source-master',
+      mode: BackupImportMode.skip,
+      allowLegacyBackups: true,
+    );
+
+    final restored = await target.vaultService.getItem(localId);
+    expect(importedCount, 1);
+    expect(restored.title, 'Imported');
+    expect(restored.password, 'imported-password');
+    expect((await target.repository.itemsDao.byId(localId))!.deletedAt, isNull);
+  });
+
+  test(
+    'locked same-envelope skip import preserves existing password history manifest',
+    () async {
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final existingId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Existing',
+          website: 'https://existing.example',
+          username: 'existing@example.com',
+          password: 'old-password',
+          notes: 'with history',
+          tags: const ['local'],
+        ),
+      );
+      await target.vaultService.updateItem(
+        existingId,
+        PasswordEntry(
+          title: 'Existing',
+          website: 'https://existing.example',
+          username: 'existing@example.com',
+          password: 'new-password',
+          notes: 'with history',
+          tags: const ['local'],
+        ),
+      );
+      final importedId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Imported Later',
+          website: 'https://later.example',
+          username: 'later@example.com',
+          password: 'later-password',
+          notes: 'same envelope backup',
+          tags: const ['backup'],
+        ),
+      );
+      final backup = await target.backupService.exportBackup();
+      await target.vaultService.deleteItem(importedId);
+      await target.vaultService.permanentlyDeleteItem(importedId);
+      target.vaultService.lock();
+
+      final importedCount = await target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'target-master',
+        mode: BackupImportMode.skip,
+      );
+
+      expect(importedCount, 1);
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      expect(
+        (await target.vaultService.getItem(importedId)).password,
+        'later-password',
+      );
+      expect(
+        (await target.vaultService.listPasswordHistory(
+          existingId,
+        )).single['password'],
+        'old-password',
+      );
+    },
+  );
+
   test(
     'importBackup skip increments target manifest once when data changes',
     () async {
@@ -1479,6 +1593,7 @@ Future<_BackupHarness> _buildHarness() async {
     itemsDao: VaultItemsDao(db),
     manifestDao: VaultManifestDao(db),
     settingsDao: SettingsDao(db),
+    historyDao: PasswordHistoryDao(db),
   );
   final anchorStore = MemoryVaultAnchorStore();
   final vaultService = VaultService(

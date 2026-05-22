@@ -15,6 +15,15 @@ enum AppShellState { setupRequired, locked, unlocked }
 
 enum BiometricSetupResult { notRequested, enabled, failed }
 
+class MasterPasswordChangedBiometricCleanupException implements Exception {
+  MasterPasswordChangedBiometricCleanupException(this.cause);
+
+  final Object cause;
+
+  @override
+  String toString() => 'MasterPasswordChangedBiometricCleanupException: $cause';
+}
+
 class AppServices {
   AppServices({
     required bool hasVault,
@@ -586,8 +595,12 @@ class AppServices {
     await vaultService.changeMasterPassword(
       oldPassword: oldPassword,
       newPassword: newPassword,
-      beforePersist: _biometricService?.disable,
     );
+    try {
+      await _biometricService?.disable();
+    } catch (error) {
+      throw MasterPasswordChangedBiometricCleanupException(error);
+    }
   }
 
   Future<void> enableBiometricUnlock(String masterPassword) async {
