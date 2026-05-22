@@ -446,6 +446,9 @@ class AppServices {
     } on VaultUnlockException {
       _recordMasterUnlockFailure();
       return false;
+    } on VaultIntegrityException {
+      lockVault();
+      rethrow;
     }
 
     _resetMasterUnlockThrottle();
@@ -472,8 +475,9 @@ class AppServices {
       return unlocked;
     }
 
-    final unlocked = await vaultService.unlockWithBiometrics(
-      biometricService: biometricService,
+    final unlocked = await _lockShellOnIntegrity(
+      () =>
+          vaultService.unlockWithBiometrics(biometricService: biometricService),
     );
     if (unlocked) {
       _resetMasterUnlockThrottle();
@@ -488,7 +492,7 @@ class AppServices {
       return override(query);
     }
 
-    return vaultService.listItems(query: query);
+    return _lockShellOnIntegrity(() => vaultService.listItems(query: query));
   }
 
   Future<PasswordEntry> getVaultItem(String id) async {
@@ -497,7 +501,7 @@ class AppServices {
       return override(id);
     }
 
-    return vaultService.getItem(id);
+    return _lockShellOnIntegrity(() => vaultService.getItem(id));
   }
 
   Future<String> createVaultItem(PasswordEntry entry) async {
@@ -506,7 +510,7 @@ class AppServices {
       return override(entry);
     }
 
-    return vaultService.createItem(entry);
+    return _lockShellOnIntegrity(() => vaultService.createItem(entry));
   }
 
   Future<void> updateVaultItem(String id, PasswordEntry entry) async {
@@ -515,7 +519,7 @@ class AppServices {
       return override(id, entry);
     }
 
-    return vaultService.updateItem(id, entry);
+    return _lockShellOnIntegrity(() => vaultService.updateItem(id, entry));
   }
 
   Future<void> deleteVaultItem(String id) async {
@@ -524,55 +528,59 @@ class AppServices {
       return override(id);
     }
 
-    return vaultService.deleteItem(id);
+    return _lockShellOnIntegrity(() => vaultService.deleteItem(id));
   }
 
   Future<List<TotpListItem>> listTotpItems() async {
-    return vaultService.listTotpItems();
+    return _lockShellOnIntegrity(vaultService.listTotpItems);
   }
 
-  Future<List<String>> allTags() async => vaultService.allTags();
+  Future<List<String>> allTags() async =>
+      _lockShellOnIntegrity(vaultService.allTags);
 
   Future<void> renameTag(String oldTag, String newTag) async =>
-      vaultService.renameTag(oldTag, newTag);
+      _lockShellOnIntegrity(() => vaultService.renameTag(oldTag, newTag));
 
-  Future<void> deleteTag(String tag) async => vaultService.deleteTag(tag);
+  Future<void> deleteTag(String tag) async =>
+      _lockShellOnIntegrity(() => vaultService.deleteTag(tag));
 
   Future<List<VaultListItem>> listDeletedItems() async {
     final override = _listDeletedItemsOverride;
     if (override != null) return override();
-    return vaultService.listDeletedItems();
+    return _lockShellOnIntegrity(vaultService.listDeletedItems);
   }
 
   Future<void> restoreItem(String id) async {
     final override = _restoreItemOverride;
     if (override != null) return override(id);
-    return vaultService.restoreItem(id);
+    return _lockShellOnIntegrity(() => vaultService.restoreItem(id));
   }
 
   Future<void> permanentlyDeleteItem(String id) async {
     final override = _permanentlyDeleteItemOverride;
     if (override != null) return override(id);
-    return vaultService.permanentlyDeleteItem(id);
+    return _lockShellOnIntegrity(() => vaultService.permanentlyDeleteItem(id));
   }
 
   Future<void> emptyTrash() async {
     final override = _emptyTrashOverride;
     if (override != null) return override();
-    return vaultService.emptyTrash();
+    return _lockShellOnIntegrity(vaultService.emptyTrash);
   }
 
   Future<int> deletedItemCount() async {
     final override = _deletedItemCountOverride;
     if (override != null) return override();
-    return vaultService.deletedItemCount();
+    return _lockShellOnIntegrity(vaultService.deletedItemCount);
   }
 
   Future<HealthReport> analyzePasswordHealth() async {
     final override = _analyzePasswordHealthOverride;
     if (override != null) return override();
-    return vaultService.analyzePasswordHealth(
-      healthService: PasswordHealthService(),
+    return _lockShellOnIntegrity(
+      () => vaultService.analyzePasswordHealth(
+        healthService: PasswordHealthService(),
+      ),
     );
   }
 
@@ -603,9 +611,11 @@ class AppServices {
       return override(oldPassword, newPassword);
     }
 
-    await vaultService.changeMasterPassword(
-      oldPassword: oldPassword,
-      newPassword: newPassword,
+    await _lockShellOnIntegrity(
+      () => vaultService.changeMasterPassword(
+        oldPassword: oldPassword,
+        newPassword: newPassword,
+      ),
     );
     try {
       await _biometricService?.disable();
@@ -620,9 +630,11 @@ class AppServices {
       return override(masterPassword);
     }
 
-    return vaultService.enableBiometricUnlock(
-      masterPassword: masterPassword,
-      biometricService: biometricService,
+    return _lockShellOnIntegrity(
+      () => vaultService.enableBiometricUnlock(
+        masterPassword: masterPassword,
+        biometricService: biometricService,
+      ),
     );
   }
 
@@ -632,8 +644,10 @@ class AppServices {
       return override();
     }
 
-    return vaultService.disableBiometricUnlock(
-      biometricService: biometricService,
+    return _lockShellOnIntegrity(
+      () => vaultService.disableBiometricUnlock(
+        biometricService: biometricService,
+      ),
     );
   }
 
@@ -707,12 +721,14 @@ class AppServices {
       return override();
     }
 
-    final backup = await backupService.exportBackup();
+    final backup = await _lockShellOnIntegrity(backupService.exportBackup);
     return const JsonEncoder.withIndent('  ').convert(backup.toJson());
   }
 
   Future<String> exportEncryptedItemBackupJson(String itemId) async {
-    final backup = await backupService.exportItemBackup(itemId);
+    final backup = await _lockShellOnIntegrity(
+      () => backupService.exportItemBackup(itemId),
+    );
     return const JsonEncoder.withIndent('  ').convert(backup.toJson());
   }
 
@@ -733,12 +749,17 @@ class AppServices {
     if (decoded is! Map) {
       throw const FormatException('备份内容格式不正确');
     }
-    final importedCount = await backupService.importBackup(
-      json: Map<String, Object?>.from(decoded),
-      masterPassword: masterPassword,
-      mode: BackupImportMode.skip,
+    final importedCount = await _lockShellOnIntegrity(
+      () => backupService.importBackup(
+        json: Map<String, Object?>.from(decoded),
+        masterPassword: masterPassword,
+        mode: BackupImportMode.skip,
+      ),
     );
     _hasVault = true;
+    shellState.value = vaultService.isUnlocked
+        ? AppShellState.unlocked
+        : AppShellState.locked;
     return importedCount;
   }
 
@@ -854,10 +875,23 @@ class AppServices {
   }
 
   void lockVault() {
+    final clipboardClear = _clipboardService?.clearPendingPasswordNow();
+    if (clipboardClear != null) {
+      unawaited(clipboardClear);
+    }
     _vaultService?.lock();
     shellState.value = _hasVault
         ? AppShellState.locked
         : AppShellState.setupRequired;
+  }
+
+  Future<T> _lockShellOnIntegrity<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on VaultIntegrityException {
+      lockVault();
+      rethrow;
+    }
   }
 
   void dispose() {
@@ -903,7 +937,7 @@ class AppServices {
       return Duration.zero;
     }
 
-    final seconds = failures >= 5 ? 30 : 1 << (failures - 2);
+    final seconds = failures >= 5 ? 8 : 1 << (failures - 2);
     return Duration(seconds: seconds);
   }
 }

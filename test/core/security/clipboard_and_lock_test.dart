@@ -4,6 +4,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/security/app_lifecycle_guard.dart';
 import 'package:secure_box/core/security/auto_lock_service.dart';
@@ -410,6 +411,46 @@ void main() {
       expect(locked, isFalse);
       async.elapse(const Duration(minutes: 1));
       expect(locked, isTrue);
+    });
+  });
+
+  test('app services lock clears pending password clipboard immediately', () {
+    fakeAsync((async) {
+      final services = AppServices.fake(hasVault: true, unlocked: true);
+
+      services.clipboardService.copyPassword('secret-password');
+      async.flushMicrotasks();
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text, 'secret-password');
+      });
+      async.flushMicrotasks();
+
+      services.lockVault();
+      async.flushMicrotasks();
+
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text ?? '', isNot('secret-password'));
+      });
+      async.flushMicrotasks();
+      services.dispose();
+    });
+  });
+
+  test('app services auto lock clears pending password clipboard', () {
+    fakeAsync((async) {
+      final services = AppServices.fake(hasVault: true, unlocked: true);
+
+      services.clipboardService.copyPassword('secret-password');
+      async.flushMicrotasks();
+
+      services.autoLockService.lockNow();
+      async.flushMicrotasks();
+
+      Clipboard.getData(clipboardFormat).then((data) {
+        expect(data?.text ?? '', isNot('secret-password'));
+      });
+      async.flushMicrotasks();
+      services.dispose();
     });
   });
 

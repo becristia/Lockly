@@ -197,11 +197,11 @@ void main() {
       final manifest = await service.repository.manifestDao.get();
       await service.repository.manifestDao.save(_tamperManifestMac(manifest!));
 
-      final unlocked = await service.unlockWithBiometrics(
-        biometricService: biometricService,
+      await expectLater(
+        service.unlockWithBiometrics(biometricService: biometricService),
+        throwsA(isA<VaultIntegrityException>()),
       );
 
-      expect(unlocked, isFalse);
       expect(service.isUnlocked, isFalse);
     },
   );
@@ -229,11 +229,11 @@ void main() {
         'version': 'bad-version',
       });
 
-      final unlocked = await service.unlockWithBiometrics(
-        biometricService: biometricService,
+      await expectLater(
+        service.unlockWithBiometrics(biometricService: biometricService),
+        throwsA(isA<VaultIntegrityException>()),
       );
 
-      expect(unlocked, isFalse);
       expect(service.isUnlocked, isFalse);
     },
   );
@@ -732,61 +732,64 @@ void main() {
     expect(history.single['password'], '123');
   });
 
-  test('listPasswordHistory locks when history payload integrity fails', () async {
-    final service = await buildService();
-    await service.createVault(masterPassword: 'master-passphrase');
-    final session = await service.unlock(masterPassword: 'master-passphrase');
-    final id = await service.createItem(_entry(password: 'current-password'));
-    const recordedAt = 1760000000000;
+  test(
+    'listPasswordHistory locks when history payload integrity fails',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      final session = await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(_entry(password: 'current-password'));
+      const recordedAt = 1760000000000;
 
-    await session.withDekCopy((dek) async {
-      final encrypted = await CryptoService(random: SecureRandom())
-          .encryptBytes(
-            key: dek,
-            plaintext: utf8.encode(
-              jsonEncode({
-                'version': 1,
-                'entry_id': 'different-entry',
-                'password': 'old-password',
-                'recorded_at': recordedAt,
-              }),
-            ),
-          );
-      await service.repository.historyDao!.insert(
-        id,
-        b64(encrypted.ciphertext),
-        b64(encrypted.nonce),
-        b64(encrypted.mac),
-        recordedAt,
-      );
-      final meta = (await service.repository.metaDao.get())!;
-      final previous = await service.repository.manifestDao.get();
-      final manifest =
-          await VaultManifestService(
-            crypto: CryptoService(random: SecureRandom()),
-          ).createManifest(
-            dek: dek,
-            meta: meta,
-            items: await service.repository.itemsDao.allItemsForManifest(),
-            historyRecords:
-                (await service.repository.historyDao!.allRowsForManifest())
-                    .cast<Map<String, Object?>>(),
-            previous: previous,
-            updatedAt: recordedAt,
-          );
-      await service.repository.manifestDao.save(manifest);
-      await service.acceptManifestForCurrentState(
-        meta: meta,
-        manifest: manifest,
-      );
-    });
+      await session.withDekCopy((dek) async {
+        final encrypted = await CryptoService(random: SecureRandom())
+            .encryptBytes(
+              key: dek,
+              plaintext: utf8.encode(
+                jsonEncode({
+                  'version': 1,
+                  'entry_id': 'different-entry',
+                  'password': 'old-password',
+                  'recorded_at': recordedAt,
+                }),
+              ),
+            );
+        await service.repository.historyDao!.insert(
+          id,
+          b64(encrypted.ciphertext),
+          b64(encrypted.nonce),
+          b64(encrypted.mac),
+          recordedAt,
+        );
+        final meta = (await service.repository.metaDao.get())!;
+        final previous = await service.repository.manifestDao.get();
+        final manifest =
+            await VaultManifestService(
+              crypto: CryptoService(random: SecureRandom()),
+            ).createManifest(
+              dek: dek,
+              meta: meta,
+              items: await service.repository.itemsDao.allItemsForManifest(),
+              historyRecords:
+                  (await service.repository.historyDao!.allRowsForManifest())
+                      .cast<Map<String, Object?>>(),
+              previous: previous,
+              updatedAt: recordedAt,
+            );
+        await service.repository.manifestDao.save(manifest);
+        await service.acceptManifestForCurrentState(
+          meta: meta,
+          manifest: manifest,
+        );
+      });
 
-    await expectLater(
-      service.listPasswordHistory(id),
-      throwsA(isA<VaultIntegrityException>()),
-    );
-    expect(service.isUnlocked, isFalse);
-  });
+      await expectLater(
+        service.listPasswordHistory(id),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+    },
+  );
 
   test('restorePassword throws when history record is missing', () async {
     final service = await buildService();
@@ -830,9 +833,10 @@ void main() {
         updatedAt: now,
       );
 
+      late final VaultManifest manifest;
       await service.repository.transaction((txn) async {
         await txn.metaDao.save(legacyMeta);
-        final manifest =
+        manifest =
             await VaultManifestService(
               crypto: CryptoService(random: SecureRandom()),
             ).createManifest(
@@ -844,6 +848,10 @@ void main() {
             );
         await txn.manifestDao.save(manifest);
       });
+      await service.acceptManifestForCurrentState(
+        meta: legacyMeta,
+        manifest: manifest,
+      );
 
       await service.unlock(masterPassword: 'old-master');
       await service.changeMasterPassword(

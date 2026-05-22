@@ -253,15 +253,32 @@ void main() {
         throwsA(isA<MasterPasswordChangedBiometricCleanupException>()),
       );
 
-      harness.vaultService.lock();
-      await expectLater(
-        harness.vaultService.unlock(masterPassword: 'old-master-password'),
-        throwsA(isA<VaultUnlockException>()),
-      );
-      await harness.vaultService.unlock(masterPassword: 'new-master-password');
       expect(
         (await harness.vaultService.repository.metaDao.get())?.biometricEnabled,
         isFalse,
+      );
+    },
+  );
+
+  test(
+    'biometric disable delete failure leaves biometric metadata enabled',
+    () async {
+      final harness = await _buildBiometricHarness();
+      await harness.vaultService.enableBiometricUnlock(
+        masterPassword: 'old-master-password',
+        biometricService: harness.biometricService,
+      );
+      harness.store.throwOnDelete = true;
+
+      await expectLater(
+        harness.services.disableBiometricUnlock(),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(harness.store.deleteCount, 1);
+      expect(
+        (await harness.vaultService.repository.metaDao.get())?.biometricEnabled,
+        isTrue,
       );
     },
   );
@@ -359,6 +376,89 @@ void main() {
 
     await expectLater(
       harness.services.restorePassword(secondId, history.single['id'] as int),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+
+    expect(harness.services.shellState.value, AppShellState.locked);
+    expect(harness.vaultService.isUnlocked, isFalse);
+  });
+
+  test('vault item integrity failure locks the app shell', () async {
+    final harness = await _buildBiometricHarness();
+    harness.services.markVaultUnlocked();
+    final id = await harness.vaultService.createItem(
+      PasswordEntry(
+        title: 'Tampered',
+        website: 'https://tampered.example',
+        username: 'tampered@example.com',
+        password: 'secret-password',
+        notes: 'tamper test',
+        tags: const ['integrity'],
+      ),
+    );
+    final manifest = await harness.vaultService.repository.manifestDao.get();
+    await harness.vaultService.repository.manifestDao.save(
+      manifest!.copyWith(mac: '${manifest.mac}tampered'),
+    );
+
+    await expectLater(
+      harness.services.getVaultItem(id),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+
+    expect(harness.services.shellState.value, AppShellState.locked);
+    expect(harness.vaultService.isUnlocked, isFalse);
+  });
+
+  test('trash integrity failure locks the app shell', () async {
+    final harness = await _buildBiometricHarness();
+    harness.services.markVaultUnlocked();
+    final id = await harness.vaultService.createItem(
+      PasswordEntry(
+        title: 'Deleted',
+        website: 'https://deleted.example',
+        username: 'deleted@example.com',
+        password: 'secret-password',
+        notes: 'trash test',
+        tags: const ['trash'],
+      ),
+    );
+    await harness.services.deleteVaultItem(id);
+    final manifest = await harness.vaultService.repository.manifestDao.get();
+    await harness.vaultService.repository.manifestDao.save(
+      manifest!.copyWith(mac: '${manifest.mac}tampered'),
+    );
+
+    await expectLater(
+      harness.services.listDeletedItems(),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+
+    expect(harness.services.shellState.value, AppShellState.locked);
+    expect(harness.vaultService.isUnlocked, isFalse);
+  });
+
+  test('trash count integrity failure locks the app shell', () async {
+    final harness = await _buildBiometricHarness();
+    harness.services.markVaultUnlocked();
+    final id = await harness.vaultService.createItem(
+      PasswordEntry(
+        title: 'Deleted Count',
+        website: 'https://deleted-count.example',
+        username: 'deleted-count@example.com',
+        password: 'secret-password',
+        notes: 'trash count test',
+        tags: const ['trash'],
+      ),
+    );
+    await harness.services.deleteVaultItem(id);
+    final manifest = await harness.vaultService.repository.manifestDao.get();
+    await harness.vaultService.repository.manifestDao.save(
+      manifest!.copyWith(mac: '${manifest.mac}tampered'),
+    );
+
+    await expectLater(
+      harness.services.deletedItemCount(),
       throwsA(isA<VaultIntegrityException>()),
     );
 

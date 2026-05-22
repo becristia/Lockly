@@ -12,6 +12,8 @@ import 'package:uuid/uuid.dart';
 const int _legacyBackupVersion = 1;
 const int _currentBackupVersion = 2;
 const String _backupMagic = 'secure-box-backup';
+const String _backupScopeFull = 'full';
+const String _backupScopeItem = 'item';
 const int _maximumImportedItems = 10000;
 const int _maximumImportedFieldLength = 1048576;
 const int _maximumImportedPbkdf2Iterations = 2000000;
@@ -59,6 +61,57 @@ class BackupItem {
       mac: _readRequiredString(json, 'mac'),
       createdAt: _readOptionalInt(json, 'created_at'),
       updatedAt: _readOptionalInt(json, 'updated_at'),
+    );
+  }
+}
+
+class BackupHistoryItem {
+  const BackupHistoryItem({
+    required this.id,
+    required this.entryId,
+    required this.encryptedPassword,
+    required this.nonce,
+    required this.mac,
+    required this.recordedAt,
+  });
+
+  factory BackupHistoryItem.fromRow(Map<String, Object?> row) {
+    return BackupHistoryItem(
+      id: _readRequiredInt(row, 'id'),
+      entryId: _readRequiredString(row, 'entry_id'),
+      encryptedPassword: _readRequiredString(row, 'encrypted_password'),
+      nonce: _readRequiredString(row, 'password_nonce'),
+      mac: _readRequiredString(row, 'password_mac'),
+      recordedAt: _readRequiredInt(row, 'recorded_at'),
+    );
+  }
+
+  final int id;
+  final String entryId;
+  final String encryptedPassword;
+  final String nonce;
+  final String mac;
+  final int recordedAt;
+
+  Map<String, Object?> toJson() {
+    return {
+      'id': id,
+      'entry_id': entryId,
+      'encrypted_password': encryptedPassword,
+      'password_nonce': nonce,
+      'password_mac': mac,
+      'recorded_at': recordedAt,
+    };
+  }
+
+  factory BackupHistoryItem.fromJson(Map<String, Object?> json) {
+    return BackupHistoryItem(
+      id: _readRequiredInt(json, 'id'),
+      entryId: _readRequiredString(json, 'entry_id'),
+      encryptedPassword: _readRequiredString(json, 'encrypted_password'),
+      nonce: _readRequiredString(json, 'password_nonce'),
+      mac: _readRequiredString(json, 'password_mac'),
+      recordedAt: _readRequiredInt(json, 'recorded_at'),
     );
   }
 }
@@ -136,7 +189,9 @@ class VaultBackup {
     required this.version,
     this.magic,
     this.createdAt,
+    this.scope,
     this.itemCount,
+    this.historyCount,
     this.vaultId,
     this.vaultCreatedAt,
     this.vaultUpdatedAt,
@@ -152,17 +207,22 @@ class VaultBackup {
     required this.encryptedDekByMasterNonce,
     required this.encryptedDekByMasterMac,
     required List<BackupItem> items,
+    List<BackupHistoryItem> historyItems = const [],
   }) : kdfParams = UnmodifiableMapView(Map<String, Object?>.from(kdfParams)),
-       items = List.unmodifiable(items) {
+       items = List.unmodifiable(items),
+       historyItems = List.unmodifiable(historyItems) {
     if (version != _legacyBackupVersion && version != _currentBackupVersion) {
       throw BackupFormatException('Unsupported backup version: $version');
     }
     _parseKdfParams(kdf: kdf, rawParams: this.kdfParams);
     _validateImportedItems(this.items);
+    _validateImportedHistoryItems(this.historyItems);
     if (version == _currentBackupVersion) {
       if (magic != _backupMagic ||
           createdAt == null ||
+          (scope != _backupScopeFull && scope != _backupScopeItem) ||
           itemCount != this.items.length ||
+          historyCount != this.historyItems.length ||
           vaultId == null ||
           vaultCreatedAt == null ||
           vaultUpdatedAt == null ||
@@ -179,7 +239,9 @@ class VaultBackup {
   final int version;
   final String? magic;
   final int? createdAt;
+  final String? scope;
   final int? itemCount;
+  final int? historyCount;
   final String? vaultId;
   final int? vaultCreatedAt;
   final int? vaultUpdatedAt;
@@ -195,6 +257,7 @@ class VaultBackup {
   final String encryptedDekByMasterNonce;
   final String encryptedDekByMasterMac;
   final List<BackupItem> items;
+  final List<BackupHistoryItem> historyItems;
 
   Map<String, Object?> toJson() {
     return {
@@ -202,7 +265,9 @@ class VaultBackup {
       if (version == _currentBackupVersion) ...{
         'magic': magic,
         'created_at': createdAt,
+        'scope': scope,
         'item_count': itemCount,
+        'history_count': historyCount,
         'vault_id': vaultId,
         'vault_created_at': vaultCreatedAt,
         'vault_updated_at': vaultUpdatedAt,
@@ -219,6 +284,10 @@ class VaultBackup {
       'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
       'encrypted_dek_by_master_mac': encryptedDekByMasterMac,
       'items': items.map((item) => item.toJson()).toList(growable: false),
+      if (version == _currentBackupVersion)
+        'history': historyItems
+            .map((item) => item.toJson())
+            .toList(growable: false),
     };
   }
 
@@ -241,6 +310,7 @@ class VaultBackup {
     }
 
     BackupManifest? manifest;
+    var historyItems = const <BackupHistoryItem>[];
     if (version == _currentBackupVersion) {
       final rawManifest = json['manifest'];
       if (rawManifest is! Map<Object?, Object?>) {
@@ -249,6 +319,26 @@ class VaultBackup {
       manifest = BackupManifest.fromJson(
         Map<String, Object?>.from(rawManifest),
       );
+      final rawHistory = json['history'];
+      if (rawHistory != null) {
+        if (rawHistory is! List<Object?>) {
+          throw const BackupFormatException(
+            'Invalid "history": expected a list',
+          );
+        }
+        historyItems = rawHistory
+            .map((item) {
+              if (item is! Map<Object?, Object?>) {
+                throw const BackupFormatException(
+                  'Invalid backup history item: expected an object',
+                );
+              }
+              return BackupHistoryItem.fromJson(
+                Map<String, Object?>.from(item),
+              );
+            })
+            .toList(growable: false);
+      }
     }
 
     return VaultBackup(
@@ -259,8 +349,14 @@ class VaultBackup {
       createdAt: version == _currentBackupVersion
           ? _readRequiredInt(json, 'created_at')
           : null,
+      scope: version == _currentBackupVersion
+          ? _readOptionalString(json, 'scope') ?? _backupScopeFull
+          : null,
       itemCount: version == _currentBackupVersion
           ? _readRequiredInt(json, 'item_count')
+          : null,
+      historyCount: version == _currentBackupVersion
+          ? _readOptionalInt(json, 'history_count') ?? historyItems.length
           : null,
       vaultId: version == _currentBackupVersion
           ? _readRequiredString(json, 'vault_id')
@@ -309,11 +405,29 @@ class VaultBackup {
             return BackupItem.fromJson(Map<String, Object?>.from(item));
           })
           .toList(growable: false),
+      historyItems: historyItems,
     );
   }
 
   KdfParams get parsedKdfParams =>
       _parseKdfParams(kdf: kdf, rawParams: kdfParams);
+}
+
+void _validateImportedHistoryItems(List<BackupHistoryItem> items) {
+  if (items.length > _maximumImportedItems * 5) {
+    throw BackupFormatException(
+      'Invalid "history": exceeds ${_maximumImportedItems * 5} entries',
+    );
+  }
+  for (final item in items) {
+    _validateImportedStringField('history.entry_id', item.entryId);
+    _validateImportedStringField(
+      'history.encrypted_password',
+      item.encryptedPassword,
+    );
+    _validateImportedStringField('history.password_nonce', item.nonce);
+    _validateImportedStringField('history.password_mac', item.mac);
+  }
 }
 
 void _validateImportedItems(List<BackupItem> items) {
@@ -358,7 +472,19 @@ class BackupService {
     }
 
     final items = await repository.itemsDao.activeItems();
-    return _buildBackup(meta: meta, items: items);
+    final activeIds = items.map((item) => item.id).toSet();
+    final historyItems =
+        (await repository.historyDao?.allRowsForManifest())
+            ?.where((row) => activeIds.contains(row['entry_id']))
+            .map((row) => BackupHistoryItem.fromRow(row))
+            .toList(growable: false) ??
+        const <BackupHistoryItem>[];
+    return _buildBackup(
+      meta: meta,
+      items: items,
+      historyItems: historyItems,
+      scope: _backupScopeFull,
+    );
   }
 
   Future<VaultBackup> exportItemBackup(String itemId) async {
@@ -372,23 +498,39 @@ class BackupService {
       throw VaultItemNotFoundException(itemId);
     }
 
-    return _buildBackup(meta: meta, items: [item]);
+    final historyItems =
+        (await repository.historyDao?.allRowsForManifest())
+            ?.where((row) => row['entry_id'] == itemId)
+            .map((row) => BackupHistoryItem.fromRow(row))
+            .toList(growable: false) ??
+        const <BackupHistoryItem>[];
+    return _buildBackup(
+      meta: meta,
+      items: [item],
+      historyItems: historyItems,
+      scope: _backupScopeItem,
+    );
   }
 
   Future<VaultBackup> _buildBackup({
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    required List<BackupHistoryItem> historyItems,
+    required String scope,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final manifest = await vaultService.createVerifiedManifestForBackup(
       items: items,
+      historyRecords: historyItems.map((item) => item.toJson()).toList(),
       updatedAt: now,
     );
     return VaultBackup(
       version: _currentBackupVersion,
       magic: _backupMagic,
       createdAt: now,
+      scope: scope,
       itemCount: items.length,
+      historyCount: historyItems.length,
       vaultId: meta.id,
       vaultCreatedAt: meta.createdAt,
       vaultUpdatedAt: meta.updatedAt,
@@ -403,6 +545,7 @@ class BackupService {
       encryptedDekByMaster: meta.encryptedDekByMaster,
       encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
       encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
+      historyItems: historyItems,
       items: items
           .map(
             (item) => BackupItem(
@@ -430,6 +573,13 @@ class BackupService {
         'Legacy version 1 backups are disabled by default because they do not include a vault manifest.',
       );
     }
+    if (mode == BackupImportMode.overwrite &&
+        backup.version == _currentBackupVersion &&
+        backup.scope == _backupScopeItem) {
+      throw const BackupFormatException(
+        'Item backups cannot be imported with overwrite mode.',
+      );
+    }
     final backupMeta = _backupMetaForVerification(backup);
     await vaultService.verifyMasterPassword(
       masterPassword: masterPassword,
@@ -440,6 +590,7 @@ class BackupService {
         masterPassword: masterPassword,
         meta: backupMeta,
         items: _manifestItemsFromBackup(backup.items),
+        historyRecords: _manifestHistoryFromBackup(backup.historyItems),
         manifest: backup.manifest!.toVaultManifest(),
       );
     }
@@ -487,6 +638,7 @@ class BackupService {
             masterPassword: masterPassword,
             meta: importedMeta,
             items: importedItems,
+            historyRecords: _manifestHistoryFromBackup(backup.historyItems),
             previous: null,
             updatedAt: now,
           );
@@ -500,6 +652,9 @@ class BackupService {
           await txn.itemsDao.deleteAll();
           for (final importedItem in importedItems) {
             await txn.itemsDao.upsert(importedItem);
+          }
+          for (final historyItem in backup.historyItems) {
+            await txn.historyDao?.insertRaw(historyItem.toJson());
           }
           await txn.manifestDao.save(manifest);
           vaultService.lock();
@@ -543,10 +698,20 @@ class BackupService {
                 manifest: existingManifest,
               );
             } else {
-              await _verifyExistingAnchorBeforeImportNoop(
-                meta: existingMeta,
-                manifest: existingManifest,
-              );
+              if (vaultService.isUnlocked) {
+                await vaultService.verifyCurrentManifestForImport(txn: txn);
+              } else if (needsReencryption) {
+                throw StateError(
+                  'Skip imports into an existing vault with a different encrypted DEK envelope must already be unlocked so the current vault integrity can be verified.',
+                );
+              } else {
+                await _verifyExistingManifestBeforeImportMutation(
+                  txn: txn,
+                  masterPassword: masterPassword,
+                  meta: existingMeta,
+                  manifest: existingManifest,
+                );
+              }
             }
           }
           final itemsToInsert = await _prepareImportedItems(
@@ -555,15 +720,28 @@ class BackupService {
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
           );
+          final historyToInsert = await _prepareImportedHistoryRows(
+            historyItems: backup.historyItems,
+            entryIds: itemsToInsert.map((item) => item.id).toSet(),
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsPendingReencryption,
+          );
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
+          }
+          for (final historyItem in historyToInsert) {
+            await txn.historyDao?.insertRaw(
+              historyItem,
+              preserveId: !preserveExistingMeta,
+            );
           }
           final manifest = await _rewriteManifestAfterImport(
             txn: txn,
             backup: backup,
             masterPassword: masterPassword,
             preserveExistingMeta: preserveExistingMeta,
-            dataChanged: itemsToInsert.isNotEmpty,
+            dataChanged: itemsToInsert.isNotEmpty || historyToInsert.isNotEmpty,
             previous: existingManifest,
             updatedAt: now,
           );
@@ -610,15 +788,38 @@ class BackupService {
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
           );
+          final existingIds = <String>{};
+          for (final item in backup.items) {
+            final existingItem = await txn.itemsDao.byId(item.id);
+            if (existingItem != null) {
+              existingIds.add(item.id);
+            }
+          }
+          final historyToInsert = await _prepareImportedHistoryRows(
+            historyItems: backup.historyItems,
+            entryIds: itemsToInsert
+                .map((item) => item.id)
+                .where((id) => !existingIds.contains(id))
+                .toSet(),
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsPendingReencryption,
+          );
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
+          }
+          for (final historyItem in historyToInsert) {
+            await txn.historyDao?.insertRaw(
+              historyItem,
+              preserveId: !preserveExistingMeta,
+            );
           }
           final manifest = await _rewriteManifestAfterImport(
             txn: txn,
             backup: backup,
             masterPassword: masterPassword,
             preserveExistingMeta: preserveExistingMeta,
-            dataChanged: itemsToInsert.isNotEmpty,
+            dataChanged: itemsToInsert.isNotEmpty || historyToInsert.isNotEmpty,
             previous: existingManifest,
             updatedAt: now,
           );
@@ -719,6 +920,31 @@ class BackupService {
     );
   }
 
+  Future<List<Map<String, Object?>>> _prepareImportedHistoryRows({
+    required List<BackupHistoryItem> historyItems,
+    required Set<String> entryIds,
+    required VaultMeta backupMeta,
+    required String masterPassword,
+    required bool needsReencryption,
+  }) async {
+    if (historyItems.isEmpty || entryIds.isEmpty) {
+      return const [];
+    }
+    final rows = historyItems
+        .where((item) => entryIds.contains(item.entryId))
+        .map((item) => Map<String, Object?>.from(item.toJson()))
+        .toList(growable: false);
+    if (!needsReencryption || rows.isEmpty) {
+      return rows;
+    }
+
+    return vaultService.reencryptHistoryForCurrentVault(
+      records: rows,
+      sourceMeta: backupMeta,
+      sourcePassword: masterPassword,
+    );
+  }
+
   Future<VaultManifest> _writeManifestForImportedEnvelope({
     required VaultRepository txn,
     required VaultBackup backup,
@@ -732,7 +958,11 @@ class BackupService {
       masterPassword: masterPassword,
       meta: meta,
       items: items,
-      historyRecords: const [],
+      historyRecords:
+          (await txn.historyDao?.allRowsForManifest())
+              ?.map((row) => Map<String, Object?>.from(row))
+              .toList(growable: false) ??
+          const <Map<String, Object?>>[],
       previous: previous,
       updatedAt: updatedAt,
     );
@@ -831,19 +1061,6 @@ class BackupService {
     );
   }
 
-  Future<void> _verifyExistingAnchorBeforeImportNoop({
-    required VaultMeta meta,
-    required VaultManifest? manifest,
-  }) async {
-    if (manifest == null) {
-      throw const VaultIntegrityException();
-    }
-    await vaultService.verifyManifestAgainstAnchor(
-      meta: meta,
-      manifest: manifest,
-    );
-  }
-
   List<EncryptedVaultItem> _manifestItemsFromBackup(List<BackupItem> items) {
     return items
         .map(
@@ -853,6 +1070,14 @@ class BackupService {
             updatedAt: item.updatedAt!,
           ),
         )
+        .toList(growable: false);
+  }
+
+  List<Map<String, Object?>> _manifestHistoryFromBackup(
+    List<BackupHistoryItem> items,
+  ) {
+    return items
+        .map((item) => Map<String, Object?>.from(item.toJson()))
         .toList(growable: false);
   }
 

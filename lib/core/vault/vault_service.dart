@@ -187,7 +187,7 @@ class VaultService {
       await _verifyAnchorForManifest(
         meta: meta,
         manifest: manifest,
-        allowMissingAnchor: true,
+        allowMissingAnchor: false,
       );
       await _writeAnchorForManifest(meta: meta, manifest: manifest);
       _session.unlock(dek);
@@ -243,7 +243,7 @@ class VaultService {
       return true;
     } on VaultIntegrityException {
       _session.lock();
-      return false;
+      rethrow;
     } finally {
       _zeroBytes(dek);
     }
@@ -345,6 +345,7 @@ class VaultService {
             encryptedDekByBiometricNonce: null,
             encryptedDekByBiometricMac: null,
           );
+          await biometricService.disable();
           final manifest = await repository.transaction((txn) async {
             final manifest = await _saveManifestForMetadataUpdate(
               txn: txn,
@@ -357,7 +358,6 @@ class VaultService {
             return manifest;
           });
           await _writeAnchorForManifest(meta: updatedMeta, manifest: manifest);
-          await biometricService.disable();
         },
       );
     } catch (error) {
@@ -456,6 +456,7 @@ class VaultService {
 
   Future<VaultManifest> createVerifiedManifestForBackup({
     required List<EncryptedVaultItem> items,
+    List<Map<String, Object?>> historyRecords = const [],
     required int updatedAt,
   }) async {
     _ensureUnlocked();
@@ -467,19 +468,19 @@ class VaultService {
           throw const VaultIntegrityException();
         }
         final currentItems = await _readItemsForManifest(repository);
-        final historyRecords = await _readHistoryForManifest(repository);
+        final currentHistoryRecords = await _readHistoryForManifest(repository);
         await _manifestService.verifyManifest(
           dek: dek,
           meta: meta,
           items: currentItems,
-          historyRecords: historyRecords,
+          historyRecords: currentHistoryRecords,
           manifest: manifest,
         );
         return _manifestService.createManifest(
           dek: dek,
           meta: meta,
           items: items,
-          historyRecords: const [],
+          historyRecords: historyRecords,
           previous: manifest,
           updatedAt: updatedAt,
         );
@@ -708,6 +709,53 @@ class VaultService {
     }
   }
 
+  Future<List<Map<String, Object?>>> reencryptHistoryForCurrentVault({
+    required List<Map<String, Object?>> records,
+    required VaultMeta sourceMeta,
+    required String sourcePassword,
+  }) async {
+    _ensureUnlocked();
+    Uint8List? sourceDek;
+    try {
+      sourceDek = await _decryptDekWithUnlockError(
+        meta: sourceMeta,
+        password: sourcePassword,
+      );
+      final reencryptedRecords = <Map<String, Object?>>[];
+      for (final record in records) {
+        Uint8List? plaintext;
+        try {
+          plaintext = await _crypto.decryptBytes(
+            key: sourceDek,
+            payload: EncryptedPayload(
+              nonce: fromB64(record['password_nonce'] as String),
+              ciphertext: fromB64(record['encrypted_password'] as String),
+              mac: fromB64(record['password_mac'] as String),
+            ),
+          );
+          final encryptedPayload = await _session.encrypt(
+            crypto: _crypto,
+            plaintext: plaintext,
+          );
+          reencryptedRecords.add({
+            'id': record['id'],
+            'entry_id': record['entry_id'],
+            'encrypted_password': b64(encryptedPayload.ciphertext),
+            'password_nonce': b64(encryptedPayload.nonce),
+            'password_mac': b64(encryptedPayload.mac),
+            'recorded_at': record['recorded_at'],
+          });
+        } finally {
+          _zeroBytes(plaintext);
+        }
+      }
+
+      return List.unmodifiable(reencryptedRecords);
+    } finally {
+      _zeroBytes(sourceDek);
+    }
+  }
+
   Future<String> createItem(PasswordEntry entry) async {
     _ensureUnlocked();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -883,6 +931,7 @@ class VaultService {
 
   Future<int> deletedItemCount() async {
     _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
     return repository.itemsDao.deletedCount();
   }
 
@@ -1204,8 +1253,12 @@ class VaultService {
               updatedAt: now,
             );
             await txn.itemsDao.updateActive(updatedItem);
-          } catch (_) {
-            // skip items that fail to decrypt
+          } on VaultIntegrityException {
+            rethrow;
+          } on Object {
+            throw const VaultIntegrityException(
+              'Tag rename failed because a vault item could not be processed',
+            );
           } finally {
             _zeroBytes(clearBytes);
           }
@@ -1258,8 +1311,12 @@ class VaultService {
               updatedAt: now,
             );
             await txn.itemsDao.updateActive(updatedItem);
-          } catch (_) {
-            // skip items that fail to decrypt
+          } on VaultIntegrityException {
+            rethrow;
+          } on Object {
+            throw const VaultIntegrityException(
+              'Tag delete failed because a vault item could not be processed',
+            );
           } finally {
             _zeroBytes(clearBytes);
           }

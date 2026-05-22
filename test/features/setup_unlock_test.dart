@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/features/setup/setup_page.dart';
 import 'package:secure_box/features/unlock/unlock_page.dart';
@@ -73,6 +74,44 @@ void main() {
         expect(unlockCalls, 2);
       },
     );
+
+    test('master unlock throttle allows retry after the UI backoff window', () {
+      fakeAsync((async) {
+        var unlockCalls = 0;
+        final services = AppServices(
+          hasVault: true,
+          trackActivity: false,
+          unlockOverride: (masterPassword) async {
+            unlockCalls += 1;
+            return masterPassword == 'correct-password';
+          },
+        );
+
+        for (var i = 0; i < 5; i += 1) {
+          var unlocked = true;
+          services.unlockWithMasterPassword('wrong-password').then((value) {
+            unlocked = value;
+          });
+          async.flushMicrotasks();
+          expect(unlocked, isFalse);
+          if (i >= 1) {
+            async.elapse(Duration(seconds: 1 << (i - 1)));
+          }
+        }
+        expect(unlockCalls, 5);
+
+        async.elapse(const Duration(seconds: 8));
+        var unlocked = false;
+        services.unlockWithMasterPassword('correct-password').then((value) {
+          unlocked = value;
+        });
+        async.flushMicrotasks();
+
+        expect(unlocked, isTrue);
+        expect(unlockCalls, 6);
+        services.dispose();
+      });
+    });
   });
 
   group('SetupPage', () {

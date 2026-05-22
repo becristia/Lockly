@@ -197,6 +197,51 @@ void main() {
     expect(jsonEncode(backup.toJson()), isNot(contains('docs-password')));
   });
 
+  test('item backup cannot be imported with overwrite mode', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final itemId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: const ['dev'],
+      ),
+    );
+    final itemBackup = await source.backupService.exportItemBackup(itemId);
+
+    final target = await _buildHarness();
+    await target.vaultService.createVault(masterPassword: 'target-master');
+    await target.vaultService.unlock(masterPassword: 'target-master');
+    final localId = await target.vaultService.createItem(
+      PasswordEntry(
+        title: 'Docs',
+        website: 'https://docs.example',
+        username: 'docs@example.com',
+        password: 'docs-password',
+        notes: 'local item',
+        tags: const ['docs'],
+      ),
+    );
+
+    await expectLater(
+      target.backupService.importBackup(
+        json: itemBackup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      ),
+      throwsA(isA<BackupFormatException>()),
+    );
+
+    expect(
+      (await target.vaultService.getItem(localId)).password,
+      'docs-password',
+    );
+  });
+
   test('exportBackup fails when the live manifest is tampered', () async {
     final source = await _buildHarness();
     await source.vaultService.createVault(masterPassword: 'source-master');
@@ -1105,6 +1150,136 @@ void main() {
   );
 
   test(
+    'AppServices import into an empty app restores history and locks shell',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final itemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'old-password',
+          notes: 'new app restore',
+          tags: ['docs'],
+        ),
+      );
+      await source.vaultService.updateItem(
+        itemId,
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'new-password',
+          notes: 'new app restore',
+          tags: ['docs'],
+        ),
+      );
+      final exportedBackup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      final services = AppServices(
+        hasVault: false,
+        initialShellState: AppShellState.setupRequired,
+        trackActivity: false,
+        vaultService: target.vaultService,
+        backupService: target.backupService,
+      );
+      addTearDown(services.dispose);
+
+      final importedCount = await services.importEncryptedBackupJson(
+        backupJson: jsonEncode(exportedBackup.toJson()),
+        masterPassword: 'source-master',
+      );
+
+      expect(importedCount, 1);
+      expect(services.hasVault, isTrue);
+      expect(services.shellState.value, AppShellState.locked);
+      expect(target.vaultService.isUnlocked, isFalse);
+
+      await target.vaultService.unlock(masterPassword: 'source-master');
+      expect(
+        (await target.vaultService.getItem(itemId)).password,
+        'new-password',
+      );
+      final history = await target.vaultService.listPasswordHistory(itemId);
+      expect(
+        history.map((entry) => entry['password']),
+        contains('old-password'),
+      );
+    },
+  );
+
+  test('item backup preserves selected item password history', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final itemId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'Docs',
+        website: 'https://docs.example',
+        username: 'docs@example.com',
+        password: 'old-password',
+        notes: 'item backup',
+        tags: ['docs'],
+      ),
+    );
+    await source.vaultService.updateItem(
+      itemId,
+      PasswordEntry(
+        title: 'Docs',
+        website: 'https://docs.example',
+        username: 'docs@example.com',
+        password: 'new-password',
+        notes: 'item backup',
+        tags: ['docs'],
+      ),
+    );
+    final unrelatedId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'Mail',
+        website: 'https://mail.example',
+        username: 'mail@example.com',
+        password: 'mail-old',
+        notes: 'unrelated history',
+        tags: ['mail'],
+      ),
+    );
+    await source.vaultService.updateItem(
+      unrelatedId,
+      PasswordEntry(
+        title: 'Mail',
+        website: 'https://mail.example',
+        username: 'mail@example.com',
+        password: 'mail-new',
+        notes: 'unrelated history',
+        tags: ['mail'],
+      ),
+    );
+    final itemBackup = await source.backupService.exportItemBackup(itemId);
+
+    final target = await _buildHarness();
+    await target.backupService.importBackup(
+      json: itemBackup.toJson(),
+      masterPassword: 'source-master',
+      mode: BackupImportMode.skip,
+    );
+    await target.vaultService.unlock(masterPassword: 'source-master');
+
+    expect(
+      (await target.vaultService.getItem(itemId)).password,
+      'new-password',
+    );
+    final history = await target.vaultService.listPasswordHistory(itemId);
+    expect(history.map((entry) => entry['password']), contains('old-password'));
+    await expectLater(
+      target.vaultService.getItem(unrelatedId),
+      throwsA(isA<VaultItemNotFoundException>()),
+    );
+  });
+
+  test(
     'importBackup merge overwrites duplicates and keeps non-conflicting rows',
     () async {
       final source = await _buildHarness();
@@ -1347,7 +1522,7 @@ void main() {
   );
 
   test(
-    'importBackup skip with a different envelope succeeds as a no-op while locked when there are no new items',
+    'importBackup skip with a different envelope requires unlock even as a no-op',
     () async {
       final source = await _buildHarness();
       await source.vaultService.createVault(masterPassword: 'source-master');
@@ -1384,14 +1559,21 @@ void main() {
       );
       target.vaultService.lock();
 
-      final importedCount = await target.backupService.importBackup(
-        json: importedJson,
-        masterPassword: 'source-master',
-        mode: BackupImportMode.skip,
-        allowLegacyBackups: true,
+      await expectLater(
+        target.backupService.importBackup(
+          json: importedJson,
+          masterPassword: 'source-master',
+          mode: BackupImportMode.skip,
+          allowLegacyBackups: true,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('must already be unlocked'),
+          ),
+        ),
       );
-
-      expect(importedCount, 0);
       await target.vaultService.unlock(masterPassword: 'target-master');
       final preserved = await target.vaultService.getItem(sharedId);
       expect(preserved.password, 'local-password');
@@ -1427,6 +1609,87 @@ void main() {
       vaultId: targetMeta!.id,
       manifest: targetManifest!.copyWith(counter: targetManifest.counter + 2),
       updatedAt: targetManifest.updatedAt + 2,
+    );
+    target.vaultService.lock();
+
+    await expectLater(
+      target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+  });
+
+  test('unlocked skip no-op rejects tampered target items', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final sourceId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: const ['dev'],
+      ),
+    );
+    final backup = await source.backupService.exportBackup();
+
+    final target = await _buildHarness();
+    await target.backupService.importBackup(
+      json: backup.toJson(),
+      masterPassword: 'source-master',
+      mode: BackupImportMode.overwrite,
+    );
+    await target.vaultService.unlock(masterPassword: 'source-master');
+    await target.repository.itemsDao.executor.update(
+      'vault_items',
+      {'ciphertext': _tamperBase64(backup.items.single.ciphertext)},
+      where: 'id = ?',
+      whereArgs: [sourceId],
+    );
+
+    await expectLater(
+      target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+      ),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(target.vaultService.isUnlocked, isFalse);
+  });
+
+  test('locked skip no-op rejects tampered target items', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final sourceId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: const ['dev'],
+      ),
+    );
+    final backup = await source.backupService.exportBackup();
+
+    final target = await _buildHarness();
+    await target.backupService.importBackup(
+      json: backup.toJson(),
+      masterPassword: 'source-master',
+      mode: BackupImportMode.overwrite,
+    );
+    await target.repository.itemsDao.executor.update(
+      'vault_items',
+      {'ciphertext': _tamperBase64(backup.items.single.ciphertext)},
+      where: 'id = ?',
+      whereArgs: [sourceId],
     );
     target.vaultService.lock();
 
@@ -1503,6 +1766,46 @@ void main() {
       expect(secondary.notes, 'second backup');
     },
   );
+
+  test('full backup overwrite restores encrypted password history', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final itemId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'old-password',
+        notes: 'with history',
+        tags: const ['dev'],
+      ),
+    );
+    await source.vaultService.updateItem(
+      itemId,
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'new-password',
+        notes: 'with history',
+        tags: const ['dev'],
+      ),
+    );
+    final backup = await source.backupService.exportBackup();
+    expect(jsonEncode(backup.toJson()), isNot(contains('old-password')));
+
+    final target = await _buildHarness();
+    await target.backupService.importBackup(
+      json: backup.toJson(),
+      masterPassword: 'source-master',
+      mode: BackupImportMode.overwrite,
+    );
+    await target.vaultService.unlock(masterPassword: 'source-master');
+
+    final history = await target.vaultService.listPasswordHistory(itemId);
+    expect(history.map((entry) => entry['password']), contains('old-password'));
+  });
 }
 
 Map<String, Object?> _backupJsonWithItemIdReplacement({
@@ -1614,6 +1917,10 @@ Future<void> _createEmptyArgon2idVault(
     await txn.metaDao.save(meta);
     await txn.manifestDao.save(manifest);
   });
+  await harness.vaultService.acceptManifestForCurrentState(
+    meta: meta,
+    manifest: manifest,
+  );
 }
 
 void _expectMetaPreserved(VaultMeta actual, VaultMeta expected) {

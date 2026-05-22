@@ -40,6 +40,20 @@ class PasswordHistoryDao {
     }
   }
 
+  Future<void> insertRaw(
+    Map<String, Object?> row, {
+    bool preserveId = true,
+  }) async {
+    await _db.insert('password_history', {
+      if (preserveId) 'id': row['id'],
+      'entry_id': row['entry_id'],
+      'encrypted_password': row['encrypted_password'],
+      'password_nonce': row['password_nonce'],
+      'password_mac': row['password_mac'],
+      'recorded_at': row['recorded_at'],
+    });
+  }
+
   Future<List<Map<String, dynamic>>> byEntryId(String entryId) async {
     return _db.query(
       'password_history',

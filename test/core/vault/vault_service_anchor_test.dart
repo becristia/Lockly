@@ -103,7 +103,7 @@ void main() {
   );
 
   test(
-    'master unlock recreates missing anchor after manifest verification',
+    'master unlock rejects a missing anchor after initial vault creation',
     () async {
       final harness = await buildHarness();
       await harness.service.createVault(masterPassword: 'master-passphrase');
@@ -111,9 +111,13 @@ void main() {
       await harness.anchorStore.delete(vaultId: meta!.id);
       harness.service.lock();
 
-      await harness.service.unlock(masterPassword: 'master-passphrase');
+      await expectLater(
+        harness.service.unlock(masterPassword: 'master-passphrase'),
+        throwsA(isA<VaultIntegrityException>()),
+      );
 
-      expect(await harness.anchorStore.read(vaultId: meta.id), isNotNull);
+      expect(await harness.anchorStore.read(vaultId: meta.id), isNull);
+      expect(harness.service.isUnlocked, isFalse);
     },
   );
 
@@ -135,11 +139,11 @@ void main() {
     await harness.anchorStore.delete(vaultId: meta!.id);
     harness.service.lock();
 
-    final unlocked = await harness.service.unlockWithBiometrics(
-      biometricService: biometric,
+    await expectLater(
+      harness.service.unlockWithBiometrics(biometricService: biometric),
+      throwsA(isA<VaultIntegrityException>()),
     );
 
-    expect(unlocked, isFalse);
     expect(harness.service.isUnlocked, isFalse);
     expect(await harness.anchorStore.read(vaultId: meta.id), isNull);
   });
