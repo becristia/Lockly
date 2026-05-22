@@ -30,6 +30,8 @@ class _SetupPageState extends State<SetupPage> {
 
   @override
   void dispose() {
+    _passwordController.clear();
+    _confirmPasswordController.clear();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
@@ -178,25 +180,46 @@ class _SetupPageState extends State<SetupPage> {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.lock_outline, size: 16, color: SecureVisualColors.blue),
+                              Icon(
+                                Icons.lock_outline,
+                                size: 16,
+                                color: SecureVisualColors.blue,
+                              ),
                               const SizedBox(width: 8),
-                              Text('主密码仅存储在设备本地', style: theme.textTheme.bodySmall),
+                              Text(
+                                '主密码仅存储在设备本地',
+                                style: theme.textTheme.bodySmall,
+                              ),
                             ],
                           ),
                           const SizedBox(height: 4),
                           Row(
                             children: [
-                              Icon(Icons.visibility_off_outlined, size: 16, color: SecureVisualColors.blue),
+                              Icon(
+                                Icons.visibility_off_outlined,
+                                size: 16,
+                                color: SecureVisualColors.blue,
+                              ),
                               const SizedBox(width: 8),
-                              Text('无法查看或恢复你的主密码', style: theme.textTheme.bodySmall),
+                              Text(
+                                '无法查看或恢复你的主密码',
+                                style: theme.textTheme.bodySmall,
+                              ),
                             ],
                           ),
                           const SizedBox(height: 4),
                           Row(
                             children: [
-                              Icon(Icons.shield_outlined, size: 16, color: SecureVisualColors.blue),
+                              Icon(
+                                Icons.shield_outlined,
+                                size: 16,
+                                color: SecureVisualColors.blue,
+                              ),
                               const SizedBox(width: 8),
-                              Text('数据采用端到端加密保护', style: theme.textTheme.bodySmall),
+                              Text(
+                                '数据采用端到端加密保护',
+                                style: theme.textTheme.bodySmall,
+                              ),
                             ],
                           ),
                         ],
@@ -222,7 +245,9 @@ class _SetupPageState extends State<SetupPage> {
                     TextSpan(
                       text: '继续操作即表示你已经阅读并同意 ',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.6,
+                        ),
                       ),
                     ),
                     TextSpan(

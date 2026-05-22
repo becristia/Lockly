@@ -11,12 +11,24 @@ HealthReport _fakeReport({
 }) {
   return HealthReport(
     totalItems: totalItems,
-    findings: findings ?? [
-      HealthFinding(itemId: '1', title: 'Test', username: 'u',
-        categories: {HealthCategory.weak}, detail: '密码强度不足'),
-      HealthFinding(itemId: '2', title: 'Foo', username: 'v',
-        categories: {HealthCategory.reused}, detail: '与其他条目重复'),
-    ],
+    findings:
+        findings ??
+        [
+          HealthFinding(
+            itemId: '1',
+            title: 'Test',
+            username: 'u',
+            categories: {HealthCategory.weak},
+            detail: '密码强度不足',
+          ),
+          HealthFinding(
+            itemId: '2',
+            title: 'Foo',
+            username: 'v',
+            categories: {HealthCategory.reused},
+            detail: '与其他条目重复',
+          ),
+        ],
     score: score,
     categoryCounts: {HealthCategory.weak: 1, HealthCategory.reused: 1},
   );
@@ -31,7 +43,9 @@ void main() {
         analyzePasswordHealthOverride: () async => _fakeReport(),
       );
 
-      await tester.pumpWidget(MaterialApp(home: HealthPage(services: services)));
+      await tester.pumpWidget(
+        MaterialApp(home: HealthPage(services: services)),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('60'), findsOneWidget);
@@ -44,13 +58,13 @@ void main() {
       final services = AppServices.fake(
         hasVault: true,
         unlocked: true,
-        analyzePasswordHealthOverride: () async => _fakeReport(
-          findings: [],
-          score: 100,
-        ),
+        analyzePasswordHealthOverride: () async =>
+            _fakeReport(findings: [], score: 100),
       );
 
-      await tester.pumpWidget(MaterialApp(home: HealthPage(services: services)));
+      await tester.pumpWidget(
+        MaterialApp(home: HealthPage(services: services)),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('密码库很健康'), findsOneWidget);
@@ -64,7 +78,9 @@ void main() {
         analyzePasswordHealthOverride: () async => throw Exception('fail'),
       );
 
-      await tester.pumpWidget(MaterialApp(home: HealthPage(services: services)));
+      await tester.pumpWidget(
+        MaterialApp(home: HealthPage(services: services)),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('分析失败，请重试'), findsOneWidget);

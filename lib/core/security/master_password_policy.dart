@@ -18,20 +18,63 @@ class MasterPasswordPolicy {
   static const minLength = 12;
 
   static const _commonPasswords = <String>{
-    'password', 'password1', 'password12', 'password123', 'password1234',
-    'password12345', 'password123456', 'password1234567', 'password12345678',
-    'password123456789', '123456789012', '1234567890', '123456789',
-    'qwerty123456', 'qwertyuiop12', 'qwertyuiop', 'qwerty123',
-    'admin123456', 'admin123', 'administrator', 'letmein123456',
-    'iloveyou123456', 'monkey123456', 'dragon123456', 'master123456',
-    'abc123456789', 'trustno1123', 'welcome1234', 'login123456',
-    'princess1234', 'sunshine123', 'football123', 'baseball123',
-    'hunter12345', 'michael1234', 'shadow12345', '654321', '123321',
-    '111111111111', '000000000000', '121212121212', 'qazwsx123456',
-    '1q2w3e4r5t6y', 'zxcvbn123456', 'asdfgh123456', 'zaq12wsxcde',
-    '!qaz2wsx3edc', '#edc4rfv5tgb', 'passw0rd12345', 'p@ssword123',
-    'P@ssw0rd12345', 'Pa\$\$word1234', 'changeme1234', 'secret123456',
-    'access123456', 'abc123!@#', 'test12345678',
+    'password',
+    'password1',
+    'password12',
+    'password123',
+    'password1234',
+    'password12345',
+    'password123456',
+    'password1234567',
+    'password12345678',
+    'password123456789',
+    '123456789012',
+    '1234567890',
+    '123456789',
+    'qwerty123456',
+    'qwertyuiop12',
+    'qwertyuiop',
+    'qwerty123',
+    'admin123456',
+    'admin123',
+    'administrator',
+    'letmein123456',
+    'iloveyou123456',
+    'monkey123456',
+    'dragon123456',
+    'master123456',
+    'abc123456789',
+    'trustno1123',
+    'welcome1234',
+    'login123456',
+    'princess1234',
+    'sunshine123',
+    'football123',
+    'baseball123',
+    'hunter12345',
+    'michael1234',
+    'shadow12345',
+    '654321',
+    '123321',
+    '111111111111',
+    '000000000000',
+    '121212121212',
+    'qazwsx123456',
+    '1q2w3e4r5t6y',
+    'zxcvbn123456',
+    'asdfgh123456',
+    'zaq12wsxcde',
+    '!qaz2wsx3edc',
+    '#edc4rfv5tgb',
+    'passw0rd12345',
+    'p@ssword123',
+    'P@ssw0rd12345',
+    'Pa\$\$word1234',
+    'changeme1234',
+    'secret123456',
+    'access123456',
+    'abc123!@#',
+    'test12345678',
   };
 
   // Note: Unicode NFC normalization is not applied.
@@ -79,7 +122,9 @@ class MasterPasswordPolicy {
     final isPassphrase = _isPassphrase(trimmed);
     final hasAllCharacterClasses = _classCount(trimmed) >= 4;
     final hasDictionaryWeakness = _hasDictionaryPattern(trimmed);
-    final adjustedScore = hasDictionaryWeakness ? (score - 1).clamp(0, 5) : score;
+    final adjustedScore = hasDictionaryWeakness
+        ? (score - 1).clamp(0, 5)
+        : score;
 
     final isAcceptable = isPassphrase || adjustedScore >= 3;
     if (!isAcceptable) {
@@ -94,7 +139,9 @@ class MasterPasswordPolicy {
     final isStrong =
         (adjustedScore >= 4 && !hasDictionaryWeakness) ||
         isPassphrase ||
-        (hasAllCharacterClasses && trimmed.length >= 16 && !hasDictionaryWeakness);
+        (hasAllCharacterClasses &&
+            trimmed.length >= 14 &&
+            !hasDictionaryWeakness);
     if (isPassphrase) {
       return MasterPasswordPolicyResult(
         isAcceptable: true,
@@ -139,10 +186,29 @@ class MasterPasswordPolicy {
   static bool _hasDictionaryPattern(String password) {
     final lower = password.toLowerCase();
     final dictionaryWords = <String>[
-      'password', 'admin', 'login', 'welcome', 'letmein', 'monkey',
-      'dragon', 'master', 'sunshine', 'princess', 'football', 'baseball',
-      'hunter', 'shadow', 'trustno', 'secret', 'access', 'changeme',
-      'abc123', 'qwerty', 'asdfgh', 'zxcvbn', 'iloveyou',
+      'password',
+      'admin',
+      'login',
+      'welcome',
+      'letmein',
+      'monkey',
+      'dragon',
+      'master',
+      'sunshine',
+      'princess',
+      'football',
+      'baseball',
+      'hunter',
+      'shadow',
+      'trustno',
+      'secret',
+      'access',
+      'changeme',
+      'abc123',
+      'qwerty',
+      'asdfgh',
+      'zxcvbn',
+      'iloveyou',
     ];
     for (final word in dictionaryWords) {
       if (lower.contains(word)) {
@@ -181,6 +247,9 @@ class MasterPasswordPolicy {
     }
     final classCount = _classCount(password);
     if (classCount >= 4) {
+      score += 1;
+    }
+    if (classCount == 4 && password.length >= 14) {
       score += 1;
     }
     if (classCount == 4 && password.length >= 16) {

@@ -23,6 +23,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
   bool _isLoading = true;
   bool _isPasswordVisible = false;
   bool _isDeleting = false;
+  bool _isExporting = false;
   String? _errorMessage;
   List<Map<String, dynamic>> _passwordHistory = [];
   bool _historyExpanded = false;
@@ -157,6 +158,45 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     }
   }
 
+  Future<void> _exportItem() async {
+    widget.services.recordActivity();
+    setState(() => _isExporting = true);
+    try {
+      final backupJson = await widget.services.exportEncryptedItemBackupJson(
+        widget.itemId,
+      );
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _SingleItemExportDialog(
+          services: widget.services,
+          backupJson: backupJson,
+        ),
+      );
+    } on VaultItemNotFoundException {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这条记录不存在或已删除。')));
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('导出失败，请稍后重试。')));
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final entry = _entry;
@@ -165,6 +205,19 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       appBar: AppBar(
         title: Text(entry?.title ?? '密码详情'),
         actions: [
+          IconButton(
+            onPressed: entry == null || _isLoading || _isExporting
+                ? null
+                : _exportItem,
+            tooltip: '导出此密码',
+            icon: _isExporting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.ios_share_outlined),
+          ),
           IconButton(
             onPressed: entry == null || _isLoading ? null : _openEdit,
             tooltip: '编辑',
@@ -245,24 +298,37 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               if (_passwordHistory.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 InkWell(
-                  onTap: () => setState(() => _historyExpanded = !_historyExpanded),
+                  onTap: () =>
+                      setState(() => _historyExpanded = !_historyExpanded),
                   child: Row(
                     children: [
-                      Icon(Icons.history_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+                      Icon(
+                        Icons.history_rounded,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
-                      Text('密码历史 (${_passwordHistory.length})', style: Theme.of(context).textTheme.titleSmall),
+                      Text(
+                        '密码历史 (${_passwordHistory.length})',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                       const Spacer(),
                       AnimatedRotation(
                         turns: _historyExpanded ? 0.5 : 0,
                         duration: const Duration(milliseconds: 200),
-                        child: const Icon(Icons.chevron_right_rounded, size: 20),
+                        child: const Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 if (_historyExpanded) ...[
                   const SizedBox(height: 8),
-                  ..._passwordHistory.map((record) => _buildHistoryItem(record, context)),
+                  ..._passwordHistory.map(
+                    (record) => _buildHistoryItem(record, context),
+                  ),
                 ],
               ],
               const SizedBox(height: 16),
@@ -324,7 +390,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1)),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.1),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -359,7 +427,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               ),
               IconButton(
                 icon: Icon(
-                  isRevealed ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                  isRevealed
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
                   size: 18,
                 ),
                 onPressed: () {
@@ -380,7 +450,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
   }
 
   String _formatRelativeTime(int timestampMs) {
-    final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(timestampMs));
+    final diff = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(timestampMs),
+    );
     if (diff.inDays > 0) return '${diff.inDays} 天前';
     if (diff.inHours > 0) return '${diff.inHours} 小时前';
     if (diff.inMinutes > 0) return '${diff.inMinutes} 分钟前';
@@ -394,29 +466,126 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
         title: const Text('恢复密码'),
         content: const Text('将当前密码归档到历史记录，并用此密码替换。确认恢复？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(onPressed: () async {
-            Navigator.pop(ctx);
-            setState(() => _isRestoring = true);
-            try {
-              await widget.services.restorePassword(widget.itemId, record['id'] as int);
-              if (!mounted) return;
-              await _loadItem();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('密码已恢复')),
-              );
-            } catch (_) {
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('恢复失败')),
-              );
-            } finally {
-              if (mounted) setState(() => _isRestoring = false);
-            }
-          }, child: const Text('确认恢复')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              setState(() => _isRestoring = true);
+              try {
+                await widget.services.restorePassword(
+                  widget.itemId,
+                  record['id'] as int,
+                );
+                if (!mounted) return;
+                await _loadItem();
+                if (!mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('密码已恢复')));
+              } catch (_) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('恢复失败')));
+              } finally {
+                if (mounted) setState(() => _isRestoring = false);
+              }
+            },
+            child: const Text('确认恢复'),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _SingleItemExportDialog extends StatefulWidget {
+  const _SingleItemExportDialog({
+    required this.services,
+    required this.backupJson,
+  });
+
+  final AppServices services;
+  final String backupJson;
+
+  @override
+  State<_SingleItemExportDialog> createState() =>
+      _SingleItemExportDialogState();
+}
+
+class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
+  bool _copied = false;
+
+  Future<void> _copyBackupJson() async {
+    final copied = await widget.services.copySensitiveTemporary(
+      widget.backupJson,
+      clearAfter: const Duration(seconds: 30),
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() => _copied = copied);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(copied ? '单条加密备份已复制，30 秒后将自动清理剪贴板。' : '复制失败，请重试。'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return AlertDialog(
+      icon: Icon(Icons.ios_share_outlined, color: theme.colorScheme.primary),
+      title: const Text('导出单个密码'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '导出内容已加密，仅包含当前记录。导入时需要此备份对应的主密码，导入后会使用本地密钥重新加密保存。',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(
+                    widget.backupJson,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
+        ),
+        FilledButton.icon(
+          onPressed: _copyBackupJson,
+          icon: Icon(_copied ? Icons.check_rounded : Icons.copy_rounded),
+          label: Text(_copied ? '已复制' : '复制备份'),
+        ),
+      ],
     );
   }
 }

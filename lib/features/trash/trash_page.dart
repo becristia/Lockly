@@ -55,9 +55,9 @@ class _TrashPageState extends State<TrashPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('恢复失败，请重试。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('恢复失败，请重试。')));
     }
   }
 
@@ -94,9 +94,9 @@ class _TrashPageState extends State<TrashPage> {
       return true;
     } catch (_) {
       if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('删除失败，请重试。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('删除失败，请重试。')));
       return false;
     }
   }
@@ -135,9 +135,9 @@ class _TrashPageState extends State<TrashPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('清空失败，请重试。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('清空失败，请重试。')));
     }
   }
 
@@ -180,10 +180,10 @@ class _TrashPageState extends State<TrashPage> {
         body: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _errorMessage != null
-                ? _buildErrorView(theme)
-                : _items.isEmpty
-                    ? _buildEmptyView(theme)
-                    : _buildItemList(theme),
+            ? _buildErrorView(theme)
+            : _items.isEmpty
+            ? _buildEmptyView(theme)
+            : _buildItemList(theme),
         bottomNavigationBar: _items.isNotEmpty
             ? SafeArea(
                 child: Padding(
@@ -218,8 +218,11 @@ class _TrashPageState extends State<TrashPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline_rounded,
-                size: 48, color: SecureVisualColors.danger),
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: SecureVisualColors.danger,
+            ),
             const SizedBox(height: 16),
             Text('读取失败', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -229,10 +232,7 @@ class _TrashPageState extends State<TrashPage> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            OutlinedButton(
-              onPressed: _loadItems,
-              child: const Text('重试'),
-            ),
+            OutlinedButton(onPressed: _loadItems, child: const Text('重试')),
           ],
         ),
       ),
@@ -246,8 +246,11 @@ class _TrashPageState extends State<TrashPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.delete_outline_rounded,
-                size: 64, color: SecureVisualColors.muted),
+            Icon(
+              Icons.delete_outline_rounded,
+              size: 64,
+              color: SecureVisualColors.muted,
+            ),
             const SizedBox(height: 16),
             Text('回收站为空', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -326,8 +329,11 @@ class _TrashItemTile extends StatelessWidget {
           color: SecureVisualColors.danger.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Icon(Icons.delete_forever_rounded,
-            color: SecureVisualColors.danger, size: 28),
+        child: Icon(
+          Icons.delete_forever_rounded,
+          color: SecureVisualColors.danger,
+          size: 28,
+        ),
       ),
       confirmDismiss: (_) => onPermanentlyDelete(),
       child: Column(

@@ -19,6 +19,19 @@ void main() {
       },
     );
 
+    test('manifest disables Android cloud backup for local vault data', () {
+      final manifest = File(
+        'android/app/src/main/AndroidManifest.xml',
+      ).readAsStringSync();
+
+      expect(manifest, contains('android:allowBackup="false"'));
+      expect(manifest, contains('android:fullBackupContent="false"'));
+      expect(
+        manifest,
+        contains('android:dataExtractionRules="@xml/data_extraction_rules"'),
+      );
+    });
+
     test('MainActivity supports local_auth and blocks screenshots', () {
       final mainActivity = File(
         'android/app/src/main/kotlin/com/lockly/securebox/MainActivity.kt',
@@ -39,6 +52,7 @@ void main() {
       ).readAsStringSync();
 
       expect(buildFile, contains('minSdk = 24'));
+      expect(buildFile, contains('applicationId = "com.lockly.securebox"'));
       expect(lightStyles, contains('Theme.AppCompat.DayNight.NoActionBar'));
       expect(darkStyles, contains('Theme.AppCompat.DayNight.NoActionBar'));
     });

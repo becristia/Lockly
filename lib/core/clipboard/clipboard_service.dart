@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart' show Sha256;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class ClipboardService {
@@ -8,8 +11,15 @@ class ClipboardService {
   static const _clipboardFormat = 'text/plain';
 
   Duration clearPasswordAfter;
+  final Sha256 _sha256 = Sha256();
   Timer? _clearTimer;
-  String? _pendingPasswordClear;
+  String? _pendingPasswordClearDigest;
+
+  @visibleForTesting
+  String? get debugPendingClearValueForTest => null;
+
+  @visibleForTesting
+  String? get debugPendingClearDigestForTest => _pendingPasswordClearDigest;
 
   Future<bool> copyUsername(String username) async {
     final didWrite = await _trySetClipboardData(ClipboardData(text: username));
@@ -35,7 +45,7 @@ class ClipboardService {
     }
 
     _cancelPendingClear();
-    _schedulePasswordClear(value, clearAfter: clearAfter);
+    _schedulePasswordClear(await _digestText(value), clearAfter: clearAfter);
     return true;
   }
 
@@ -45,13 +55,13 @@ class ClipboardService {
     }
 
     clearPasswordAfter = value;
-    final pendingPassword = _pendingPasswordClear;
-    if (pendingPassword == null) {
+    final pendingDigest = _pendingPasswordClearDigest;
+    if (pendingDigest == null) {
       return;
     }
 
     _clearTimer?.cancel();
-    _schedulePasswordClear(pendingPassword, clearAfter: clearPasswordAfter);
+    _schedulePasswordClear(pendingDigest, clearAfter: clearPasswordAfter);
   }
 
   void dispose() {
@@ -59,20 +69,22 @@ class ClipboardService {
   }
 
   Future<bool> clearPendingPasswordNow() async {
-    final pendingPassword = _pendingPasswordClear;
-    if (pendingPassword == null) {
+    final pendingDigest = _pendingPasswordClearDigest;
+    if (pendingDigest == null) {
       return false;
     }
 
     _clearTimer?.cancel();
-    return _clearPasswordIfStillPresent(pendingPassword);
+    return _clearPasswordIfStillPresent(pendingDigest);
   }
 
-  Future<bool> _clearPasswordIfStillPresent(String password) async {
-    _pendingPasswordClear = null;
+  Future<bool> _clearPasswordIfStillPresent(String expectedDigest) async {
+    _pendingPasswordClearDigest = null;
     _clearTimer = null;
     final current = await _tryGetClipboardData();
-    if (current?.text != password) {
+    final currentText = current?.text;
+    if (currentText == null ||
+        await _digestText(currentText) != expectedDigest) {
       return false;
     }
 
@@ -82,14 +94,19 @@ class ClipboardService {
   void _cancelPendingClear() {
     _clearTimer?.cancel();
     _clearTimer = null;
-    _pendingPasswordClear = null;
+    _pendingPasswordClearDigest = null;
   }
 
-  void _schedulePasswordClear(String password, {required Duration clearAfter}) {
-    _pendingPasswordClear = password;
+  void _schedulePasswordClear(String digest, {required Duration clearAfter}) {
+    _pendingPasswordClearDigest = digest;
     _clearTimer = Timer(clearAfter, () {
-      unawaited(_clearPasswordIfStillPresent(password));
+      unawaited(_clearPasswordIfStillPresent(digest));
     });
+  }
+
+  Future<String> _digestText(String value) async {
+    final digest = await _sha256.hash(utf8.encode(value));
+    return base64Encode(digest.bytes);
   }
 
   Future<ClipboardData?> _tryGetClipboardData() async {

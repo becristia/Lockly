@@ -214,9 +214,21 @@ class _SettingsPageState extends State<SettingsPage> {
                 padding: const EdgeInsets.all(12),
                 child: SegmentedButton<ThemeMode>(
                   segments: const [
-                    ButtonSegment(value: ThemeMode.light, label: Text('浅色'), icon: Icon(Icons.light_mode_outlined)),
-                    ButtonSegment(value: ThemeMode.dark, label: Text('深色'), icon: Icon(Icons.dark_mode_outlined)),
-                    ButtonSegment(value: ThemeMode.system, label: Text('跟随系统'), icon: Icon(Icons.settings_brightness_outlined)),
+                    ButtonSegment(
+                      value: ThemeMode.light,
+                      label: Text('浅色'),
+                      icon: Icon(Icons.light_mode_outlined),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.dark,
+                      label: Text('深色'),
+                      icon: Icon(Icons.dark_mode_outlined),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.system,
+                      label: Text('跟随系统'),
+                      icon: Icon(Icons.settings_brightness_outlined),
+                    ),
                   ],
                   selected: {widget.services.themeMode},
                   onSelectionChanged: (modes) {
@@ -297,7 +309,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 padding: EdgeInsets.zero,
                 child: ListTile(
                   leading: Container(
-                    width: 44, height: 44,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
                       color: SecureVisualColors.blue.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(14),
@@ -311,7 +324,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     widget.services.recordActivity();
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => HealthPage(services: widget.services),
+                        builder: (context) =>
+                            HealthPage(services: widget.services),
                       ),
                     );
                   },
@@ -328,7 +342,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 padding: EdgeInsets.zero,
                 child: ListTile(
                   leading: Container(
-                    width: 44, height: 44,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
                       color: SecureVisualColors.blue.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(14),
@@ -342,7 +357,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     widget.services.recordActivity();
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => TagManagementPage(services: widget.services),
+                        builder: (context) =>
+                            TagManagementPage(services: widget.services),
                       ),
                     );
                   },
@@ -562,6 +578,9 @@ class _MasterPasswordChangeDialogState
 
   @override
   void dispose() {
+    _oldPasswordController.clear();
+    _newPasswordController.clear();
+    _confirmPasswordController.clear();
     _oldPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
@@ -574,7 +593,7 @@ class _MasterPasswordChangeDialogState
       insetPadding: const EdgeInsets.symmetric(horizontal: 20),
       backgroundColor: Colors.transparent,
       child: SingleChildScrollView(
-        child:SecureGlassCard(
+        child: SecureGlassCard(
           borderRadius: 28,
           padding: const EdgeInsets.all(24),
           child: Form(
@@ -606,9 +625,12 @@ class _MasterPasswordChangeDialogState
                   decoration: InputDecoration(
                     labelText: '当前主密码',
                     suffixIcon: IconButton(
-                      onPressed: () => setState(() => _oldObscured = !_oldObscured),
+                      onPressed: () =>
+                          setState(() => _oldObscured = !_oldObscured),
                       icon: Icon(
-                        _oldObscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        _oldObscured
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
                       ),
                     ),
                   ),
@@ -621,9 +643,12 @@ class _MasterPasswordChangeDialogState
                   decoration: InputDecoration(
                     labelText: '新主密码',
                     suffixIcon: IconButton(
-                      onPressed: () => setState(() => _newObscured = !_newObscured),
+                      onPressed: () =>
+                          setState(() => _newObscured = !_newObscured),
                       icon: Icon(
-                        _newObscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        _newObscured
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
                       ),
                     ),
                   ),
@@ -636,9 +661,12 @@ class _MasterPasswordChangeDialogState
                   decoration: InputDecoration(
                     labelText: '确认新主密码',
                     suffixIcon: IconButton(
-                      onPressed: () => setState(() => _confirmObscured = !_confirmObscured),
+                      onPressed: () =>
+                          setState(() => _confirmObscured = !_confirmObscured),
                       icon: Icon(
-                        _confirmObscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        _confirmObscured
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
                       ),
                     ),
                   ),
@@ -654,7 +682,9 @@ class _MasterPasswordChangeDialogState
                   const SizedBox(height: 12),
                   Text(
                     _errorText!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 22),
@@ -731,6 +761,7 @@ class _MasterPasswordPromptDialogState
 
   @override
   void dispose() {
+    _controller.clear();
     _controller.dispose();
     super.dispose();
   }
@@ -835,6 +866,8 @@ class _BackupImportDialogState extends State<_BackupImportDialog> {
 
   @override
   void dispose() {
+    _backupController.clear();
+    _passwordController.clear();
     _backupController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -859,7 +892,10 @@ class _BackupImportDialogState extends State<_BackupImportDialog> {
                   size: 76,
                 ),
                 const SizedBox(height: 18),
-                Text('导入加密备份', style: Theme.of(context).textTheme.headlineSmall),
+                Text(
+                  '导入加密备份',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
                 const SizedBox(height: 8),
                 Text(
                   '粘贴加密备份 JSON，并输入备份主密码验证后导入。',
@@ -922,10 +958,7 @@ class _BackupImportDialogState extends State<_BackupImportDialog> {
 }
 
 class _BackupExportDialog extends StatefulWidget {
-  const _BackupExportDialog({
-    required this.services,
-    required this.backupJson,
-  });
+  const _BackupExportDialog({required this.services, required this.backupJson});
 
   final AppServices services;
   final String backupJson;
@@ -946,14 +979,8 @@ class _BackupExportDialogState extends State<_BackupExportDialog> {
       return;
     }
     setState(() => _copied = copied);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(
-      SnackBar(
-        content: Text(
-          copied ? '加密备份已复制，30 秒后将自动清理剪贴板。' : '复制失败，请重试。',
-        ),
-      ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(copied ? '加密备份已复制，30 秒后将自动清理剪贴板。' : '复制失败，请重试。')),
     );
   }
 

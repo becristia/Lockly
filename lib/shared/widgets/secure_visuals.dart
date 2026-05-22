@@ -37,11 +37,7 @@ class SecureVisualBackground extends StatelessWidget {
           gradient: RadialGradient(
             center: Alignment.topRight,
             radius: 1.28,
-            colors: [
-              Color(0xFFFFFFFF),
-              Color(0xFFF2F9FF),
-              Color(0xFFEAF5FF),
-            ],
+            colors: [Color(0xFFFFFFFF), Color(0xFFF2F9FF), Color(0xFFEAF5FF)],
           ),
         ),
         child: Stack(
@@ -198,7 +194,10 @@ class SecureGradientButton extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
             ),
-            textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            textStyle: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 18),
           label: Text(label),

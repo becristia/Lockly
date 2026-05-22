@@ -12,6 +12,8 @@ import 'package:uuid/uuid.dart';
 const int _legacyBackupVersion = 1;
 const int _currentBackupVersion = 2;
 const String _backupMagic = 'secure-box-backup';
+const int _maximumImportedItems = 10000;
+const int _maximumImportedFieldLength = 1048576;
 const int _maximumImportedPbkdf2Iterations = 2000000;
 const int _maximumImportedArgon2MemoryKiB = 262144;
 const int _maximumImportedArgon2Iterations = 6;
@@ -156,6 +158,7 @@ class VaultBackup {
       throw BackupFormatException('Unsupported backup version: $version');
     }
     _parseKdfParams(kdf: kdf, rawParams: this.kdfParams);
+    _validateImportedItems(this.items);
     if (version == _currentBackupVersion) {
       if (magic != _backupMagic ||
           createdAt == null ||
@@ -313,6 +316,28 @@ class VaultBackup {
       _parseKdfParams(kdf: kdf, rawParams: kdfParams);
 }
 
+void _validateImportedItems(List<BackupItem> items) {
+  if (items.length > _maximumImportedItems) {
+    throw BackupFormatException(
+      'Invalid "items": exceeds $_maximumImportedItems entries',
+    );
+  }
+  for (final item in items) {
+    _validateImportedStringField('items.id', item.id);
+    _validateImportedStringField('items.nonce', item.nonce);
+    _validateImportedStringField('items.ciphertext', item.ciphertext);
+    _validateImportedStringField('items.mac', item.mac);
+  }
+}
+
+void _validateImportedStringField(String field, String value) {
+  if (value.length > _maximumImportedFieldLength) {
+    throw BackupFormatException(
+      'Invalid "$field": exceeds $_maximumImportedFieldLength characters',
+    );
+  }
+}
+
 enum BackupImportMode { overwrite, skip, merge }
 
 class BackupService {
@@ -333,6 +358,27 @@ class BackupService {
     }
 
     final items = await repository.itemsDao.activeItems();
+    return _buildBackup(meta: meta, items: items);
+  }
+
+  Future<VaultBackup> exportItemBackup(String itemId) async {
+    final meta = await repository.metaDao.get();
+    if (meta == null) {
+      throw StateError('Vault has not been created');
+    }
+
+    final item = await repository.itemsDao.byId(itemId);
+    if (item == null || item.deletedAt != null) {
+      throw VaultItemNotFoundException(itemId);
+    }
+
+    return _buildBackup(meta: meta, items: [item]);
+  }
+
+  Future<VaultBackup> _buildBackup({
+    required VaultMeta meta,
+    required List<EncryptedVaultItem> items,
+  }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final manifest = await vaultService.createVerifiedManifestForBackup(
       items: items,
@@ -376,8 +422,14 @@ class BackupService {
     required Map<String, Object?> json,
     required String masterPassword,
     required BackupImportMode mode,
+    bool allowLegacyBackups = false,
   }) async {
     final backup = VaultBackup.fromJson(json);
+    if (backup.version == _legacyBackupVersion && !allowLegacyBackups) {
+      throw const BackupFormatException(
+        'Legacy version 1 backups are disabled by default because they do not include a vault manifest.',
+      );
+    }
     final backupMeta = _backupMetaForVerification(backup);
     await vaultService.verifyMasterPassword(
       masterPassword: masterPassword,

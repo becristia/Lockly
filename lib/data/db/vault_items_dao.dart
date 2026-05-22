@@ -109,18 +109,11 @@ class VaultItemsDao {
   }
 
   Future<void> hardDelete(String id) async {
-    await _db.delete(
-      'vault_items',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await _db.delete('vault_items', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> hardDeleteAllDeleted() async {
-    await _db.delete(
-      'vault_items',
-      where: 'deleted_at IS NOT NULL',
-    );
+    await _db.delete('vault_items', where: 'deleted_at IS NOT NULL');
   }
 
   Future<int> deletedCount() async {

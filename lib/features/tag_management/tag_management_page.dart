@@ -58,7 +58,8 @@ class _TagManagementPageState extends State<TagManagementPage> {
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(0, 0, 0, 96),
                     itemCount: _tags.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 12),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final tag = _tags[index];
                       return _TagTile(
@@ -92,21 +93,21 @@ class _TagManagementPageState extends State<TagManagementPage> {
           ),
           FilledButton(
             onPressed: () async {
+              final navigator = Navigator.of(ctx);
+              final messenger = ScaffoldMessenger.of(ctx);
               final newTag = controller.text.trim();
               if (newTag.isEmpty || newTag == oldTag) {
-                Navigator.pop(ctx);
+                navigator.pop();
                 return;
               }
               try {
                 await widget.services.renameTag(oldTag, newTag);
                 if (!mounted) return;
-                Navigator.pop(ctx);
+                navigator.pop();
                 _load();
               } catch (_) {
-                if (!ctx.mounted) return;
-                ScaffoldMessenger.of(
-                  ctx,
-                ).showSnackBar(const SnackBar(content: Text('重命名失败')));
+                if (!mounted) return;
+                messenger.showSnackBar(const SnackBar(content: Text('重命名失败')));
               }
             },
             child: const Text('确认'),
@@ -129,16 +130,16 @@ class _TagManagementPageState extends State<TagManagementPage> {
           ),
           FilledButton(
             onPressed: () async {
+              final navigator = Navigator.of(ctx);
+              final messenger = ScaffoldMessenger.of(ctx);
               try {
                 await widget.services.deleteTag(tag);
                 if (!mounted) return;
-                Navigator.pop(ctx);
+                navigator.pop();
                 _load();
               } catch (_) {
-                if (!ctx.mounted) return;
-                ScaffoldMessenger.of(
-                  ctx,
-                ).showSnackBar(const SnackBar(content: Text('删除失败')));
+                if (!mounted) return;
+                messenger.showSnackBar(const SnackBar(content: Text('删除失败')));
               }
             },
             style: FilledButton.styleFrom(
@@ -198,12 +199,18 @@ class _TagTile extends StatelessWidget {
           IconButton(
             tooltip: '重命名',
             onPressed: onRename,
-            icon: const Icon(Icons.edit_rounded, color: SecureVisualColors.blue),
+            icon: const Icon(
+              Icons.edit_rounded,
+              color: SecureVisualColors.blue,
+            ),
           ),
           IconButton(
             tooltip: '删除',
             onPressed: onDelete,
-            icon: Icon(Icons.delete_outline_rounded, color: Theme.of(context).colorScheme.error),
+            icon: Icon(
+              Icons.delete_outline_rounded,
+              color: Theme.of(context).colorScheme.error,
+            ),
           ),
         ],
       ),

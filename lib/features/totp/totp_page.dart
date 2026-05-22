@@ -137,7 +137,9 @@ class _TotpCard extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              copied ? 'Code copied. Clipboard clears on expiry.' : 'Copy failed.',
+              copied
+                  ? 'Code copied. Clipboard clears on expiry.'
+                  : 'Copy failed.',
             ),
             duration: const Duration(seconds: 1),
           ),

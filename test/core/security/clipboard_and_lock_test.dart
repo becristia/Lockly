@@ -76,26 +76,46 @@ void main() {
     });
   });
 
-  test('temporary sensitive clipboard clears after requested timeout', () async {
-    fakeAsync((async) {
-      final service = ClipboardService(
-        clearPasswordAfter: const Duration(seconds: 30),
-      );
-      service.copySensitiveTemporary(
-        'encrypted-backup-json',
-        clearAfter: const Duration(seconds: 5),
-      );
-      async.flushMicrotasks();
+  test(
+    'temporary sensitive clipboard clears after requested timeout',
+    () async {
+      fakeAsync((async) {
+        final service = ClipboardService(
+          clearPasswordAfter: const Duration(seconds: 30),
+        );
+        service.copySensitiveTemporary(
+          'encrypted-backup-json',
+          clearAfter: const Duration(seconds: 5),
+        );
+        async.flushMicrotasks();
 
-      async.elapse(const Duration(seconds: 5));
-      async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
 
-      Clipboard.getData(clipboardFormat).then((data) {
-        expect(data?.text, '');
+        Clipboard.getData(clipboardFormat).then((data) {
+          expect(data?.text, '');
+        });
+        async.flushMicrotasks();
       });
-      async.flushMicrotasks();
-    });
-  });
+    },
+  );
+
+  test(
+    'pending clipboard cleanup does not retain plaintext in service state',
+    () {
+      fakeAsync((async) {
+        final service = ClipboardService(
+          clearPasswordAfter: const Duration(seconds: 30),
+        );
+
+        service.copyPassword('secret-password');
+        async.flushMicrotasks();
+
+        expect(service.debugPendingClearValueForTest, isNull);
+        expect(service.debugPendingClearDigestForTest, isNotNull);
+      });
+    },
+  );
 
   test(
     'password clipboard cleanup does not overwrite newer clipboard data',

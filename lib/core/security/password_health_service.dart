@@ -27,7 +27,8 @@ class HealthFinding {
   }
 
   @override
-  String toString() => 'HealthFinding($itemId: $detail, categories: $categories)';
+  String toString() =>
+      'HealthFinding($itemId: $detail, categories: $categories)';
 }
 
 class HealthReport {
@@ -47,9 +48,7 @@ class HealthReport {
 class PasswordHealthService {
   static const _staleThresholdDays = 365;
 
-  HealthReport analyze({
-    required List<Map<String, String?>> decryptedItems,
-  }) {
+  HealthReport analyze({required List<Map<String, String?>> decryptedItems}) {
     final reusedMap = _checkReused(decryptedItems);
     final findings = <HealthFinding>[];
 
@@ -71,13 +70,15 @@ class PasswordHealthService {
       categories.addAll(_checkNeverEdited(updatedAt, createdAt));
 
       if (categories.isNotEmpty) {
-        findings.add(HealthFinding(
-          itemId: id,
-          title: title,
-          username: username,
-          categories: categories,
-          detail: _buildDetail(categories),
-        ));
+        findings.add(
+          HealthFinding(
+            itemId: id,
+            title: title,
+            username: username,
+            categories: categories,
+            detail: _buildDetail(categories),
+          ),
+        );
       }
     }
 
@@ -141,7 +142,9 @@ class PasswordHealthService {
   }
 
   static Set<HealthCategory> _checkSimilar(
-    String password, String title, String? website,
+    String password,
+    String title,
+    String? website,
   ) {
     final categories = <HealthCategory>{};
     final lower = password.toLowerCase();

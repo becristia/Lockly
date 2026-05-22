@@ -71,6 +71,8 @@ void main() {
         '开发, 常用',
       );
 
+      await tester.ensureVisible(find.widgetWithText(FilledButton, '保存'));
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, '保存'));
       await tester.pumpAndSettle();
 

@@ -5,16 +5,18 @@ void main() {
   group('PasswordHealthService', () {
     test('弱密码被检测', () {
       final service = PasswordHealthService();
-      final report = service.analyze(decryptedItems: [
-        {
-          'id': '1',
-          'title': 'Test',
-          'username': 'u',
-          'password': '123456',
-          'updatedAt': '${DateTime.now().millisecondsSinceEpoch}',
-          'createdAt': '${DateTime.now().millisecondsSinceEpoch}',
-        },
-      ]);
+      final report = service.analyze(
+        decryptedItems: [
+          {
+            'id': '1',
+            'title': 'Test',
+            'username': 'u',
+            'password': '123456',
+            'updatedAt': '${DateTime.now().millisecondsSinceEpoch}',
+            'createdAt': '${DateTime.now().millisecondsSinceEpoch}',
+          },
+        ],
+      );
       expect(report.findings.length, 1);
       expect(report.findings.first.categories, contains(HealthCategory.weak));
       expect(report.score, lessThan(100));
@@ -23,24 +25,26 @@ void main() {
     test('两个条目相同密码被检测为 reused', () {
       final service = PasswordHealthService();
       final now = DateTime.now().millisecondsSinceEpoch;
-      final report = service.analyze(decryptedItems: [
-        {
-          'id': '1',
-          'title': 'A',
-          'username': 'u',
-          'password': 'StrongP@ss1',
-          'updatedAt': '$now',
-          'createdAt': '$now',
-        },
-        {
-          'id': '2',
-          'title': 'B',
-          'username': 'v',
-          'password': 'StrongP@ss1',
-          'updatedAt': '$now',
-          'createdAt': '$now',
-        },
-      ]);
+      final report = service.analyze(
+        decryptedItems: [
+          {
+            'id': '1',
+            'title': 'A',
+            'username': 'u',
+            'password': 'StrongP@ss1',
+            'updatedAt': '$now',
+            'createdAt': '$now',
+          },
+          {
+            'id': '2',
+            'title': 'B',
+            'username': 'v',
+            'password': 'StrongP@ss1',
+            'updatedAt': '$now',
+            'createdAt': '$now',
+          },
+        ],
+      );
       expect(
         report.findings
             .where((f) => f.categories.contains(HealthCategory.reused))
@@ -51,50 +55,60 @@ void main() {
 
     test('超过365天密码被检测为 stale', () {
       final service = PasswordHealthService();
-      final oldDate =
-          DateTime.now().subtract(const Duration(days: 400)).millisecondsSinceEpoch;
-      final report = service.analyze(decryptedItems: [
-        {
-          'id': '1',
-          'title': 'X',
-          'username': 'u',
-          'password': 'StrongP@ss1',
-          'updatedAt': '$oldDate',
-          'createdAt': '$oldDate',
-        },
-      ]);
+      final oldDate = DateTime.now()
+          .subtract(const Duration(days: 400))
+          .millisecondsSinceEpoch;
+      final report = service.analyze(
+        decryptedItems: [
+          {
+            'id': '1',
+            'title': 'X',
+            'username': 'u',
+            'password': 'StrongP@ss1',
+            'updatedAt': '$oldDate',
+            'createdAt': '$oldDate',
+          },
+        ],
+      );
       expect(report.findings.first.categories, contains(HealthCategory.stale));
     });
 
     test('密码包含标题被检测为 similar', () {
       final service = PasswordHealthService();
       final now = DateTime.now().millisecondsSinceEpoch;
-      final report = service.analyze(decryptedItems: [
-        {
-          'id': '1',
-          'title': 'Google',
-          'username': 'u',
-          'password': 'myGoogle123!',
-          'updatedAt': '$now',
-          'createdAt': '$now',
-        },
-      ]);
-      expect(report.findings.first.categories, contains(HealthCategory.similar));
+      final report = service.analyze(
+        decryptedItems: [
+          {
+            'id': '1',
+            'title': 'Google',
+            'username': 'u',
+            'password': 'myGoogle123!',
+            'updatedAt': '$now',
+            'createdAt': '$now',
+          },
+        ],
+      );
+      expect(
+        report.findings.first.categories,
+        contains(HealthCategory.similar),
+      );
     });
 
     test('从未更新被检测', () {
       final service = PasswordHealthService();
       final now = DateTime.now().millisecondsSinceEpoch;
-      final report = service.analyze(decryptedItems: [
-        {
-          'id': '1',
-          'title': 'X',
-          'username': 'u',
-          'password': 'StrongP@ss1',
-          'updatedAt': '$now',
-          'createdAt': '$now',
-        },
-      ]);
+      final report = service.analyze(
+        decryptedItems: [
+          {
+            'id': '1',
+            'title': 'X',
+            'username': 'u',
+            'password': 'StrongP@ss1',
+            'updatedAt': '$now',
+            'createdAt': '$now',
+          },
+        ],
+      );
       expect(
         report.findings.first.categories,
         contains(HealthCategory.neverEdited),
@@ -104,16 +118,18 @@ void main() {
     test('强唯一密码无发现', () {
       final service = PasswordHealthService();
       final now = DateTime.now().millisecondsSinceEpoch;
-      final report = service.analyze(decryptedItems: [
-        {
-          'id': '1',
-          'title': 'Bank',
-          'username': 'u',
-          'password': 'CorrectHorseBatteryStaple99!',
-          'updatedAt': '$now',
-          'createdAt': '${now - 1000}',
-        },
-      ]);
+      final report = service.analyze(
+        decryptedItems: [
+          {
+            'id': '1',
+            'title': 'Bank',
+            'username': 'u',
+            'password': 'CorrectHorseBatteryStaple99!',
+            'updatedAt': '$now',
+            'createdAt': '${now - 1000}',
+          },
+        ],
+      );
       expect(report.findings, isEmpty);
       expect(report.score, 100);
     });
@@ -141,16 +157,18 @@ void main() {
     test('一个条目可以有多个分类', () {
       final service = PasswordHealthService();
       final now = DateTime.now().millisecondsSinceEpoch;
-      final report = service.analyze(decryptedItems: [
-        {
-          'id': '1',
-          'title': 'MySite',
-          'username': 'u',
-          'password': 'MySite',
-          'updatedAt': '$now',
-          'createdAt': '$now',
-        },
-      ]);
+      final report = service.analyze(
+        decryptedItems: [
+          {
+            'id': '1',
+            'title': 'MySite',
+            'username': 'u',
+            'password': 'MySite',
+            'updatedAt': '$now',
+            'createdAt': '$now',
+          },
+        ],
+      );
       final finding = report.findings.first;
       expect(finding.categories.length, greaterThanOrEqualTo(2));
     });

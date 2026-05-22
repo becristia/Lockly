@@ -113,10 +113,13 @@ class AppServices {
   static const routeGenerator = '/generator';
   static const routeSettings = '/settings';
   static const routeHealth = '/health';
+  static const maxImportedBackupJsonBytes = 8 * 1024 * 1024;
 
   final GlobalKey<NavigatorState> navigatorKey;
   final ValueNotifier<AppShellState> shellState;
-  final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.system);
+  final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(
+    ThemeMode.system,
+  );
 
   ThemeMode get themeMode => themeModeNotifier.value;
   set themeMode(ThemeMode mode) {
@@ -298,20 +301,23 @@ class AppServices {
         );
       },
       listDeletedItemsOverride: () async {
-        final items = fakeItems.entries
-            .where((entry) => entry.value.deletedAt != null)
-            .map((entry) => VaultListItem(
-                  id: entry.key,
-                  title: entry.value.entry.title,
-                  website: entry.value.entry.website,
-                  username: entry.value.entry.username,
-                  tags: entry.value.entry.tags,
-                  createdAt: entry.value.createdAt,
-                  updatedAt: entry.value.updatedAt,
-                  deletedAt: entry.value.deletedAt,
-                ))
-            .toList()
-          ..sort((a, b) => b.deletedAt!.compareTo(a.deletedAt!));
+        final items =
+            fakeItems.entries
+                .where((entry) => entry.value.deletedAt != null)
+                .map(
+                  (entry) => VaultListItem(
+                    id: entry.key,
+                    title: entry.value.entry.title,
+                    website: entry.value.entry.website,
+                    username: entry.value.entry.username,
+                    tags: entry.value.entry.tags,
+                    createdAt: entry.value.createdAt,
+                    updatedAt: entry.value.updatedAt,
+                    deletedAt: entry.value.deletedAt,
+                  ),
+                )
+                .toList()
+              ..sort((a, b) => b.deletedAt!.compareTo(a.deletedAt!));
         return List.unmodifiable(items);
       },
       restoreItemOverride: (id) async {
@@ -520,8 +526,7 @@ class AppServices {
   Future<void> renameTag(String oldTag, String newTag) async =>
       vaultService.renameTag(oldTag, newTag);
 
-  Future<void> deleteTag(String tag) async =>
-      vaultService.deleteTag(tag);
+  Future<void> deleteTag(String tag) async => vaultService.deleteTag(tag);
 
   Future<List<VaultListItem>> listDeletedItems() async {
     final override = _listDeletedItemsOverride;
@@ -561,9 +566,7 @@ class AppServices {
     );
   }
 
-  Future<List<Map<String, dynamic>>> listPasswordHistory(
-    String entryId,
-  ) async {
+  Future<List<Map<String, dynamic>>> listPasswordHistory(String entryId) async {
     return vaultService.listPasswordHistory(entryId);
   }
 
@@ -684,10 +687,19 @@ class AppServices {
     return const JsonEncoder.withIndent('  ').convert(backup.toJson());
   }
 
+  Future<String> exportEncryptedItemBackupJson(String itemId) async {
+    final backup = await backupService.exportItemBackup(itemId);
+    return const JsonEncoder.withIndent('  ').convert(backup.toJson());
+  }
+
   Future<int> importEncryptedBackupJson({
     required String backupJson,
     required String masterPassword,
   }) async {
+    if (backupJson.length > maxImportedBackupJsonBytes) {
+      throw const FormatException('Backup JSON is too large to import safely');
+    }
+
     final override = _importBackupOverride;
     if (override != null) {
       return override(backupJson, masterPassword);
@@ -700,7 +712,7 @@ class AppServices {
     final importedCount = await backupService.importBackup(
       json: Map<String, Object?>.from(decoded),
       masterPassword: masterPassword,
-      mode: BackupImportMode.merge,
+      mode: BackupImportMode.skip,
     );
     _hasVault = true;
     return importedCount;
@@ -730,7 +742,10 @@ class AppServices {
     String value, {
     Duration clearAfter = const Duration(seconds: 30),
   }) {
-    return clipboardService.copySensitiveTemporary(value, clearAfter: clearAfter);
+    return clipboardService.copySensitiveTemporary(
+      value,
+      clearAfter: clearAfter,
+    );
   }
 
   bool get hasVault => _hasVault;
@@ -893,7 +908,9 @@ class _FakeVaultItem {
       entry: entry ?? this.entry,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      deletedAt: identical(deletedAt, _sentinel) ? this.deletedAt : deletedAt as int?,
+      deletedAt: identical(deletedAt, _sentinel)
+          ? this.deletedAt
+          : deletedAt as int?,
     );
   }
 }

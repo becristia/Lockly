@@ -22,10 +22,14 @@ class PasswordHistoryDao {
       'recorded_at': recordedAt,
     });
     // Enforce max 5 per entry
-    final count = Sqflite.firstIntValue(await _db.rawQuery(
-      'SELECT COUNT(*) FROM password_history WHERE entry_id = ?',
-      [entryId],
-    )) ?? 0;
+    final count =
+        Sqflite.firstIntValue(
+          await _db.rawQuery(
+            'SELECT COUNT(*) FROM password_history WHERE entry_id = ?',
+            [entryId],
+          ),
+        ) ??
+        0;
     if (count > 5) {
       await _db.rawDelete(
         'DELETE FROM password_history WHERE id IN '

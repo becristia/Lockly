@@ -611,8 +611,8 @@ void main() {
       final meta = await service.repository.metaDao.get();
       expect(meta!.kdf, 'argon2id');
       expect(meta.kdfParams.name, 'argon2id');
-      expect(
-        () => service.unlock(masterPassword: 'old-master'),
+      await expectLater(
+        service.unlock(masterPassword: 'old-master'),
         throwsA(isA<VaultUnlockException>()),
       );
       expect(

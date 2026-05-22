@@ -27,7 +27,10 @@ void main() {
     test('different timestamps produce different codes', () {
       final service = TotpService();
       final a = service.generate(base32Secret: testSecret, timestampMs: 59000);
-      final b = service.generate(base32Secret: testSecret, timestampMs: 59000 + 30000);
+      final b = service.generate(
+        base32Secret: testSecret,
+        timestampMs: 59000 + 30000,
+      );
       expect(a, isNot(equals(b)));
     });
 

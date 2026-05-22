@@ -36,6 +36,7 @@ class _UnlockPageState extends State<UnlockPage> {
 
   @override
   void dispose() {
+    _passwordController.clear();
     _retryTimer?.cancel();
     _passwordController.dispose();
     super.dispose();
@@ -172,10 +173,11 @@ class _UnlockPageState extends State<UnlockPage> {
 
     final bool unlocked;
     try {
-      unlocked = await widget.services.unlockWithMasterPassword(
-        _passwordController.text,
-      );
+      final masterPassword = _passwordController.text;
+      unlocked = await widget.services.unlockWithMasterPassword(masterPassword);
+      _passwordController.clear();
     } catch (_) {
+      _passwordController.clear();
       if (!mounted) {
         return;
       }

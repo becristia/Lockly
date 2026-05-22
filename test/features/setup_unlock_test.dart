@@ -98,7 +98,7 @@ void main() {
         find.widgetWithText(TextFormField, '确认主密码'),
         'different-password',
       );
-      await tester.tap(find.text('创建密码库'));
+      await _tapVisible(tester, find.text('创建密码库'));
       await tester.pump();
 
       expect(find.text('两次输入的主密码不一致'), findsOneWidget);
@@ -123,7 +123,7 @@ void main() {
         find.widgetWithText(TextFormField, '确认主密码'),
         'password123456',
       );
-      await tester.tap(find.text('创建密码库'));
+      await _tapVisible(tester, find.text('创建密码库'));
       await tester.pump();
 
       expect(find.textContaining('常见弱密码'), findsOneWidget);
@@ -172,7 +172,7 @@ void main() {
         find.widgetWithText(TextFormField, '确认主密码'),
         'very-secure-password',
       );
-      await tester.tap(find.text('创建密码库'));
+      await _tapVisible(tester, find.text('创建密码库'));
       await tester.pump();
 
       expect(services.fakeCreateVaultCalls, 1);
@@ -206,7 +206,7 @@ void main() {
         find.widgetWithText(TextFormField, '确认主密码'),
         'very-secure-password',
       );
-      await tester.tap(find.text('创建密码库'));
+      await _tapVisible(tester, find.text('创建密码库'));
       await tester.pump();
 
       expect(find.text('密码库已创建，但未能启用生物识别。'), findsOneWidget);
@@ -338,4 +338,10 @@ Future<void> _pumpPage(
   });
 
   await tester.pumpWidget(_TestApp(home: home));
+}
+
+Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pump();
+  await tester.tap(finder);
 }

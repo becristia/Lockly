@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
@@ -25,6 +26,8 @@ import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -158,6 +161,41 @@ void main() {
     },
   );
 
+  test('exportItemBackup exports only the requested active item', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final githubId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'GitHub',
+        website: 'https://github.com',
+        username: 'user@example.com',
+        password: 'secret-password',
+        notes: 'private note',
+        tags: ['dev'],
+      ),
+    );
+    final docsId = await source.vaultService.createItem(
+      PasswordEntry(
+        title: 'Docs',
+        website: 'https://docs.example',
+        username: 'docs@example.com',
+        password: 'docs-password',
+        notes: 'not exported',
+        tags: ['docs'],
+      ),
+    );
+
+    final backup = await source.backupService.exportItemBackup(githubId);
+
+    expect(backup.version, 2);
+    expect(backup.itemCount, 1);
+    expect(backup.items.map((item) => item.id), [githubId]);
+    expect(backup.items.map((item) => item.id), isNot(contains(docsId)));
+    expect(jsonEncode(backup.toJson()), isNot(contains('secret-password')));
+    expect(jsonEncode(backup.toJson()), isNot(contains('docs-password')));
+  });
+
   test('exportBackup fails when the live manifest is tampered', () async {
     final source = await _buildHarness();
     await source.vaultService.createVault(masterPassword: 'source-master');
@@ -213,34 +251,22 @@ void main() {
     expect(backup.parsedKdfParams.parallelism, 1);
   });
 
-  test(
-    'argon2id backup import restores metadata and remains unlockable',
-    () async {
-      final source = await _buildHarness();
-      await _createEmptyArgon2idVault(source, masterPassword: 'source-master');
-      await source.vaultService.unlock(masterPassword: 'source-master');
-      final backup = await source.backupService.exportBackup();
+  test('legacy v1 backup import is rejected by default', () async {
+    final source = await _buildHarness();
+    await _createEmptyArgon2idVault(source, masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+    final backup = await source.backupService.exportBackup();
 
-      final target = await _buildHarness();
-      await target.backupService.importBackup(
+    final target = await _buildHarness();
+    expect(
+      target.backupService.importBackup(
         json: _asLegacyBackupJson(backup.toJson()),
         masterPassword: 'source-master',
         mode: BackupImportMode.overwrite,
-      );
-
-      final meta = await target.repository.metaDao.get();
-      expect(meta, isNotNull);
-      expect(meta!.kdf, 'argon2id');
-      expect(meta.kdfParams.memoryKiB, 1024);
-      expect(meta.kdfParams.parallelism, 1);
-      expect(
-        (await target.vaultService.unlock(
-          masterPassword: 'source-master',
-        )).isUnlocked,
-        isTrue,
-      );
-    },
-  );
+      ),
+      throwsA(isA<BackupFormatException>()),
+    );
+  });
 
   test(
     'v1 import generates a target manifest and leaves imported vault unlockable',
@@ -265,6 +291,7 @@ void main() {
         json: _asLegacyBackupJson(backup.toJson()),
         masterPassword: 'source-master',
         mode: BackupImportMode.overwrite,
+        allowLegacyBackups: true,
       );
 
       expect(await target.repository.manifestDao.get(), isNotNull);
@@ -273,6 +300,28 @@ void main() {
       expect(imported.password, 'secret-password');
     },
   );
+
+  test('AppServices rejects oversized backup JSON before parsing', () async {
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      trackActivity: false,
+      importBackupOverride: (backupJson, masterPassword) async {
+        throw StateError('import override should not be called');
+      },
+    );
+    addTearDown(services.dispose);
+
+    final oversizedBackup = ' ' * (AppServices.maxImportedBackupJsonBytes + 1);
+
+    await expectLater(
+      services.importEncryptedBackupJson(
+        backupJson: oversizedBackup,
+        masterPassword: 'source-master',
+      ),
+      throwsA(isA<FormatException>()),
+    );
+  });
 
   test(
     'v2 import rejects tampered item ciphertext before writing target data',
@@ -871,6 +920,7 @@ void main() {
         json: importedJson,
         masterPassword: 'source-master',
         mode: BackupImportMode.skip,
+        allowLegacyBackups: true,
       );
 
       final importedMeta = await target.repository.metaDao.get();
@@ -884,6 +934,59 @@ void main() {
       expect(preserved.notes, 'local copy');
       expect(added.password, 'docs-password');
       expect(added.notes, 'new item');
+    },
+  );
+
+  test(
+    'AppServices import re-encrypts imported rows under the current vault',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final newId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'docs-password',
+          notes: 'new item',
+          tags: ['docs'],
+        ),
+      );
+      final exportedBackup = await source.backupService.exportBackup();
+      final sourceNewRow = await source.repository.itemsDao.byId(newId);
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final services = AppServices(
+        hasVault: true,
+        initialShellState: AppShellState.unlocked,
+        trackActivity: false,
+        vaultService: target.vaultService,
+        backupService: target.backupService,
+      );
+      addTearDown(services.dispose);
+
+      final importedCount = await services.importEncryptedBackupJson(
+        backupJson: jsonEncode(exportedBackup.toJson()),
+        masterPassword: 'source-master',
+      );
+
+      final added = await target.vaultService.getItem(newId);
+      final targetNewRow = await target.repository.itemsDao.byId(newId);
+
+      expect(importedCount, 1);
+      expect(added.password, 'docs-password');
+      expect(targetNewRow, isNotNull);
+      expect(targetNewRow!.ciphertext, isNot(sourceNewRow!.ciphertext));
+      expect(targetNewRow.nonce, isNot(sourceNewRow.nonce));
+      target.vaultService.lock();
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      expect(
+        (await target.vaultService.getItem(newId)).password,
+        'docs-password',
+      );
     },
   );
 
@@ -1008,6 +1111,7 @@ void main() {
         json: importedJson,
         masterPassword: 'source-master',
         mode: BackupImportMode.merge,
+        allowLegacyBackups: true,
       );
 
       final importedMeta = await target.repository.metaDao.get();
@@ -1105,6 +1209,7 @@ void main() {
         json: importedJson,
         masterPassword: 'source-master',
         mode: BackupImportMode.skip,
+        allowLegacyBackups: true,
       );
 
       expect(importedCount, 0);

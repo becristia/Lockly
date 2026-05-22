@@ -59,7 +59,12 @@ class VaultListItem {
 }
 
 class TotpListItem {
-  TotpListItem({required this.id, required this.title, required this.username, required this.totpSecret});
+  TotpListItem({
+    required this.id,
+    required this.title,
+    required this.username,
+    required this.totpSecret,
+  });
   final String id;
   final String title;
   final String username;
@@ -866,9 +871,7 @@ class VaultService {
     return repository.itemsDao.deletedCount();
   }
 
-  Future<List<Map<String, dynamic>>> listPasswordHistory(
-    String entryId,
-  ) async {
+  Future<List<Map<String, dynamic>>> listPasswordHistory(String entryId) async {
     _ensureUnlocked();
     final historyDao = repository.historyDao;
     if (historyDao == null) return const [];
@@ -1036,14 +1039,18 @@ class VaultService {
           );
           final decoded = jsonDecode(utf8.decode(clearBytes));
           if (decoded is! Map) continue;
-          final entry = PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+          final entry = PasswordEntry.fromJson(
+            Map<String, Object?>.from(decoded),
+          );
           if (entry.totpSecret == null || entry.totpSecret!.isEmpty) continue;
-          results.add(TotpListItem(
-            id: item.id,
-            title: entry.title,
-            username: entry.username,
-            totpSecret: entry.totpSecret!,
-          ));
+          results.add(
+            TotpListItem(
+              id: item.id,
+              title: entry.title,
+              username: entry.username,
+              totpSecret: entry.totpSecret!,
+            ),
+          );
         } catch (_) {
           // skip items that fail to decrypt or parse
         }
@@ -1109,8 +1116,9 @@ class VaultService {
               Map<String, Object?>.from(decoded),
             );
             if (!entry.tags.contains(oldTag)) continue;
-            final newTags =
-                entry.tags.map((t) => t == oldTag ? newTag : t).toList();
+            final newTags = entry.tags
+                .map((t) => t == oldTag ? newTag : t)
+                .toList();
             final updatedEntry = PasswordEntry(
               title: entry.title,
               website: entry.website,

@@ -54,13 +54,22 @@ void main() {
     expect(rows.single['ciphertext'], 'ciphertext-value');
   });
 
+  test('database enables secure delete for removed vault rows', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+
+    final pragmaRows = await db.rawQuery('PRAGMA secure_delete');
+
+    expect(pragmaRows.single.values.single, 1);
+  });
+
   test(
-    'schema version 2 creates vault manifest without plaintext fields',
+    'current schema creates vault manifest without plaintext fields',
     () async {
       final db = await AppDatabase.openInMemory();
       addTearDown(db.close);
 
-      expect(await db.getVersion(), 2);
+      expect(await db.getVersion(), AppDatabase.schemaVersion);
 
       final columns = await db.rawQuery('PRAGMA table_info(vault_manifest)');
       final columnNames = columns.map((column) => column['name']).toSet();
@@ -147,7 +156,7 @@ void main() {
     final upgradedDb = await AppDatabase.open(dbPath);
     addTearDown(upgradedDb.close);
 
-    expect(await upgradedDb.getVersion(), 2);
+    expect(await upgradedDb.getVersion(), AppDatabase.schemaVersion);
     final columns = await upgradedDb.rawQuery(
       'PRAGMA table_info(vault_manifest)',
     );

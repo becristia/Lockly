@@ -356,7 +356,9 @@ class _CategoryTileState extends State<_CategoryTile> {
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.count > 0 ? widget.spec.color : SecureVisualColors.success;
+    final color = widget.count > 0
+        ? widget.spec.color
+        : SecureVisualColors.success;
     return SecureGlassCard(
       padding: EdgeInsets.zero,
       borderRadius: 18,
@@ -385,10 +387,11 @@ class _CategoryTileState extends State<_CategoryTile> {
                       children: [
                         Text(
                           widget.spec.title,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: SecureVisualColors.text,
-                            fontWeight: FontWeight.w900,
-                          ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: SecureVisualColors.text,
+                                fontWeight: FontWeight.w900,
+                              ),
                         ),
                         const SizedBox(height: 3),
                         Text(
@@ -415,8 +418,9 @@ class _CategoryTileState extends State<_CategoryTile> {
               findings: widget.findings,
               services: widget.services,
             ),
-            crossFadeState:
-                _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            crossFadeState: _expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 180),
           ),
         ],
@@ -507,7 +511,10 @@ class _FindingItem extends StatelessWidget {
             ),
             if (finding.username.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text(finding.username, style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                finding.username,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
             const SizedBox(height: 10),
             Text(finding.detail, style: Theme.of(context).textTheme.bodySmall),

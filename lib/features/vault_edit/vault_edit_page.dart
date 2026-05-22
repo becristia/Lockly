@@ -289,12 +289,13 @@ class _VaultEditPageState extends State<VaultEditPage> {
                               widget.services.recordActivity();
                               final generated = await Navigator.of(context)
                                   .push<String>(
-                                MaterialPageRoute<String>(
-                                  builder: (context) => PasswordGeneratorPage(
-                                    services: widget.services,
-                                  ),
-                                ),
-                              );
+                                    MaterialPageRoute<String>(
+                                      builder: (context) =>
+                                          PasswordGeneratorPage(
+                                            services: widget.services,
+                                          ),
+                                    ),
+                                  );
                               if (generated != null && mounted) {
                                 setState(() {
                                   _passwordController.text = generated;
@@ -320,8 +321,14 @@ class _VaultEditPageState extends State<VaultEditPage> {
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: _scanQrCode,
-                              icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
-                              label: const Text('扫描 QR 码', style: TextStyle(fontSize: 13)),
+                              icon: const Icon(
+                                Icons.qr_code_scanner_rounded,
+                                size: 20,
+                              ),
+                              label: const Text(
+                                '扫描 QR 码',
+                                style: TextStyle(fontSize: 13),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -329,7 +336,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
                             child: OutlinedButton.icon(
                               onPressed: _showManualTotpInput,
                               icon: const Icon(Icons.edit_rounded, size: 20),
-                              label: const Text('手动输入', style: TextStyle(fontSize: 13)),
+                              label: const Text(
+                                '手动输入',
+                                style: TextStyle(fontSize: 13),
+                              ),
                             ),
                           ),
                         ],
@@ -338,19 +348,40 @@ class _VaultEditPageState extends State<VaultEditPage> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: SecureVisualColors.success.withValues(alpha: 0.1),
+                          color: SecureVisualColors.success.withValues(
+                            alpha: 0.1,
+                          ),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: SecureVisualColors.success.withValues(alpha: 0.3)),
+                          border: Border.all(
+                            color: SecureVisualColors.success.withValues(
+                              alpha: 0.3,
+                            ),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.check_circle, color: SecureVisualColors.success, size: 20),
+                            const Icon(
+                              Icons.check_circle,
+                              color: SecureVisualColors.success,
+                              size: 20,
+                            ),
                             const SizedBox(width: 8),
-                            const Text('TOTP 已设置', style: TextStyle(fontSize: 13, color: SecureVisualColors.success, fontWeight: FontWeight.w600)),
+                            const Text(
+                              'TOTP 已设置',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: SecureVisualColors.success,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             const Spacer(),
                             TextButton(
-                              onPressed: () => setState(() => _totpSecret = null),
-                              child: const Text('移除', style: TextStyle(fontSize: 13)),
+                              onPressed: () =>
+                                  setState(() => _totpSecret = null),
+                              child: const Text(
+                                '移除',
+                                style: TextStyle(fontSize: 13),
+                              ),
                             ),
                           ],
                         ),
@@ -415,9 +446,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
           ),
           FilledButton(
             onPressed: () {
-              final raw = controller.text
-                  .toUpperCase()
-                  .replaceAll(RegExp(r'[^A-Z2-7]'), '');
+              final raw = controller.text.toUpperCase().replaceAll(
+                RegExp(r'[^A-Z2-7]'),
+                '',
+              );
               if (raw.isNotEmpty) {
                 setState(() => _totpSecret = raw);
               }
@@ -431,9 +463,9 @@ class _VaultEditPageState extends State<VaultEditPage> {
   }
 
   void _scanQrCode() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('QR 码扫描功能需要 camera 权限')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('QR 码扫描功能需要 camera 权限')));
   }
 
   static List<String> _parseTags(String rawText) {
@@ -469,7 +501,9 @@ class _StrengthIndicator extends StatelessWidget {
             child: Container(
               height: 4,
               decoration: BoxDecoration(
-                color: i < (filledBars * 4 ~/ 5) ? color : SecureVisualColors.line,
+                color: i < (filledBars * 4 ~/ 5)
+                    ? color
+                    : SecureVisualColors.line,
                 borderRadius: BorderRadius.circular(99),
               ),
             ),

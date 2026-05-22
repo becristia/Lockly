@@ -142,9 +142,7 @@ class _VaultListPageState extends State<VaultListPage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
             children: [
-              SecureReplicaHeader(
-                title: '密码库',
-              ),
+              SecureReplicaHeader(title: '密码库'),
               const SizedBox(height: 22),
               _SecuritySummary(itemCount: _items.length, isLoading: _isLoading),
               const SizedBox(height: 16),
@@ -176,19 +174,23 @@ class _VaultListPageState extends State<VaultListPage> {
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: _allTags.length + 1,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return FilterChip(
                           selected: _selectedTag == null,
-                          label: const Text('全部',
-                              style: TextStyle(fontSize: 12)),
+                          label: const Text(
+                            '全部',
+                            style: TextStyle(fontSize: 12),
+                          ),
                           onSelected: (_) {
                             setState(() => _selectedTag = null);
                             _loadItems();
                           },
-                          selectedColor:
-                              SecureVisualColors.blue.withValues(alpha: 0.15),
+                          selectedColor: SecureVisualColors.blue.withValues(
+                            alpha: 0.15,
+                          ),
                           checkmarkColor: SecureVisualColors.blue,
                           visualDensity: VisualDensity.compact,
                         );
@@ -197,8 +199,7 @@ class _VaultListPageState extends State<VaultListPage> {
                       final selected = _selectedTag == tag;
                       return FilterChip(
                         selected: selected,
-                        label:
-                            Text(tag, style: const TextStyle(fontSize: 12)),
+                        label: Text(tag, style: const TextStyle(fontSize: 12)),
                         onSelected: selected
                             ? (_) {
                                 setState(() => _selectedTag = null);
@@ -208,8 +209,9 @@ class _VaultListPageState extends State<VaultListPage> {
                                 setState(() => _selectedTag = tag);
                                 _loadItems();
                               },
-                        selectedColor:
-                            SecureVisualColors.blue.withValues(alpha: 0.15),
+                        selectedColor: SecureVisualColors.blue.withValues(
+                          alpha: 0.15,
+                        ),
                         checkmarkColor: SecureVisualColors.blue,
                         visualDensity: VisualDensity.compact,
                       );
@@ -264,8 +266,7 @@ class _VaultListPageState extends State<VaultListPage> {
                       widget.services.recordActivity();
                       await Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) =>
-                              TrashPage(services: widget.services),
+                          builder: (_) => TrashPage(services: widget.services),
                         ),
                       );
                       _loadItems();

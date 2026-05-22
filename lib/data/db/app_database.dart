@@ -21,6 +21,9 @@ class AppDatabase {
       path,
       singleInstance: singleInstance,
       version: schemaVersion,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA secure_delete = ON');
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE vault_meta (
