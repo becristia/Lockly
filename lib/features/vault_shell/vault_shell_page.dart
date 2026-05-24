@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/features/password_generator/password_generator_page.dart';
+import 'package:secure_box/features/security_center/security_center_page.dart';
 import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/features/totp/totp_page.dart';
 import 'package:secure_box/features/vault_list/vault_list_page.dart';
@@ -20,14 +21,77 @@ class _VaultShellPageState extends State<VaultShellPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktopWidth = MediaQuery.sizeOf(context).width >= 900;
+    final page = switch (_selectedIndex) {
+      0 => VaultListPage(services: widget.services),
+      1 => SecurityCenterPage(services: widget.services),
+      2 => TotpPage(services: widget.services),
+      3 => PasswordGeneratorPage(services: widget.services),
+      _ => SettingsPage(services: widget.services),
+    };
+
+    if (isDesktopWidth) {
+      return Scaffold(
+        body: Row(
+          children: [
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+                child: SecureGlassCard(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  borderRadius: 16,
+                  child: NavigationRail(
+                    selectedIndex: _selectedIndex,
+                    onDestinationSelected: (index) {
+                      widget.services.recordActivity();
+                      setState(() => _selectedIndex = index);
+                    },
+                    labelType: NavigationRailLabelType.all,
+                    minWidth: 96,
+                    groupAlignment: -0.92,
+                    destinations: const [
+                      NavigationRailDestination(
+                        icon: Icon(Icons.lock_outline_rounded),
+                        selectedIcon: Icon(Icons.lock_rounded),
+                        label: Text('Vault'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(
+                          Icons.security_outlined,
+                          key: ValueKey('vault-shell-security-tab'),
+                        ),
+                        selectedIcon: Icon(Icons.security_rounded),
+                        label: Text('Security'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.qr_code_2_outlined),
+                        selectedIcon: Icon(Icons.qr_code_2_rounded),
+                        label: Text('TOTP'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.auto_awesome_outlined),
+                        selectedIcon: Icon(Icons.auto_awesome_rounded),
+                        label: Text('Generator'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.settings_outlined),
+                        selectedIcon: Icon(Icons.settings_rounded),
+                        label: Text('Settings'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Expanded(child: page),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       extendBody: true,
-      body: switch (_selectedIndex) {
-        0 => VaultListPage(services: widget.services),
-        1 => TotpPage(services: widget.services),
-        2 => PasswordGeneratorPage(services: widget.services),
-        _ => SettingsPage(services: widget.services),
-      },
+      body: page,
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: SecureGlassCard(
@@ -44,25 +108,31 @@ class _VaultShellPageState extends State<VaultShellPage> {
                 key: ValueKey('vault-shell-vault-tab'),
                 icon: Icon(Icons.lock_outline_rounded),
                 selectedIcon: Icon(Icons.lock_rounded),
-                label: '密码库',
+                label: 'Vault',
+              ),
+              NavigationDestination(
+                key: ValueKey('vault-shell-security-tab'),
+                icon: Icon(Icons.security_outlined),
+                selectedIcon: Icon(Icons.security_rounded),
+                label: 'Security',
               ),
               NavigationDestination(
                 key: ValueKey('vault-shell-totp-tab'),
                 icon: Icon(Icons.qr_code_2_outlined),
                 selectedIcon: Icon(Icons.qr_code_2_rounded),
-                label: '验证码',
+                label: 'TOTP',
               ),
               NavigationDestination(
                 key: ValueKey('vault-shell-generator-tab'),
                 icon: Icon(Icons.auto_awesome_outlined),
                 selectedIcon: Icon(Icons.auto_awesome_rounded),
-                label: '生成器',
+                label: 'Generator',
               ),
               NavigationDestination(
                 key: ValueKey('vault-shell-settings-tab'),
                 icon: Icon(Icons.settings_outlined),
                 selectedIcon: Icon(Icons.settings_rounded),
-                label: '设置',
+                label: 'Settings',
               ),
             ],
           ),

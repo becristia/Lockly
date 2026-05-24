@@ -23,11 +23,13 @@ class SecureVisualBackground extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.fromLTRB(20, 18, 20, 24),
     this.bottomInset = 0,
+    this.maxContentWidth = 1180,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final double bottomInset;
+  final double? maxContentWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -61,9 +63,17 @@ class SecureVisualBackground extends StatelessWidget {
             SafeArea(
               child: Padding(
                 padding: padding,
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: bottomInset),
-                  child: child,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: maxContentWidth ?? double.infinity,
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: bottomInset),
+                      child: child,
+                    ),
+                  ),
                 ),
               ),
             ),

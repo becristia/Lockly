@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart'
     show Hkdf, Hmac, SecretKey, Sha256;
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
+import 'package:secure_box/data/models/encrypted_vault_blob.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
@@ -40,6 +41,7 @@ class VaultManifestService {
     required Uint8List dek,
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    List<EncryptedVaultBlob> blobs = const [],
     List<Map<String, Object?>> historyRecords = const [],
     required VaultManifest? previous,
     required int updatedAt,
@@ -49,10 +51,12 @@ class VaultManifestService {
     final payload = await _buildPayload(
       meta: meta,
       items: items,
+      blobs: blobs,
       historyRecords: historyRecords,
       epoch: epoch,
       counter: counter,
       includeHistory: true,
+      includeBlobs: true,
     );
     final manifestKey = await _deriveManifestKey(dek);
     try {
@@ -78,6 +82,7 @@ class VaultManifestService {
     required Uint8List dek,
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    List<EncryptedVaultBlob> blobs = const [],
     List<Map<String, Object?>> historyRecords = const [],
     required VaultManifest manifest,
   }) async {
@@ -95,30 +100,82 @@ class VaultManifestService {
       final expected = await _buildPayload(
         meta: meta,
         items: items,
+        blobs: blobs,
         historyRecords: historyRecords,
         epoch: manifest.epoch,
         counter: manifest.counter,
         includeHistory: true,
+        includeBlobs: true,
       );
 
       if (_canonicalJson(decoded) != _canonicalJson(expected)) {
-        if (decoded.containsKey('history_count') ||
-            decoded.containsKey('history_digest') ||
-            historyRecords.isNotEmpty) {
+        final hasHistoryFields =
+            decoded.containsKey('history_count') ||
+            decoded.containsKey('history_digest');
+        final hasBlobFields =
+            decoded.containsKey('blob_count') ||
+            decoded.containsKey('blobs_digest');
+
+        final legacyCandidates = <Map<String, Object?>>[];
+        if (!hasBlobFields && blobs.isEmpty) {
+          legacyCandidates.add(
+            await _buildPayload(
+              meta: meta,
+              items: items,
+              blobs: const [],
+              historyRecords: historyRecords,
+              epoch: manifest.epoch,
+              counter: manifest.counter,
+              includeHistory: true,
+              includeBlobs: false,
+            ),
+          );
+        }
+        if (!hasHistoryFields && historyRecords.isEmpty) {
+          legacyCandidates.add(
+            await _buildPayload(
+              meta: meta,
+              items: items,
+              blobs: blobs,
+              historyRecords: const [],
+              epoch: manifest.epoch,
+              counter: manifest.counter,
+              includeHistory: false,
+              includeBlobs: true,
+            ),
+          );
+        }
+        if (!hasHistoryFields &&
+            historyRecords.isEmpty &&
+            !hasBlobFields &&
+            blobs.isEmpty) {
+          legacyCandidates.add(
+            await _buildPayload(
+              meta: meta,
+              items: items,
+              blobs: const [],
+              historyRecords: const [],
+              epoch: manifest.epoch,
+              counter: manifest.counter,
+              includeHistory: false,
+              includeBlobs: false,
+            ),
+          );
+        }
+
+        for (final legacyExpected in legacyCandidates) {
+          if (_canonicalJson(decoded) == _canonicalJson(legacyExpected)) {
+            return VaultManifestVerificationResult.legacy;
+          }
+        }
+
+        if (hasHistoryFields ||
+            hasBlobFields ||
+            historyRecords.isNotEmpty ||
+            blobs.isNotEmpty) {
           throw const VaultIntegrityException();
         }
-        final legacyExpected = await _buildPayload(
-          meta: meta,
-          items: items,
-          historyRecords: const [],
-          epoch: manifest.epoch,
-          counter: manifest.counter,
-          includeHistory: false,
-        );
-        if (_canonicalJson(decoded) != _canonicalJson(legacyExpected)) {
-          throw const VaultIntegrityException();
-        }
-        return VaultManifestVerificationResult.legacy;
+        throw const VaultIntegrityException();
       }
       return VaultManifestVerificationResult.current;
     } finally {
@@ -178,10 +235,12 @@ class VaultManifestService {
   Future<Map<String, Object?>> _buildPayload({
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    required List<EncryptedVaultBlob> blobs,
     required List<Map<String, Object?>> historyRecords,
     required int epoch,
     required int counter,
     required bool includeHistory,
+    required bool includeBlobs,
   }) async {
     final payload = {
       'version': _manifestVersion,
@@ -207,6 +266,10 @@ class VaultManifestService {
       payload['history_digest'] = await _digestObject(
         _historyDescriptors(historyRecords),
       );
+    }
+    if (includeBlobs) {
+      payload['blob_count'] = blobs.length;
+      payload['blobs_digest'] = await _digestObject(_blobDescriptors(blobs));
     }
     return payload;
   }
@@ -285,6 +348,36 @@ class VaultManifestService {
         return recordedComparison;
       }
       return (left['id']! as int).compareTo(right['id']! as int);
+    });
+    return descriptors;
+  }
+
+  List<Map<String, Object?>> _blobDescriptors(List<EncryptedVaultBlob> blobs) {
+    final descriptors = blobs
+        .map(
+          (blob) => {
+            'blob_id': blob.blobId,
+            'item_id': blob.itemId,
+            'metadata_nonce': blob.metadataNonce,
+            'metadata_ciphertext': blob.metadataCiphertext,
+            'metadata_mac': blob.metadataMac,
+            'nonce': blob.nonce,
+            'ciphertext': blob.ciphertext,
+            'mac': blob.mac,
+            'created_at': blob.createdAt,
+            'updated_at': blob.updatedAt,
+            'deleted_at': blob.deletedAt,
+          },
+        )
+        .toList();
+    descriptors.sort((left, right) {
+      final idComparison = (left['blob_id']! as String).compareTo(
+        right['blob_id']! as String,
+      );
+      if (idComparison != 0) {
+        return idComparison;
+      }
+      return _canonicalJson(left).compareTo(_canonicalJson(right));
     });
     return descriptors;
   }

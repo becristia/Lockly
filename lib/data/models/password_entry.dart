@@ -1,3 +1,5 @@
+import 'package:secure_box/data/models/passkey_record.dart';
+
 class PasswordEntry {
   PasswordEntry({
     required this.title,
@@ -7,6 +9,7 @@ class PasswordEntry {
     required this.notes,
     required List<String> tags,
     this.totpSecret,
+    this.passkey,
   }) : tags = List.unmodifiable(tags);
 
   final String title;
@@ -16,6 +19,7 @@ class PasswordEntry {
   final String notes;
   final List<String> tags;
   final String? totpSecret; // Base32 encoded TOTP key, null if not set
+  final PasskeyRecord? passkey;
 
   Map<String, Object?> toJson() => {
     'title': title,
@@ -25,9 +29,11 @@ class PasswordEntry {
     'notes': notes,
     'tags': List<String>.unmodifiable(tags),
     if (totpSecret != null) 'totpSecret': totpSecret,
+    if (passkey != null) 'passkey': passkey!.toJson(),
   };
 
   factory PasswordEntry.fromJson(Map<String, Object?> json) {
+    final passkeyJson = json['passkey'];
     return PasswordEntry(
       title: _readRequiredString(json, 'title'),
       website: _readRequiredString(json, 'website'),
@@ -36,6 +42,9 @@ class PasswordEntry {
       notes: _readRequiredString(json, 'notes'),
       tags: _readRequiredStringList(json, 'tags'),
       totpSecret: json['totpSecret'] as String?,
+      passkey: passkeyJson == null
+          ? null
+          : PasskeyRecord.fromJson(_readRequiredObject(json, 'passkey')),
     );
   }
 
@@ -78,5 +87,16 @@ class PasswordEntry {
           return tag;
         })
         .toList(growable: false);
+  }
+
+  static Map<String, Object?> _readRequiredObject(
+    Map<String, Object?> json,
+    String field,
+  ) {
+    final value = json[field];
+    if (value is! Map<String, Object?>) {
+      throw FormatException('Invalid "$field": expected an object');
+    }
+    return value;
   }
 }

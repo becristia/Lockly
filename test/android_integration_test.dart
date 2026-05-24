@@ -4,20 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('Android integration hardening', () {
-    test(
-      'manifest declares biometric permission and no internet permission',
-      () {
-        final manifest = File(
-          'android/app/src/main/AndroidManifest.xml',
-        ).readAsStringSync();
+    test('manifest declares biometric and sync network permissions', () {
+      final manifest = File(
+        'android/app/src/main/AndroidManifest.xml',
+      ).readAsStringSync();
 
-        expect(manifest, contains('android.permission.USE_BIOMETRIC'));
-        expect(
-          _androidFilesText(),
-          isNot(contains('android.permission.INTERNET')),
-        );
-      },
-    );
+      expect(manifest, contains('android.permission.USE_BIOMETRIC'));
+      expect(manifest, contains('android.permission.INTERNET'));
+    });
 
     test('manifest disables Android cloud backup for local vault data', () {
       final manifest = File(
@@ -40,6 +34,28 @@ void main() {
       expect(mainActivity, contains('FlutterFragmentActivity'));
       expect(mainActivity, contains('WindowManager.LayoutParams.FLAG_SECURE'));
       expect(mainActivity, contains('window.setFlags('));
+      expect(mainActivity, contains('MethodChannel'));
+      expect(mainActivity, contains('lockly/autofill'));
+    });
+
+    test('manifest declares a zero-knowledge Android Autofill service', () {
+      final manifest = File(
+        'android/app/src/main/AndroidManifest.xml',
+      ).readAsStringSync();
+      final autofillMetadata = File(
+        'android/app/src/main/res/xml/autofill_service.xml',
+      ).readAsStringSync();
+
+      expect(manifest, contains('android.permission.BIND_AUTOFILL_SERVICE'));
+      expect(manifest, contains('android.service.autofill.AutofillService'));
+      expect(manifest, contains('android:name="android.autofill"'));
+      expect(manifest, contains('@xml/autofill_service'));
+      expect(
+        manifest,
+        isNot(contains('android.permission.READ_EXTERNAL_STORAGE')),
+      );
+      expect(autofillMetadata, contains('<autofill-service'));
+      expect(autofillMetadata, contains('settingsActivity'));
     });
 
     test('Android settings meet local_auth requirements', () {
@@ -92,7 +108,7 @@ void main() {
         final manifest = _releaseMergedManifest().readAsStringSync();
 
         expect(manifest, contains('android.permission.USE_BIOMETRIC'));
-        expect(manifest, isNot(contains('android.permission.INTERNET')));
+        expect(manifest, contains('android.permission.INTERNET'));
         expect(manifest, contains('android:allowBackup="false"'));
         expect(manifest, contains('android:fullBackupContent="false"'));
         expect(manifest, isNot(contains('android:debuggable="true"')));
@@ -131,7 +147,9 @@ void main() {
             await tempDir.delete(recursive: true);
           }
         });
-        final keystore = File('${tempDir.path}${Platform.pathSeparator}key.jks');
+        final keystore = File(
+          '${tempDir.path}${Platform.pathSeparator}key.jks',
+        );
         const password = 'changeit123';
         const alias = 'lockly';
 
@@ -186,11 +204,11 @@ void main() {
         );
 
         final apk = _releaseApk();
-        final permissions = await Process.run(
-          _aaptPath(),
-          ['dump', 'permissions', apk.path],
-          runInShell: Platform.isWindows,
-        );
+        final permissions = await Process.run(_aaptPath(), [
+          'dump',
+          'permissions',
+          apk.path,
+        ], runInShell: Platform.isWindows);
         expect(
           permissions.exitCode,
           0,
@@ -200,23 +218,27 @@ void main() {
           permissions.stdout,
           contains('android.permission.USE_BIOMETRIC'),
         );
-        expect(
-          permissions.stdout,
-          isNot(contains('android.permission.INTERNET')),
-        );
+        expect(permissions.stdout, contains('android.permission.INTERNET'));
 
-        final manifest = await Process.run(
-          _aaptPath(),
-          ['dump', 'xmltree', apk.path, 'AndroidManifest.xml'],
-          runInShell: Platform.isWindows,
-        );
+        final manifest = await Process.run(_aaptPath(), [
+          'dump',
+          'xmltree',
+          apk.path,
+          'AndroidManifest.xml',
+        ], runInShell: Platform.isWindows);
         expect(
           manifest.exitCode,
           0,
           reason: '${manifest.stdout}\n${manifest.stderr}',
         );
-        expect(manifest.stdout, contains('allowBackup'));
-        expect(manifest.stdout, contains('fullBackupContent'));
+        expect(
+          manifest.stdout,
+          contains('android:allowBackup(0x01010280)=(type 0x12)0x0'),
+        );
+        expect(
+          manifest.stdout,
+          contains('android:fullBackupContent(0x010104eb)=(type 0x12)0x0'),
+        );
         expect(manifest.stdout, isNot(contains('debuggable(0x0101000f)=true')));
       },
       timeout: const Timeout(Duration(minutes: 6)),
@@ -289,7 +311,8 @@ String _keytoolPath() {
 }
 
 String _aaptPath() {
-  final androidHome = Platform.environment['ANDROID_HOME'] ??
+  final androidHome =
+      Platform.environment['ANDROID_HOME'] ??
       Platform.environment['ANDROID_SDK_ROOT'];
   if (androidHome == null) {
     return Platform.isWindows ? 'aapt.exe' : 'aapt';
@@ -300,28 +323,20 @@ String _aaptPath() {
   if (!buildTools.existsSync()) {
     return Platform.isWindows ? 'aapt.exe' : 'aapt';
   }
-  final candidates = buildTools
-      .listSync()
-      .whereType<Directory>()
-      .map(
-        (dir) => File(
-          '${dir.path}${Platform.pathSeparator}'
-          'aapt${Platform.isWindows ? '.exe' : ''}',
-        ),
-      )
-      .where((file) => file.existsSync())
-      .toList()
-    ..sort((a, b) => b.path.compareTo(a.path));
+  final candidates =
+      buildTools
+          .listSync()
+          .whereType<Directory>()
+          .map(
+            (dir) => File(
+              '${dir.path}${Platform.pathSeparator}'
+              'aapt${Platform.isWindows ? '.exe' : ''}',
+            ),
+          )
+          .where((file) => file.existsSync())
+          .toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
   return candidates.isEmpty
       ? (Platform.isWindows ? 'aapt.exe' : 'aapt')
       : candidates.first.path;
-}
-
-String _androidFilesText() {
-  return Directory('android')
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.xml') || file.path.endsWith('.kt'))
-      .map((file) => file.readAsStringSync())
-      .join('\n');
 }

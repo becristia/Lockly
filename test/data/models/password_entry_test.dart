@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
+import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 
@@ -83,6 +84,52 @@ void main() {
       expect(() => entry.tags.add('blocked'), throwsUnsupportedError);
     },
   );
+
+  test('PasswordEntry roundtrips encrypted passkey preparation metadata', () {
+    final entry = PasswordEntry(
+      title: 'GitHub',
+      website: 'https://github.com',
+      username: 'alice',
+      password: 'local-password',
+      notes: '',
+      tags: const ['dev'],
+      passkey: const PasskeyRecord(
+        relyingPartyId: 'github.com',
+        credentialId: 'credential-id',
+        userHandle: 'user-handle',
+        displayName: 'Alice',
+        publicKeyAlgorithm: 'ES256',
+        platform: 'android',
+        platformReady: false,
+      ),
+    );
+
+    final parsed = PasswordEntry.fromJson(entry.toJson());
+
+    expect(parsed.passkey!.relyingPartyId, 'github.com');
+    expect(parsed.passkey!.credentialId, 'credential-id');
+    expect(parsed.passkey!.userHandle, 'user-handle');
+    expect(parsed.passkey!.displayName, 'Alice');
+    expect(parsed.passkey!.publicKeyAlgorithm, 'ES256');
+    expect(parsed.passkey!.platform, 'android');
+    expect(parsed.passkey!.platformReady, isFalse);
+  });
+
+  test('PasskeyRecord rejects private material fields', () {
+    expect(
+      () => PasskeyRecord.fromJson({
+        'relying_party_id': 'github.com',
+        'credential_id': 'credential-id',
+        'user_handle': 'user-handle',
+        'display_name': 'Alice',
+        'public_key_algorithm': 'ES256',
+        'platform': 'android',
+        'platform_ready': false,
+        'private_key': 'raw-secret',
+      }),
+      throwsFormatException,
+    );
+  });
 
   test('encrypted vault item round-trips through DB mapping', () {
     const item = EncryptedVaultItem(

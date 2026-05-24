@@ -4,6 +4,7 @@ import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/data/models/encrypted_vault_blob.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
@@ -33,6 +34,7 @@ class BackupItem {
     required this.mac,
     this.createdAt,
     this.updatedAt,
+    this.deletedAt,
   });
 
   final String id;
@@ -41,6 +43,7 @@ class BackupItem {
   final String mac;
   final int? createdAt;
   final int? updatedAt;
+  final int? deletedAt;
 
   Map<String, Object?> toJson() {
     return {
@@ -50,6 +53,7 @@ class BackupItem {
       'mac': mac,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
     };
   }
 
@@ -61,6 +65,67 @@ class BackupItem {
       mac: _readRequiredString(json, 'mac'),
       createdAt: _readOptionalInt(json, 'created_at'),
       updatedAt: _readOptionalInt(json, 'updated_at'),
+      deletedAt: _readOptionalInt(json, 'deleted_at'),
+    );
+  }
+}
+
+class BackupBlob {
+  const BackupBlob({
+    required this.blobId,
+    required this.itemId,
+    required this.metadataNonce,
+    required this.metadataCiphertext,
+    required this.metadataMac,
+    required this.nonce,
+    required this.ciphertext,
+    required this.mac,
+    required this.createdAt,
+    required this.updatedAt,
+    this.deletedAt,
+  });
+
+  final String blobId;
+  final String itemId;
+  final String metadataNonce;
+  final String metadataCiphertext;
+  final String metadataMac;
+  final String nonce;
+  final String ciphertext;
+  final String mac;
+  final int createdAt;
+  final int updatedAt;
+  final int? deletedAt;
+
+  Map<String, Object?> toJson() {
+    return {
+      'blob_id': blobId,
+      'item_id': itemId,
+      'metadata_nonce': metadataNonce,
+      'metadata_ciphertext': metadataCiphertext,
+      'metadata_mac': metadataMac,
+      'nonce': nonce,
+      'ciphertext': ciphertext,
+      'mac': mac,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+    };
+  }
+
+  factory BackupBlob.fromJson(Map<String, Object?> json) {
+    return BackupBlob(
+      blobId: _readRequiredString(json, 'blob_id'),
+      itemId: _readRequiredString(json, 'item_id'),
+      metadataNonce: _readRequiredString(json, 'metadata_nonce'),
+      metadataCiphertext: _readRequiredString(json, 'metadata_ciphertext'),
+      metadataMac: _readRequiredString(json, 'metadata_mac'),
+      nonce: _readRequiredString(json, 'nonce'),
+      ciphertext: _readRequiredString(json, 'ciphertext'),
+      mac: _readRequiredString(json, 'mac'),
+      createdAt: _readRequiredInt(json, 'created_at'),
+      updatedAt: _readRequiredInt(json, 'updated_at'),
+      deletedAt: _readOptionalInt(json, 'deleted_at'),
     );
   }
 }
@@ -192,6 +257,7 @@ class VaultBackup {
     this.scope,
     this.itemCount,
     this.historyCount,
+    this.blobCount,
     this.vaultId,
     this.vaultCreatedAt,
     this.vaultUpdatedAt,
@@ -207,15 +273,18 @@ class VaultBackup {
     required this.encryptedDekByMasterNonce,
     required this.encryptedDekByMasterMac,
     required List<BackupItem> items,
+    List<BackupBlob> blobs = const [],
     List<BackupHistoryItem> historyItems = const [],
   }) : kdfParams = UnmodifiableMapView(Map<String, Object?>.from(kdfParams)),
        items = List.unmodifiable(items),
+       blobs = List.unmodifiable(blobs),
        historyItems = List.unmodifiable(historyItems) {
     if (version != _legacyBackupVersion && version != _currentBackupVersion) {
       throw BackupFormatException('Unsupported backup version: $version');
     }
     _parseKdfParams(kdf: kdf, rawParams: this.kdfParams);
     _validateImportedItems(this.items);
+    _validateImportedBlobs(this.blobs);
     _validateImportedHistoryItems(this.historyItems);
     if (version == _currentBackupVersion) {
       if (magic != _backupMagic ||
@@ -223,6 +292,7 @@ class VaultBackup {
           (scope != _backupScopeFull && scope != _backupScopeItem) ||
           itemCount != this.items.length ||
           historyCount != this.historyItems.length ||
+          (blobCount ?? this.blobs.length) != this.blobs.length ||
           vaultId == null ||
           vaultCreatedAt == null ||
           vaultUpdatedAt == null ||
@@ -242,6 +312,7 @@ class VaultBackup {
   final String? scope;
   final int? itemCount;
   final int? historyCount;
+  final int? blobCount;
   final String? vaultId;
   final int? vaultCreatedAt;
   final int? vaultUpdatedAt;
@@ -257,6 +328,7 @@ class VaultBackup {
   final String encryptedDekByMasterNonce;
   final String encryptedDekByMasterMac;
   final List<BackupItem> items;
+  final List<BackupBlob> blobs;
   final List<BackupHistoryItem> historyItems;
 
   Map<String, Object?> toJson() {
@@ -268,6 +340,7 @@ class VaultBackup {
         'scope': scope,
         'item_count': itemCount,
         'history_count': historyCount,
+        'blob_count': blobCount ?? blobs.length,
         'vault_id': vaultId,
         'vault_created_at': vaultCreatedAt,
         'vault_updated_at': vaultUpdatedAt,
@@ -284,6 +357,8 @@ class VaultBackup {
       'encrypted_dek_by_master_nonce': encryptedDekByMasterNonce,
       'encrypted_dek_by_master_mac': encryptedDekByMasterMac,
       'items': items.map((item) => item.toJson()).toList(growable: false),
+      if (version == _currentBackupVersion)
+        'blobs': blobs.map((blob) => blob.toJson()).toList(growable: false),
       if (version == _currentBackupVersion)
         'history': historyItems
             .map((item) => item.toJson())
@@ -310,6 +385,7 @@ class VaultBackup {
     }
 
     BackupManifest? manifest;
+    var blobs = const <BackupBlob>[];
     var historyItems = const <BackupHistoryItem>[];
     if (version == _currentBackupVersion) {
       final rawManifest = json['manifest'];
@@ -319,6 +395,22 @@ class VaultBackup {
       manifest = BackupManifest.fromJson(
         Map<String, Object?>.from(rawManifest),
       );
+      final rawBlobs = json['blobs'];
+      if (rawBlobs != null) {
+        if (rawBlobs is! List<Object?>) {
+          throw const BackupFormatException('Invalid "blobs": expected a list');
+        }
+        blobs = rawBlobs
+            .map((item) {
+              if (item is! Map<Object?, Object?>) {
+                throw const BackupFormatException(
+                  'Invalid backup blob: expected an object',
+                );
+              }
+              return BackupBlob.fromJson(Map<String, Object?>.from(item));
+            })
+            .toList(growable: false);
+      }
       final rawHistory = json['history'];
       if (rawHistory != null) {
         if (rawHistory is! List<Object?>) {
@@ -357,6 +449,9 @@ class VaultBackup {
           : null,
       historyCount: version == _currentBackupVersion
           ? _readOptionalInt(json, 'history_count') ?? historyItems.length
+          : null,
+      blobCount: version == _currentBackupVersion
+          ? _readOptionalInt(json, 'blob_count') ?? blobs.length
           : null,
       vaultId: version == _currentBackupVersion
           ? _readRequiredString(json, 'vault_id')
@@ -405,6 +500,7 @@ class VaultBackup {
             return BackupItem.fromJson(Map<String, Object?>.from(item));
           })
           .toList(growable: false),
+      blobs: blobs,
       historyItems: historyItems,
     );
   }
@@ -444,6 +540,27 @@ void _validateImportedItems(List<BackupItem> items) {
   }
 }
 
+void _validateImportedBlobs(List<BackupBlob> blobs) {
+  if (blobs.length > _maximumImportedItems * 10) {
+    throw BackupFormatException(
+      'Invalid "blobs": exceeds ${_maximumImportedItems * 10} entries',
+    );
+  }
+  for (final blob in blobs) {
+    _validateImportedStringField('blobs.blob_id', blob.blobId);
+    _validateImportedStringField('blobs.item_id', blob.itemId);
+    _validateImportedStringField('blobs.metadata_nonce', blob.metadataNonce);
+    _validateImportedStringField(
+      'blobs.metadata_ciphertext',
+      blob.metadataCiphertext,
+    );
+    _validateImportedStringField('blobs.metadata_mac', blob.metadataMac);
+    _validateImportedStringField('blobs.nonce', blob.nonce);
+    _validateImportedStringField('blobs.ciphertext', blob.ciphertext);
+    _validateImportedStringField('blobs.mac', blob.mac);
+  }
+}
+
 void _validateImportedStringField(String field, String value) {
   if (value.length > _maximumImportedFieldLength) {
     throw BackupFormatException(
@@ -473,6 +590,11 @@ class BackupService {
 
     final items = await repository.itemsDao.activeItems();
     final activeIds = items.map((item) => item.id).toSet();
+    final blobs = (await repository.blobsDao.allForManifest())
+        .where(
+          (blob) => blob.deletedAt == null && activeIds.contains(blob.itemId),
+        )
+        .toList(growable: false);
     final historyItems =
         (await repository.historyDao?.allRowsForManifest())
             ?.where((row) => activeIds.contains(row['entry_id']))
@@ -482,6 +604,7 @@ class BackupService {
     return _buildBackup(
       meta: meta,
       items: items,
+      blobs: blobs,
       historyItems: historyItems,
       scope: _backupScopeFull,
     );
@@ -504,9 +627,11 @@ class BackupService {
             .map((row) => BackupHistoryItem.fromRow(row))
             .toList(growable: false) ??
         const <BackupHistoryItem>[];
+    final blobs = await repository.blobsDao.activeByItem(itemId);
     return _buildBackup(
       meta: meta,
       items: [item],
+      blobs: blobs,
       historyItems: historyItems,
       scope: _backupScopeItem,
     );
@@ -515,12 +640,14 @@ class BackupService {
   Future<VaultBackup> _buildBackup({
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    required List<EncryptedVaultBlob> blobs,
     required List<BackupHistoryItem> historyItems,
     required String scope,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final manifest = await vaultService.createVerifiedManifestForBackup(
       items: items,
+      blobs: blobs,
       historyRecords: historyItems.map((item) => item.toJson()).toList(),
       updatedAt: now,
     );
@@ -531,6 +658,7 @@ class BackupService {
       scope: scope,
       itemCount: items.length,
       historyCount: historyItems.length,
+      blobCount: blobs.length,
       vaultId: meta.id,
       vaultCreatedAt: meta.createdAt,
       vaultUpdatedAt: meta.updatedAt,
@@ -546,6 +674,23 @@ class BackupService {
       encryptedDekByMasterNonce: meta.encryptedDekByMasterNonce,
       encryptedDekByMasterMac: meta.encryptedDekByMasterMac,
       historyItems: historyItems,
+      blobs: blobs
+          .map(
+            (blob) => BackupBlob(
+              blobId: blob.blobId,
+              itemId: blob.itemId,
+              metadataNonce: blob.metadataNonce,
+              metadataCiphertext: blob.metadataCiphertext,
+              metadataMac: blob.metadataMac,
+              nonce: blob.nonce,
+              ciphertext: blob.ciphertext,
+              mac: blob.mac,
+              createdAt: blob.createdAt,
+              updatedAt: blob.updatedAt,
+              deletedAt: blob.deletedAt,
+            ),
+          )
+          .toList(growable: false),
       items: items
           .map(
             (item) => BackupItem(
@@ -555,6 +700,7 @@ class BackupService {
               mac: item.mac,
               createdAt: item.createdAt,
               updatedAt: item.updatedAt,
+              deletedAt: item.deletedAt,
             ),
           )
           .toList(growable: false),
@@ -590,6 +736,7 @@ class BackupService {
         masterPassword: masterPassword,
         meta: backupMeta,
         items: _manifestItemsFromBackup(backup.items),
+        blobs: _manifestBlobsFromBackup(backup.blobs),
         historyRecords: _manifestHistoryFromBackup(backup.historyItems),
         manifest: backup.manifest!.toVaultManifest(),
       );
@@ -634,10 +781,20 @@ class BackupService {
                 ),
               )
               .toList(growable: false);
+          final importedBlobs = backup.blobs
+              .map(
+                (blob) => _buildImportedBlob(
+                  blob,
+                  createdAt: blob.createdAt,
+                  updatedAt: blob.updatedAt,
+                ),
+              )
+              .toList(growable: false);
           final manifest = await vaultService.createManifestForImportedVault(
             masterPassword: masterPassword,
             meta: importedMeta,
             items: importedItems,
+            blobs: importedBlobs,
             historyRecords: _manifestHistoryFromBackup(backup.historyItems),
             previous: null,
             updatedAt: now,
@@ -649,9 +806,13 @@ class BackupService {
             allowNewerManifest: true,
           );
           await txn.metaDao.save(importedMeta);
+          await txn.blobsDao.deleteAll();
           await txn.itemsDao.deleteAll();
           for (final importedItem in importedItems) {
             await txn.itemsDao.upsert(importedItem);
+          }
+          for (final importedBlob in importedBlobs) {
+            await txn.blobsDao.upsert(importedBlob);
           }
           for (final historyItem in backup.historyItems) {
             await txn.historyDao?.insertRaw(historyItem.toJson());
@@ -671,7 +832,7 @@ class BackupService {
           final pendingItems = <EncryptedVaultItem>[];
           for (final item in backup.items) {
             final existingItem = await txn.itemsDao.byId(item.id);
-            if (existingItem != null && existingItem.deletedAt == null) {
+            if (existingItem != null) {
               continue;
             }
             pendingItems.add(
@@ -682,8 +843,36 @@ class BackupService {
               ),
             );
           }
+          final pendingItemIds = pendingItems.map((item) => item.id).toSet();
+          final existingActiveItemIds =
+              (await txn.itemsDao.allItemsForManifest())
+                  .where((item) => item.deletedAt == null)
+                  .map((item) => item.id)
+                  .toSet();
+          final importableBlobItemIds = {
+            ...existingActiveItemIds,
+            ...pendingItemIds,
+          };
+          final pendingBlobs = <EncryptedVaultBlob>[];
+          for (final blob in backup.blobs) {
+            if (!importableBlobItemIds.contains(blob.itemId)) {
+              continue;
+            }
+            final existingBlob = await txn.blobsDao.byBlobId(blob.blobId);
+            if (existingBlob != null) {
+              continue;
+            }
+            pendingBlobs.add(
+              _buildImportedBlob(
+                blob,
+                createdAt: blob.createdAt,
+                updatedAt: blob.updatedAt,
+              ),
+            );
+          }
           final needsPendingReencryption =
-              needsReencryption && pendingItems.isNotEmpty;
+              needsReencryption &&
+              (pendingItems.isNotEmpty || pendingBlobs.isNotEmpty);
           if (needsPendingReencryption && !vaultService.isUnlocked) {
             throw StateError(
               'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
@@ -720,6 +909,12 @@ class BackupService {
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
           );
+          final blobsToInsert = await _prepareImportedBlobs(
+            blobs: pendingBlobs,
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsPendingReencryption,
+          );
           final historyToInsert = await _prepareImportedHistoryRows(
             historyItems: backup.historyItems,
             entryIds: itemsToInsert.map((item) => item.id).toSet(),
@@ -729,6 +924,9 @@ class BackupService {
           );
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
+          }
+          for (final blob in blobsToInsert) {
+            await txn.blobsDao.upsert(blob);
           }
           for (final historyItem in historyToInsert) {
             await txn.historyDao?.insertRaw(
@@ -741,7 +939,10 @@ class BackupService {
             backup: backup,
             masterPassword: masterPassword,
             preserveExistingMeta: preserveExistingMeta,
-            dataChanged: itemsToInsert.isNotEmpty || historyToInsert.isNotEmpty,
+            dataChanged:
+                itemsToInsert.isNotEmpty ||
+                blobsToInsert.isNotEmpty ||
+                historyToInsert.isNotEmpty,
             previous: existingManifest,
             updatedAt: now,
           );
@@ -767,8 +968,18 @@ class BackupService {
               ),
             );
           }
+          final pendingBlobs = backup.blobs
+              .map(
+                (blob) => _buildImportedBlob(
+                  blob,
+                  createdAt: blob.createdAt,
+                  updatedAt: blob.updatedAt,
+                ),
+              )
+              .toList(growable: false);
           final needsPendingReencryption =
-              needsReencryption && pendingItems.isNotEmpty;
+              needsReencryption &&
+              (pendingItems.isNotEmpty || pendingBlobs.isNotEmpty);
           if (needsPendingReencryption && !vaultService.isUnlocked) {
             throw StateError(
               'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
@@ -784,6 +995,12 @@ class BackupService {
           }
           final itemsToInsert = await _prepareImportedItems(
             items: pendingItems,
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsPendingReencryption,
+          );
+          final blobsToInsert = await _prepareImportedBlobs(
+            blobs: pendingBlobs,
             backupMeta: backupMeta,
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
@@ -808,6 +1025,9 @@ class BackupService {
           for (final item in itemsToInsert) {
             await txn.itemsDao.upsert(item);
           }
+          for (final blob in blobsToInsert) {
+            await txn.blobsDao.upsert(blob);
+          }
           for (final historyItem in historyToInsert) {
             await txn.historyDao?.insertRaw(
               historyItem,
@@ -819,7 +1039,10 @@ class BackupService {
             backup: backup,
             masterPassword: masterPassword,
             preserveExistingMeta: preserveExistingMeta,
-            dataChanged: itemsToInsert.isNotEmpty || historyToInsert.isNotEmpty,
+            dataChanged:
+                itemsToInsert.isNotEmpty ||
+                blobsToInsert.isNotEmpty ||
+                historyToInsert.isNotEmpty,
             previous: existingManifest,
             updatedAt: now,
           );
@@ -900,6 +1123,27 @@ class BackupService {
       mac: item.mac,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      deletedAt: item.deletedAt,
+    );
+  }
+
+  EncryptedVaultBlob _buildImportedBlob(
+    BackupBlob blob, {
+    required int createdAt,
+    required int updatedAt,
+  }) {
+    return EncryptedVaultBlob(
+      blobId: blob.blobId,
+      itemId: blob.itemId,
+      metadataNonce: blob.metadataNonce,
+      metadataCiphertext: blob.metadataCiphertext,
+      metadataMac: blob.metadataMac,
+      nonce: blob.nonce,
+      ciphertext: blob.ciphertext,
+      mac: blob.mac,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      deletedAt: blob.deletedAt,
     );
   }
 
@@ -945,6 +1189,23 @@ class BackupService {
     );
   }
 
+  Future<List<EncryptedVaultBlob>> _prepareImportedBlobs({
+    required List<EncryptedVaultBlob> blobs,
+    required VaultMeta backupMeta,
+    required String masterPassword,
+    required bool needsReencryption,
+  }) async {
+    if (!needsReencryption || blobs.isEmpty) {
+      return blobs;
+    }
+
+    return vaultService.reencryptBlobsForCurrentVault(
+      blobs: blobs,
+      sourceMeta: backupMeta,
+      sourcePassword: masterPassword,
+    );
+  }
+
   Future<VaultManifest> _writeManifestForImportedEnvelope({
     required VaultRepository txn,
     required VaultBackup backup,
@@ -958,6 +1219,7 @@ class BackupService {
       masterPassword: masterPassword,
       meta: meta,
       items: items,
+      blobs: await txn.blobsDao.allForManifest(),
       historyRecords:
           (await txn.historyDao?.allRowsForManifest())
               ?.map((row) => Map<String, Object?>.from(row))
@@ -1023,6 +1285,7 @@ class BackupService {
       masterPassword: masterPassword,
       meta: meta,
       items: items,
+      blobs: await txn.blobsDao.allForManifest(),
       historyRecords: historyRecords,
       previous: previous,
       updatedAt: updatedAt,
@@ -1048,6 +1311,7 @@ class BackupService {
       masterPassword: masterPassword,
       meta: meta,
       items: await txn.itemsDao.allItemsForManifest(),
+      blobs: await txn.blobsDao.allForManifest(),
       historyRecords:
           (await txn.historyDao?.allRowsForManifest())
               ?.map((row) => Map<String, Object?>.from(row))
@@ -1068,6 +1332,18 @@ class BackupService {
             item,
             createdAt: item.createdAt!,
             updatedAt: item.updatedAt!,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  List<EncryptedVaultBlob> _manifestBlobsFromBackup(List<BackupBlob> blobs) {
+    return blobs
+        .map(
+          (blob) => _buildImportedBlob(
+            blob,
+            createdAt: blob.createdAt,
+            updatedAt: blob.updatedAt,
           ),
         )
         .toList(growable: false);

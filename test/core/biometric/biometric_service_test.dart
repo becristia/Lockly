@@ -275,7 +275,7 @@ void main() {
   });
 
   test(
-    'secure storage capability gate is conservative off Android and skips the storage probe',
+    'secure storage capability gate is conservative off supported desktop/mobile targets',
     () async {
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -285,6 +285,20 @@ void main() {
 
       expect(await store.canUseBiometricProtection(), isFalse);
       expect(storage.containsKeyCalls, 0);
+    },
+  );
+
+  test(
+    'secure storage capability gate probes Windows storage support',
+    () async {
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+
+      final storage = _RecordingFlutterSecureStorage(containsKeyResult: true);
+      final store = SecureStorageDekStore(storage: storage);
+
+      expect(await store.canUseBiometricProtection(), isTrue);
+      expect(storage.containsKeyCalls, 1);
     },
   );
 

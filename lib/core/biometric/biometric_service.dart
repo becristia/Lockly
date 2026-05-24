@@ -179,9 +179,11 @@ class SecureStorageDekStore implements SecureDekStore {
   SecureStorageDekStore({
     FlutterSecureStorage? storage,
     AndroidOptions androidOptions = _defaultAndroidOptions,
+    WindowsOptions windowsOptions = WindowsOptions.defaultOptions,
     String key = _defaultDekKey,
   }) : _storage = storage ?? FlutterSecureStorage(aOptions: androidOptions),
        _options = androidOptions,
+       _windowsOptions = windowsOptions,
        _key = key;
 
   static const _defaultDekKey = 'biometric_dek';
@@ -197,6 +199,7 @@ class SecureStorageDekStore implements SecureDekStore {
 
   final FlutterSecureStorage _storage;
   final AndroidOptions _options;
+  final WindowsOptions _windowsOptions;
   final String _key;
 
   @override
@@ -205,12 +208,18 @@ class SecureStorageDekStore implements SecureDekStore {
 
   @override
   Future<bool> canUseBiometricProtection() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.windows)) {
       return false;
     }
 
     try {
-      await _storage.containsKey(key: _key, aOptions: _options);
+      await _storage.containsKey(
+        key: _key,
+        aOptions: _options,
+        wOptions: _windowsOptions,
+      );
       return true;
     } catch (_) {
       return false;
@@ -223,12 +232,17 @@ class SecureStorageDekStore implements SecureDekStore {
       key: _key,
       value: b64(Uint8List.fromList(dek)),
       aOptions: _options,
+      wOptions: _windowsOptions,
     );
   }
 
   @override
   Future<Uint8List?> readDek() async {
-    final storedValue = await _storage.read(key: _key, aOptions: _options);
+    final storedValue = await _storage.read(
+      key: _key,
+      aOptions: _options,
+      wOptions: _windowsOptions,
+    );
     if (storedValue == null) {
       return null;
     }
@@ -238,7 +252,11 @@ class SecureStorageDekStore implements SecureDekStore {
 
   @override
   Future<void> deleteDek() {
-    return _storage.delete(key: _key, aOptions: _options);
+    return _storage.delete(
+      key: _key,
+      aOptions: _options,
+      wOptions: _windowsOptions,
+    );
   }
 }
 

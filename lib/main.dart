@@ -1,8 +1,11 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/app/sync_service_factory.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
@@ -16,12 +19,15 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
+import 'package:secure_box/data/db/sync_state_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<void> main() async {
   final bindings = WidgetsFlutterBinding.ensureInitialized();
+  _configureDatabaseFactory();
   final documentsDirectory = await getApplicationDocumentsDirectory();
   final databasePath = p.join(documentsDirectory.path, 'secure_box.db');
   final database = await AppDatabase.open(databasePath);
@@ -55,10 +61,17 @@ Future<void> main() async {
     crypto: CryptoService(random: random),
     anchorService: VaultAnchorService(store: SecureStorageVaultAnchorStore()),
   );
+  const syncBaseUrl = String.fromEnvironment('LOCKLY_SYNC_BASE_URL');
+  final syncStateDao = SyncStateDao(database);
+  final syncService = buildProductionSyncService(
+    syncBaseUrl: syncBaseUrl,
+    syncState: syncStateDao,
+  );
   final services = AppServices(
     hasVault: hasVault,
     autoLockTimeout: autoLockTimeout,
     vaultService: vaultService,
+    syncService: syncService,
     backupService: BackupService(
       repository: repository,
       vaultService: vaultService,
@@ -90,4 +103,11 @@ Future<Duration> _readDurationSetting(
   }
 
   return Duration(seconds: seconds);
+}
+
+void _configureDatabaseFactory() {
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 }

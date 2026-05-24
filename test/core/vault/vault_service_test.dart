@@ -15,10 +15,12 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
+import 'package:secure_box/data/db/vault_blobs_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
+import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
@@ -36,6 +38,7 @@ void main() {
     return VaultService(
       repository: VaultRepository(
         metaDao: VaultMetaDao(db),
+        blobsDao: VaultBlobsDao(db),
         itemsDao: VaultItemsDao(db),
         manifestDao: VaultManifestDao(db),
         settingsDao: SettingsDao(db),
@@ -101,6 +104,59 @@ void main() {
     );
     expect(service.isUnlocked, isFalse);
   });
+
+  test(
+    'encrypted sync snapshot verifies manifest before exposing ciphertext rows',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      await service.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+
+      final snapshot = await service.createVerifiedEncryptedSyncSnapshot();
+
+      expect(snapshot.meta.id, isNotEmpty);
+      expect(snapshot.manifest.counter, greaterThanOrEqualTo(2));
+      expect(snapshot.items, hasLength(1));
+      expect(snapshot.items.single.ciphertext, isNot(contains('secret')));
+    },
+  );
+
+  test(
+    'encrypted sync snapshot fails closed when manifest is tampered',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      await service.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final manifest = await service.repository.manifestDao.get();
+      await service.repository.manifestDao.save(_tamperManifestMac(manifest!));
+
+      await expectLater(
+        service.createVerifiedEncryptedSyncSnapshot(),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(service.isUnlocked, isFalse);
+    },
+  );
 
   test(
     'unlock normalizes malformed manifest rows and locks existing session',
@@ -413,6 +469,106 @@ void main() {
       expect(rawText, isNot(contains('private note')));
     },
   );
+
+  test('passkey preparation metadata is encrypted inside item rows', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+
+    final id = await service.createItem(
+      PasswordEntry(
+        title: 'GitHub passkey',
+        website: 'https://github.com',
+        username: 'alice',
+        password: 'local-password',
+        notes: '',
+        tags: const ['passkey'],
+        passkey: const PasskeyRecord(
+          relyingPartyId: 'github.com',
+          credentialId: 'credential-id',
+          userHandle: 'user-handle',
+          displayName: 'Alice',
+          publicKeyAlgorithm: 'ES256',
+          platform: 'android',
+          platformReady: false,
+        ),
+      ),
+    );
+
+    final entry = await service.getItem(id);
+    expect(entry.passkey!.credentialId, 'credential-id');
+
+    final rawRows = await service.repository.itemsDao.rawRowsForTest();
+    final rawText = rawRows.toString();
+    expect(rawText, isNot(contains('credential-id')));
+    expect(rawText, isNot(contains('user-handle')));
+    expect(rawText, isNot(contains('github.com')));
+  });
+
+  test('attachment add list open and delete never persist plaintext', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+    final itemId = await service.createItem(_entry(title: 'Recovery'));
+
+    final blobId = await service.addBlob(
+      itemId: itemId,
+      displayName: 'recovery-codes.txt',
+      mediaType: 'text/plain',
+      bytes: Uint8List.fromList(utf8.encode('plain recovery bytes')),
+    );
+
+    final rows = await service.repository.blobsDao.rawRowsForTest();
+    final rowText = jsonEncode(rows);
+    expect(rowText, isNot(contains('recovery-codes.txt')));
+    expect(rowText, isNot(contains('text/plain')));
+    expect(rowText, isNot(contains('plain recovery bytes')));
+
+    final list = await service.listBlobs(itemId);
+    expect(list, hasLength(1));
+    expect(list.single.blobId, blobId);
+    expect(list.single.itemId, itemId);
+    expect(list.single.displayName, 'recovery-codes.txt');
+    expect(list.single.mediaType, 'text/plain');
+    expect(list.single.sizeBytes, utf8.encode('plain recovery bytes').length);
+
+    final opened = await service.openBlob(blobId);
+    expect(opened.blobId, blobId);
+    expect(opened.itemId, itemId);
+    expect(opened.displayName, 'recovery-codes.txt');
+    expect(opened.mediaType, 'text/plain');
+    expect(utf8.decode(opened.bytes), 'plain recovery bytes');
+
+    await service.deleteBlob(blobId);
+    expect(await service.listBlobs(itemId), isEmpty);
+  });
+
+  test('item lifecycle applies blob tombstones and hard deletes', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+    final itemId = await service.createItem(_entry(title: 'Recovery'));
+    final blobId = await service.addBlob(
+      itemId: itemId,
+      displayName: 'restore.txt',
+      mediaType: 'text/plain',
+      bytes: Uint8List.fromList(utf8.encode('restore bytes')),
+    );
+
+    await service.deleteItem(itemId);
+    expect(await service.listBlobs(itemId), isEmpty);
+    await expectLater(
+      service.openBlob(blobId),
+      throwsA(isA<VaultItemNotFoundException>()),
+    );
+
+    await service.restoreItem(itemId);
+    expect(await service.listBlobs(itemId), hasLength(1));
+
+    await service.deleteItem(itemId);
+    await service.permanentlyDeleteItem(itemId);
+    expect(await service.repository.blobsDao.byBlobId(blobId), isNull);
+  });
 
   test('item mutations increment manifest counter exactly once', () async {
     final service = await buildService();
@@ -1389,6 +1545,7 @@ class _DeleteDuringUpdateVaultRepository extends VaultRepository {
       return action(
         VaultRepository(
           metaDao: VaultMetaDao(txn),
+          blobsDao: VaultBlobsDao(txn),
           itemsDao: txnItemsDao,
           manifestDao: VaultManifestDao(txn),
           settingsDao: SettingsDao(txn),

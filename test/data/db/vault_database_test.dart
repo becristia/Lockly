@@ -106,6 +106,37 @@ void main() {
     },
   );
 
+  test('current schema creates vault blobs without plaintext fields', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+
+    expect(AppDatabase.schemaVersion, 6);
+
+    final columns = await db.rawQuery('PRAGMA table_info(vault_blobs)');
+    final columnNames = columns.map((column) => column['name']).toSet();
+
+    expect(
+      columnNames,
+      containsAll({
+        'blob_id',
+        'item_id',
+        'metadata_nonce',
+        'metadata_ciphertext',
+        'metadata_mac',
+        'nonce',
+        'ciphertext',
+        'mac',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      }),
+    );
+    expect(columnNames, isNot(contains('filename')));
+    expect(columnNames, isNot(contains('plaintext')));
+    expect(columnNames, isNot(contains('file_bytes')));
+    expect(columnNames, isNot(contains('raw_key')));
+  });
+
   test('vault manifest dao stores exactly one singleton row', () async {
     final db = await AppDatabase.openInMemory();
     addTearDown(db.close);

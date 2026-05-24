@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart' show Hkdf, Hmac, SecretKey;
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
@@ -12,11 +13,15 @@ import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
+import 'package:secure_box/data/models/encrypted_vault_blob.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:uuid/uuid.dart';
+
+const _blobKeyLength = 32;
+const _blobKeyInfoPrefix = 'lockly:vault-blob:v1:';
 
 class VaultUnlockException implements Exception {
   const VaultUnlockException(this.message);
@@ -71,6 +76,61 @@ class TotpListItem {
   final String totpSecret;
 }
 
+class VaultBlobListItem {
+  VaultBlobListItem({
+    required this.blobId,
+    required this.itemId,
+    required this.displayName,
+    required this.mediaType,
+    required this.sizeBytes,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String blobId;
+  final String itemId;
+  final String displayName;
+  final String mediaType;
+  final int sizeBytes;
+  final int createdAt;
+  final int updatedAt;
+}
+
+class DecryptedVaultBlob {
+  DecryptedVaultBlob({
+    required this.blobId,
+    required this.itemId,
+    required this.displayName,
+    required this.mediaType,
+    required this.bytes,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String blobId;
+  final String itemId;
+  final String displayName;
+  final String mediaType;
+  final Uint8List bytes;
+  final int createdAt;
+  final int updatedAt;
+}
+
+class VerifiedEncryptedVaultSyncSnapshot {
+  VerifiedEncryptedVaultSyncSnapshot({
+    required this.meta,
+    required this.manifest,
+    required List<EncryptedVaultItem> items,
+    required List<EncryptedVaultBlob> blobs,
+  }) : items = List.unmodifiable(items),
+       blobs = List.unmodifiable(blobs);
+
+  final VaultMeta meta;
+  final VaultManifest manifest;
+  final List<EncryptedVaultItem> items;
+  final List<EncryptedVaultBlob> blobs;
+}
+
 class VaultService {
   VaultService({
     required this.repository,
@@ -99,6 +159,10 @@ class VaultService {
   final Uuid _uuid;
   final VaultManifestService _manifestService;
   final VaultAnchorService _anchorService;
+  final Hkdf _blobHkdf = Hkdf(
+    hmac: Hmac.sha256(),
+    outputLength: _blobKeyLength,
+  );
 
   bool get isUnlocked => _session.isUnlocked;
 
@@ -226,11 +290,13 @@ class VaultService {
         return false;
       }
       final items = await _readItemsForManifest(repository);
+      final blobs = await _readBlobsForManifest(repository);
       final historyRecords = await _readHistoryForManifest(repository);
       await _manifestService.verifyManifest(
         dek: dek,
         meta: meta,
         items: items,
+        blobs: blobs,
         historyRecords: historyRecords,
         manifest: manifest,
       );
@@ -464,6 +530,7 @@ class VaultService {
 
   Future<VaultManifest> createVerifiedManifestForBackup({
     required List<EncryptedVaultItem> items,
+    List<EncryptedVaultBlob> blobs = const [],
     List<Map<String, Object?>> historyRecords = const [],
     required int updatedAt,
   }) async {
@@ -476,11 +543,13 @@ class VaultService {
           throw const VaultIntegrityException();
         }
         final currentItems = await _readItemsForManifest(repository);
+        final currentBlobs = await _readBlobsForManifest(repository);
         final currentHistoryRecords = await _readHistoryForManifest(repository);
         await _manifestService.verifyManifest(
           dek: dek,
           meta: meta,
           items: currentItems,
+          blobs: currentBlobs,
           historyRecords: currentHistoryRecords,
           manifest: manifest,
         );
@@ -493,10 +562,55 @@ class VaultService {
           dek: dek,
           meta: meta,
           items: items,
+          blobs: blobs,
           historyRecords: historyRecords,
           previous: manifest,
           updatedAt: updatedAt,
         );
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    }
+  }
+
+  Future<VerifiedEncryptedVaultSyncSnapshot>
+  createVerifiedEncryptedSyncSnapshot() async {
+    _ensureUnlocked();
+    try {
+      return await _session.withDekCopy((dek) async {
+        return repository.transaction((txn) async {
+          final meta = await txn.metaDao.get();
+          if (meta == null) {
+            throw StateError('Vault has not been created');
+          }
+          final manifest = await _readManifestForIntegrity(txn);
+          if (manifest == null) {
+            throw const VaultIntegrityException();
+          }
+          final items = await _readItemsForManifest(txn);
+          final blobs = await _readBlobsForManifest(txn);
+          final historyRecords = await _readHistoryForManifest(txn);
+          await _manifestService.verifyManifest(
+            dek: dek,
+            meta: meta,
+            items: items,
+            blobs: blobs,
+            historyRecords: historyRecords,
+            manifest: manifest,
+          );
+          await _verifyAnchorForManifest(
+            meta: meta,
+            manifest: manifest,
+            allowMissingAnchor: false,
+          );
+          return VerifiedEncryptedVaultSyncSnapshot(
+            meta: meta,
+            manifest: manifest,
+            items: items,
+            blobs: blobs,
+          );
+        });
       });
     } on VaultIntegrityException {
       _session.lock();
@@ -509,6 +623,7 @@ class VaultService {
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
     required VaultManifest manifest,
+    List<EncryptedVaultBlob> blobs = const [],
     List<Map<String, Object?>> historyRecords = const [],
   }) async {
     Uint8List? dek;
@@ -521,6 +636,7 @@ class VaultService {
         dek: dek,
         meta: meta,
         items: items,
+        blobs: blobs,
         historyRecords: historyRecords,
         manifest: manifest,
       );
@@ -533,6 +649,7 @@ class VaultService {
     required String masterPassword,
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
+    List<EncryptedVaultBlob> blobs = const [],
     List<Map<String, Object?>> historyRecords = const [],
     required VaultManifest? previous,
     required int updatedAt,
@@ -547,6 +664,7 @@ class VaultService {
         dek: dek,
         meta: meta,
         items: items,
+        blobs: blobs,
         historyRecords: historyRecords,
         previous: previous,
         updatedAt: updatedAt,
@@ -571,11 +689,13 @@ class VaultService {
           throw const VaultIntegrityException();
         }
         final items = await _readItemsForManifest(txn);
+        final blobs = await _readBlobsForManifest(txn);
         final historyRecords = await _readHistoryForManifest(txn);
         await _manifestService.verifyManifest(
           dek: dek,
           meta: currentMeta,
           items: items,
+          blobs: blobs,
           historyRecords: historyRecords,
           manifest: previous,
         );
@@ -604,11 +724,13 @@ class VaultService {
           throw StateError('Vault has not been created');
         }
         final items = await _readItemsForManifest(txn);
+        final blobs = await _readBlobsForManifest(txn);
         final historyRecords = await _readHistoryForManifest(txn);
         final manifest = await _manifestService.createManifest(
           dek: dek,
           meta: currentMeta,
           items: items,
+          blobs: blobs,
           historyRecords: historyRecords,
           previous: previous,
           updatedAt: updatedAt,
@@ -659,6 +781,7 @@ class VaultService {
     try {
       await repository.transaction((txn) async {
         await txn.historyDao?.deleteAll();
+        await txn.blobsDao.deleteAll();
         await txn.itemsDao.deleteAll();
         await txn.manifestDao.deleteAll();
         await txn.metaDao.deleteAll();
@@ -769,6 +892,88 @@ class VaultService {
     }
   }
 
+  Future<List<EncryptedVaultBlob>> reencryptBlobsForCurrentVault({
+    required List<EncryptedVaultBlob> blobs,
+    required VaultMeta sourceMeta,
+    required String sourcePassword,
+  }) async {
+    _ensureUnlocked();
+    Uint8List? sourceDek;
+    try {
+      sourceDek = await _decryptDekWithUnlockError(
+        meta: sourceMeta,
+        password: sourcePassword,
+      );
+      return await _session.withDekCopy((targetDek) async {
+        final reencryptedBlobs = <EncryptedVaultBlob>[];
+        for (final blob in blobs) {
+          Uint8List? sourceBlobKey;
+          Uint8List? targetBlobKey;
+          Uint8List? metadataPlaintext;
+          Uint8List? contentPlaintext;
+          try {
+            sourceBlobKey = await _deriveBlobKey(
+              dek: sourceDek!,
+              blobId: blob.blobId,
+            );
+            metadataPlaintext = await _crypto.decryptBytes(
+              key: sourceBlobKey,
+              payload: EncryptedPayload(
+                nonce: fromB64(blob.metadataNonce),
+                ciphertext: fromB64(blob.metadataCiphertext),
+                mac: fromB64(blob.metadataMac),
+              ),
+            );
+            contentPlaintext = await _crypto.decryptBytes(
+              key: sourceBlobKey,
+              payload: EncryptedPayload(
+                nonce: fromB64(blob.nonce),
+                ciphertext: fromB64(blob.ciphertext),
+                mac: fromB64(blob.mac),
+              ),
+            );
+            targetBlobKey = await _deriveBlobKey(
+              dek: targetDek,
+              blobId: blob.blobId,
+            );
+            final encryptedMetadata = await _crypto.encryptBytes(
+              key: targetBlobKey,
+              plaintext: metadataPlaintext,
+            );
+            final encryptedContent = await _crypto.encryptBytes(
+              key: targetBlobKey,
+              plaintext: contentPlaintext,
+            );
+            reencryptedBlobs.add(
+              EncryptedVaultBlob(
+                blobId: blob.blobId,
+                itemId: blob.itemId,
+                metadataNonce: b64(encryptedMetadata.nonce),
+                metadataCiphertext: b64(encryptedMetadata.ciphertext),
+                metadataMac: b64(encryptedMetadata.mac),
+                nonce: b64(encryptedContent.nonce),
+                ciphertext: b64(encryptedContent.ciphertext),
+                mac: b64(encryptedContent.mac),
+                createdAt: blob.createdAt,
+                updatedAt: blob.updatedAt,
+                deletedAt: blob.deletedAt,
+              ),
+            );
+          } finally {
+            _zeroBytes(sourceBlobKey);
+            _zeroBytes(targetBlobKey);
+            _zeroBytes(metadataPlaintext);
+            _zeroBytes(contentPlaintext);
+          }
+        }
+
+        return List.unmodifiable(reencryptedBlobs);
+      });
+    } finally {
+      _zeroBytes(sourceDek);
+    }
+  }
+
   Future<String> createItem(PasswordEntry entry) async {
     _ensureUnlocked();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -826,6 +1031,141 @@ class VaultService {
     return List.unmodifiable(results);
   }
 
+  Future<String> addBlob({
+    required String itemId,
+    required String displayName,
+    required String mediaType,
+    required Uint8List bytes,
+  }) async {
+    _ensureUnlocked();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final blobId = _uuid.v4();
+
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, dek) async {
+        await _requireActiveItemFrom(txn, itemId);
+        final blobKey = await _deriveBlobKey(dek: dek, blobId: blobId);
+        try {
+          final metadata = {
+            'version': 1,
+            'display_name': displayName,
+            'media_type': mediaType,
+            'size_bytes': bytes.length,
+          };
+          final encryptedMetadata = await _crypto.encryptBytes(
+            key: blobKey,
+            plaintext: utf8.encode(jsonEncode(metadata)),
+          );
+          final encryptedContent = await _crypto.encryptBytes(
+            key: blobKey,
+            plaintext: bytes,
+          );
+          await txn.blobsDao.upsert(
+            EncryptedVaultBlob(
+              blobId: blobId,
+              itemId: itemId,
+              metadataNonce: b64(encryptedMetadata.nonce),
+              metadataCiphertext: b64(encryptedMetadata.ciphertext),
+              metadataMac: b64(encryptedMetadata.mac),
+              nonce: b64(encryptedContent.nonce),
+              ciphertext: b64(encryptedContent.ciphertext),
+              mac: b64(encryptedContent.mac),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+        } finally {
+          _zeroBytes(blobKey);
+        }
+      },
+    );
+    return blobId;
+  }
+
+  Future<List<VaultBlobListItem>> listBlobs(String itemId) async {
+    _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
+    final blobs = await repository.blobsDao.activeByItem(itemId);
+    final results = <VaultBlobListItem>[];
+    for (final blob in blobs) {
+      results.add(await _blobListItemFromEncrypted(blob));
+    }
+    return List.unmodifiable(results);
+  }
+
+  Future<DecryptedVaultBlob> openBlob(String blobId) async {
+    _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
+    final blob = await repository.blobsDao.byBlobId(blobId);
+    if (blob == null || blob.deletedAt != null) {
+      throw VaultItemNotFoundException(blobId);
+    }
+    await _requireActiveItem(blob.itemId);
+
+    return _session.withDekCopy((dek) async {
+      final blobKey = await _deriveBlobKey(dek: dek, blobId: blob.blobId);
+      Uint8List? metadataBytes;
+      try {
+        metadataBytes = await _crypto.decryptBytes(
+          key: blobKey,
+          payload: EncryptedPayload(
+            nonce: fromB64(blob.metadataNonce),
+            ciphertext: fromB64(blob.metadataCiphertext),
+            mac: fromB64(blob.metadataMac),
+          ),
+        );
+        final metadata = _decodeBlobMetadata(metadataBytes);
+        final clearBytes = await _crypto.decryptBytes(
+          key: blobKey,
+          payload: EncryptedPayload(
+            nonce: fromB64(blob.nonce),
+            ciphertext: fromB64(blob.ciphertext),
+            mac: fromB64(blob.mac),
+          ),
+        );
+        return DecryptedVaultBlob(
+          blobId: blob.blobId,
+          itemId: blob.itemId,
+          displayName: metadata.displayName,
+          mediaType: metadata.mediaType,
+          bytes: clearBytes,
+          createdAt: blob.createdAt,
+          updatedAt: blob.updatedAt,
+        );
+      } on CryptoException {
+        throw const VaultIntegrityException(
+          'Blob payload could not be authenticated',
+        );
+      } on FormatException {
+        throw const VaultIntegrityException('Blob metadata is malformed');
+      } finally {
+        _zeroBytes(metadataBytes);
+        _zeroBytes(blobKey);
+      }
+    });
+  }
+
+  Future<void> deleteBlob(String blobId) async {
+    _ensureUnlocked();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _rewriteManifestForMutation(
+      updatedAt: now,
+      mutate: (txn, _) async {
+        final blob = await txn.blobsDao.byBlobId(blobId);
+        if (blob == null || blob.deletedAt != null) {
+          throw VaultItemNotFoundException(blobId);
+        }
+        await _requireActiveItemFrom(txn, blob.itemId);
+        try {
+          await txn.blobsDao.softDelete(blobId, now);
+        } on StateError {
+          throw VaultItemNotFoundException(blobId);
+        }
+      },
+    );
+  }
+
   Future<void> updateItem(String id, PasswordEntry entry) async {
     _ensureUnlocked();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -866,6 +1206,7 @@ class VaultService {
         await _requireActiveItemFrom(txn, id);
         try {
           await txn.itemsDao.softDelete(id, now);
+          await txn.blobsDao.softDeleteForItem(id, now);
         } on StateError {
           throw VaultItemNotFoundException(id);
         }
@@ -910,6 +1251,11 @@ class VaultService {
         if (!restored) {
           throw VaultItemNotFoundException(id);
         }
+        await txn.blobsDao.restoreForItem(
+          id,
+          updatedAt: now,
+          deletedAt: item.deletedAt,
+        );
       },
     );
   }
@@ -924,6 +1270,7 @@ class VaultService {
         if (item == null || item.deletedAt == null) {
           throw VaultItemNotFoundException(id);
         }
+        await txn.blobsDao.hardDeleteForItem(id);
         await txn.itemsDao.hardDelete(id);
         await txn.historyDao?.deleteAllForEntry(id);
       },
@@ -936,6 +1283,10 @@ class VaultService {
     await _rewriteManifestForMutation(
       updatedAt: now,
       mutate: (txn, _) async {
+        final deletedItems = await txn.itemsDao.deletedItems();
+        for (final item in deletedItems) {
+          await txn.blobsDao.hardDeleteForItem(item.id);
+        }
         await txn.historyDao?.deleteAllForDeletedEntries();
         await txn.itemsDao.hardDeleteAllDeleted();
       },
@@ -1427,11 +1778,13 @@ class VaultService {
       throw const VaultIntegrityException();
     }
     final items = await _readItemsForManifest(repository);
+    final blobs = await _readBlobsForManifest(repository);
     final historyRecords = await _readHistoryForManifest(repository);
     await _manifestService.verifyManifest(
       dek: dek,
       meta: meta,
       items: items,
+      blobs: blobs,
       historyRecords: historyRecords,
       manifest: manifest,
     );
@@ -1497,11 +1850,13 @@ class VaultService {
       throw const VaultIntegrityException();
     }
     final items = await _readItemsForManifest(txn);
+    final blobs = await _readBlobsForManifest(txn);
     final historyRecords = await _readHistoryForManifest(txn);
     await _manifestService.verifyManifest(
       dek: dek,
       meta: currentMeta,
       items: items,
+      blobs: blobs,
       historyRecords: historyRecords,
       manifest: previous,
     );
@@ -1514,6 +1869,7 @@ class VaultService {
       dek: dek,
       meta: updatedMeta,
       items: items,
+      blobs: blobs,
       historyRecords: historyRecords,
       previous: previous,
       updatedAt: updatedAt,
@@ -1538,11 +1894,13 @@ class VaultService {
             throw const VaultIntegrityException();
           }
           final currentItems = await _readItemsForManifest(txn);
+          final currentBlobs = await _readBlobsForManifest(txn);
           final currentHistory = await _readHistoryForManifest(txn);
           await _manifestService.verifyManifest(
             dek: dek,
             meta: currentMeta,
             items: currentItems,
+            blobs: currentBlobs,
             historyRecords: currentHistory,
             manifest: previous,
           );
@@ -1558,11 +1916,13 @@ class VaultService {
             throw StateError('Vault has not been created');
           }
           final updatedItems = await _readItemsForManifest(txn);
+          final updatedBlobs = await _readBlobsForManifest(txn);
           final updatedHistory = await _readHistoryForManifest(txn);
           final manifest = await _manifestService.createManifest(
             dek: dek,
             meta: updatedMeta,
             items: updatedItems,
+            blobs: updatedBlobs,
             historyRecords: updatedHistory,
             previous: previous,
             updatedAt: updatedAt,
@@ -1614,6 +1974,20 @@ class VaultService {
     }
   }
 
+  Future<List<EncryptedVaultBlob>> _readBlobsForManifest(
+    VaultRepository repository,
+  ) async {
+    try {
+      return await repository.blobsDao.allForManifest();
+    } on FormatException {
+      throw const VaultIntegrityException();
+    } on StateError {
+      throw const VaultIntegrityException();
+    } on ArgumentError {
+      throw const VaultIntegrityException();
+    }
+  }
+
   Future<List<Map<String, Object?>>> _readHistoryForManifest(
     VaultRepository repository,
   ) async {
@@ -1638,6 +2012,74 @@ class VaultService {
         error is FormatException ||
         error is StateError ||
         error is ArgumentError;
+  }
+
+  Future<Uint8List> _deriveBlobKey({
+    required Uint8List dek,
+    required String blobId,
+  }) async {
+    final key = await _blobHkdf.deriveKey(
+      secretKey: SecretKey(dek),
+      info: utf8.encode('$_blobKeyInfoPrefix$blobId'),
+    );
+    return Uint8List.fromList(await key.extractBytes());
+  }
+
+  Future<VaultBlobListItem> _blobListItemFromEncrypted(
+    EncryptedVaultBlob blob,
+  ) async {
+    return _session.withDekCopy((dek) async {
+      final blobKey = await _deriveBlobKey(dek: dek, blobId: blob.blobId);
+      Uint8List? metadataBytes;
+      try {
+        metadataBytes = await _crypto.decryptBytes(
+          key: blobKey,
+          payload: EncryptedPayload(
+            nonce: fromB64(blob.metadataNonce),
+            ciphertext: fromB64(blob.metadataCiphertext),
+            mac: fromB64(blob.metadataMac),
+          ),
+        );
+        final metadata = _decodeBlobMetadata(metadataBytes);
+        return VaultBlobListItem(
+          blobId: blob.blobId,
+          itemId: blob.itemId,
+          displayName: metadata.displayName,
+          mediaType: metadata.mediaType,
+          sizeBytes: metadata.sizeBytes,
+          createdAt: blob.createdAt,
+          updatedAt: blob.updatedAt,
+        );
+      } on CryptoException {
+        throw const VaultIntegrityException(
+          'Blob metadata could not be authenticated',
+        );
+      } on FormatException {
+        throw const VaultIntegrityException('Blob metadata is malformed');
+      } finally {
+        _zeroBytes(metadataBytes);
+        _zeroBytes(blobKey);
+      }
+    });
+  }
+
+  _BlobMetadata _decodeBlobMetadata(Uint8List clearBytes) {
+    final decoded = jsonDecode(utf8.decode(clearBytes));
+    if (decoded is! Map) {
+      throw const FormatException('Invalid blob metadata');
+    }
+    final payload = Map<String, Object?>.from(decoded);
+    if (payload['version'] != 1 ||
+        payload['display_name'] is! String ||
+        payload['media_type'] is! String ||
+        payload['size_bytes'] is! int) {
+      throw const FormatException('Invalid blob metadata');
+    }
+    return _BlobMetadata(
+      displayName: payload['display_name']! as String,
+      mediaType: payload['media_type']! as String,
+      sizeBytes: payload['size_bytes']! as int,
+    );
   }
 
   Future<void> _withDekForBiometricDisable({
@@ -1857,4 +2299,16 @@ class _ManifestMutationResult<T> {
   final T result;
   final VaultMeta meta;
   final VaultManifest manifest;
+}
+
+class _BlobMetadata {
+  const _BlobMetadata({
+    required this.displayName,
+    required this.mediaType,
+    required this.sizeBytes,
+  });
+
+  final String displayName;
+  final String mediaType;
+  final int sizeBytes;
 }

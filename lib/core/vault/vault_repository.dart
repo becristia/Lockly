@@ -1,5 +1,6 @@
 import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
+import 'package:secure_box/data/db/vault_blobs_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
@@ -11,13 +12,22 @@ class VaultRepository {
     required this.itemsDao,
     required this.manifestDao,
     required this.settingsDao,
+    VaultBlobsDao? blobsDao,
     this.historyDao,
     Database? database,
-  }) : _database =
+  }) : blobsDao = blobsDao ?? VaultBlobsDao(itemsDao.executor),
+       _database =
            database ??
-           _inferDatabase(metaDao, itemsDao, manifestDao, settingsDao);
+           _inferDatabase(
+             metaDao,
+             blobsDao,
+             itemsDao,
+             manifestDao,
+             settingsDao,
+           );
 
   final VaultMetaDao metaDao;
+  final VaultBlobsDao blobsDao;
   final VaultItemsDao itemsDao;
   final VaultManifestDao manifestDao;
   final SettingsDao settingsDao;
@@ -36,6 +46,7 @@ class VaultRepository {
       return action(
         VaultRepository(
           metaDao: VaultMetaDao(txn),
+          blobsDao: VaultBlobsDao(txn),
           itemsDao: VaultItemsDao(txn),
           manifestDao: VaultManifestDao(txn),
           settingsDao: SettingsDao(txn),
@@ -47,12 +58,14 @@ class VaultRepository {
 
   static Database? _inferDatabase(
     VaultMetaDao metaDao,
+    VaultBlobsDao? blobsDao,
     VaultItemsDao itemsDao,
     VaultManifestDao manifestDao,
     SettingsDao settingsDao,
   ) {
     final executors = [
       metaDao.executor,
+      blobsDao?.executor,
       itemsDao.executor,
       manifestDao.executor,
       settingsDao.executor,

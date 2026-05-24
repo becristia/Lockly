@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -10,6 +11,7 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/migration/plaintext_csv_importer.dart';
 import 'package:secure_box/core/vault/vault_anchor_service.dart';
 import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
@@ -159,6 +161,94 @@ void main() {
       expect(jsonText, isNot(contains('secret-password')));
       expect(jsonText, isNot(contains('user@example.com')));
       expect(jsonText, isNot(contains('private note')));
+    },
+  );
+
+  test(
+    'backup export and import roundtrip preserves encrypted attachments',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final itemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: '',
+          tags: const ['dev'],
+        ),
+      );
+      await source.vaultService.addBlob(
+        itemId: itemId,
+        displayName: 'recovery-codes.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('plain recovery bytes')),
+      );
+
+      final backup = await source.backupService.exportBackup();
+      final jsonText = jsonEncode(backup.toJson());
+
+      expect(backup.blobs, hasLength(1));
+      expect(jsonText, isNot(contains('recovery-codes.txt')));
+      expect(jsonText, isNot(contains('text/plain')));
+      expect(jsonText, isNot(contains('plain recovery bytes')));
+      expect(jsonText, isNot(contains('raw_key')));
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+      await target.vaultService.unlock(masterPassword: 'source-master');
+
+      final restored = await target.vaultService.listBlobs(itemId);
+      expect(restored.single.displayName, 'recovery-codes.txt');
+      final opened = await target.vaultService.openBlob(restored.single.blobId);
+      expect(utf8.decode(opened.bytes), 'plain recovery bytes');
+    },
+  );
+
+  test(
+    'different-envelope backup import re-encrypts attachments for current vault',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final itemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'source@example.com',
+          password: 'source-password',
+          notes: '',
+          tags: const ['docs'],
+        ),
+      );
+      await source.vaultService.addBlob(
+        itemId: itemId,
+        displayName: 'vault-export.bin',
+        mediaType: 'application/octet-stream',
+        bytes: Uint8List.fromList(utf8.encode('source blob bytes')),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+
+      await target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+      );
+
+      final restored = await target.vaultService.listBlobs(itemId);
+      expect(restored.single.displayName, 'vault-export.bin');
+      final opened = await target.vaultService.openBlob(restored.single.blobId);
+      expect(utf8.decode(opened.bytes), 'source blob bytes');
     },
   );
 
@@ -368,6 +458,42 @@ void main() {
       throwsA(isA<FormatException>()),
     );
   });
+
+  test('AppServices previews plaintext CSV without exposing secrets', () {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+    addTearDown(services.dispose);
+
+    final report = services.previewPlaintextCsvImport(
+      'title,website,username,password,notes,totp\n'
+      'GitHub,https://github.com,user@example.com,secret,private,OTPSECRET\n',
+    );
+
+    expect(report, isA<PlaintextCsvImportReport>());
+    expect(report.importableRows, 1);
+    expect(report.previewRows.single.title, 'GitHub');
+    expect(report.previewRows.single.toString(), isNot(contains('secret')));
+    expect(report.previewRows.single.toString(), isNot(contains('private')));
+    expect(report.previewRows.single.toString(), isNot(contains('OTPSECRET')));
+  });
+
+  test(
+    'AppServices imports plaintext CSV through encrypted vault item creation',
+    () async {
+      final services = AppServices.fake(hasVault: true, unlocked: true);
+      addTearDown(services.dispose);
+
+      final count = await services.importPlaintextCsv(
+        'title,website,username,password\n'
+        'GitHub,https://github.com,user@example.com,secret\n',
+      );
+
+      expect(count, 1);
+      final items = await services.listVaultItems();
+      expect(items.single.title, 'GitHub');
+      final entry = await services.getVaultItem(items.single.id);
+      expect(entry.password, 'secret');
+    },
+  );
 
   test(
     'v2 import rejects tampered item ciphertext before writing target data',
@@ -856,55 +982,123 @@ void main() {
     expect(added.password, 'docs-password');
   });
 
-  test('importBackup skip restores a soft-deleted duplicate row', () async {
-    final source = await _buildHarness();
-    await source.vaultService.createVault(masterPassword: 'source-master');
-    await source.vaultService.unlock(masterPassword: 'source-master');
-    final sourceId = await source.vaultService.createItem(
-      PasswordEntry(
-        title: 'Imported',
-        website: 'https://import.example',
-        username: 'import@example.com',
-        password: 'imported-password',
-        notes: 'from backup',
-        tags: const ['backup'],
-      ),
-    );
-    final backup = await source.backupService.exportBackup();
+  test(
+    'importBackup skip preserves a soft-deleted duplicate item row',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Imported',
+          website: 'https://import.example',
+          username: 'import@example.com',
+          password: 'imported-password',
+          notes: 'from backup',
+          tags: const ['backup'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
 
-    final target = await _buildHarness();
-    await target.vaultService.createVault(masterPassword: 'target-master');
-    await target.vaultService.unlock(masterPassword: 'target-master');
-    final localId = await target.vaultService.createItem(
-      PasswordEntry(
-        title: 'Local',
-        website: 'https://local.example',
-        username: 'local@example.com',
-        password: 'local-password',
-        notes: 'deleted local row',
-        tags: const ['local'],
-      ),
-    );
-    await target.vaultService.deleteItem(localId);
-    final importedJson = _backupJsonWithItemIdReplacement(
-      backup: backup,
-      fromId: sourceId,
-      toId: localId,
-    );
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final localId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local',
+          website: 'https://local.example',
+          username: 'local@example.com',
+          password: 'local-password',
+          notes: 'deleted local row',
+          tags: const ['local'],
+        ),
+      );
+      await target.vaultService.deleteItem(localId);
+      final importedJson = _backupJsonWithItemIdReplacement(
+        backup: backup,
+        fromId: sourceId,
+        toId: localId,
+      );
 
-    final importedCount = await target.backupService.importBackup(
-      json: importedJson,
-      masterPassword: 'source-master',
-      mode: BackupImportMode.skip,
-      allowLegacyBackups: true,
-    );
+      final importedCount = await target.backupService.importBackup(
+        json: importedJson,
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+        allowLegacyBackups: true,
+      );
 
-    final restored = await target.vaultService.getItem(localId);
-    expect(importedCount, 1);
-    expect(restored.title, 'Imported');
-    expect(restored.password, 'imported-password');
-    expect((await target.repository.itemsDao.byId(localId))!.deletedAt, isNull);
-  });
+      final preserved = await target.repository.itemsDao.byId(localId);
+      expect(importedCount, 0);
+      expect(preserved, isNotNull);
+      expect(preserved!.deletedAt, isNotNull);
+    },
+  );
+
+  test(
+    'importBackup skip preserves a soft-deleted duplicate blob row',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sourceItemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Imported',
+          website: 'https://import.example',
+          username: 'import@example.com',
+          password: 'imported-password',
+          notes: 'from backup',
+          tags: const ['backup'],
+        ),
+      );
+      final sourceBlobId = await source.vaultService.addBlob(
+        itemId: sourceItemId,
+        displayName: 'remote.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('remote bytes')),
+      );
+      final backup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final localItemId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local',
+          website: 'https://local.example',
+          username: 'local@example.com',
+          password: 'local-password',
+          notes: 'local row',
+          tags: const ['local'],
+        ),
+      );
+      final localBlobId = await target.vaultService.addBlob(
+        itemId: localItemId,
+        displayName: 'local.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('local bytes')),
+      );
+      await target.vaultService.deleteBlob(localBlobId);
+      final importedJson = _legacyBackupJsonWithItemAndBlobReplacement(
+        backup: backup,
+        fromItemId: sourceItemId,
+        toItemId: localItemId,
+        fromBlobId: sourceBlobId,
+        toBlobId: localBlobId,
+      );
+
+      await target.backupService.importBackup(
+        json: importedJson,
+        masterPassword: 'source-master',
+        mode: BackupImportMode.skip,
+        allowLegacyBackups: true,
+      );
+
+      final preserved = await target.repository.blobsDao.byBlobId(localBlobId);
+      expect(preserved, isNotNull);
+      expect(preserved!.deletedAt, isNotNull);
+      expect(await target.vaultService.listBlobs(localItemId), isEmpty);
+    },
+  );
 
   test(
     'locked same-envelope skip import preserves existing password history manifest',
@@ -1826,6 +2020,36 @@ Map<String, Object?> _backupJsonWithItemIdReplacement({
   items[itemIndex] = {...items[itemIndex], 'id': toId};
 
   return {...json, 'items': items};
+}
+
+Map<String, Object?> _legacyBackupJsonWithItemAndBlobReplacement({
+  required VaultBackup backup,
+  required String fromItemId,
+  required String toItemId,
+  required String fromBlobId,
+  required String toBlobId,
+}) {
+  final json = _backupJsonWithItemIdReplacement(
+    backup: backup,
+    fromId: fromItemId,
+    toId: toItemId,
+  );
+  final blobs = List<Map<String, Object?>>.from(
+    (json['blobs']! as List<Object?>).map(
+      (blob) => Map<String, Object?>.from(blob! as Map<Object?, Object?>),
+    ),
+  );
+  final blobIndex = blobs.indexWhere((blob) => blob['blob_id'] == fromBlobId);
+  if (blobIndex == -1) {
+    throw StateError('Expected backup blob with id "$fromBlobId"');
+  }
+  blobs[blobIndex] = {
+    ...blobs[blobIndex],
+    'blob_id': toBlobId,
+    'item_id': toItemId,
+  };
+
+  return {...json, 'blobs': blobs};
 }
 
 Map<String, Object?> _asLegacyBackupJson(Map<String, Object?> json) {

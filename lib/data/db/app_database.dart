@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 6;
   static const int vaultMetaSingletonKey = 1;
   static const int vaultManifestSingletonKey = 1;
 
@@ -22,8 +22,8 @@ class AppDatabase {
       singleInstance: singleInstance,
       version: schemaVersion,
       onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
-        await db.execute('PRAGMA secure_delete = ON');
+        await db.rawQuery('PRAGMA foreign_keys = ON');
+        await db.rawQuery('PRAGMA secure_delete = ON');
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -70,6 +70,9 @@ class AppDatabase {
         ''');
         await _createVaultManifestTable(db);
         await _createPasswordHistoryTable(db);
+        await _createSyncStateTables(db);
+        await _createSyncBlobStateTables(db);
+        await _createVaultBlobsTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -77,6 +80,15 @@ class AppDatabase {
         }
         if (oldVersion < 3) {
           await _createPasswordHistoryTable(db);
+        }
+        if (oldVersion < 4) {
+          await _createSyncStateTables(db);
+        }
+        if (oldVersion < 5) {
+          await _createVaultBlobsTable(db);
+        }
+        if (oldVersion < 6) {
+          await _createSyncBlobStateTables(db);
         }
       },
     );
@@ -109,6 +121,77 @@ class AppDatabase {
         ciphertext TEXT NOT NULL,
         mac TEXT NOT NULL,
         updated_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _createVaultBlobsTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE vault_blobs (
+        blob_id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL,
+        metadata_nonce TEXT NOT NULL,
+        metadata_ciphertext TEXT NOT NULL,
+        metadata_mac TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        ciphertext TEXT NOT NULL,
+        mac TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted_at INTEGER,
+        FOREIGN KEY (item_id) REFERENCES vault_items(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX vault_blobs_item_active_idx
+      ON vault_blobs (item_id, deleted_at, updated_at DESC, created_at DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX vault_blobs_manifest_idx
+      ON vault_blobs (blob_id ASC)
+    ''');
+  }
+
+  static Future<void> _createSyncStateTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE sync_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE sync_item_state (
+        item_id TEXT PRIMARY KEY,
+        server_revision INTEGER NOT NULL,
+        server_updated_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE sync_conflicts (
+        item_id TEXT PRIMARY KEY,
+        client_revision INTEGER NOT NULL,
+        server_revision INTEGER NOT NULL,
+        remote_payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _createSyncBlobStateTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE sync_blob_state (
+        blob_id TEXT PRIMARY KEY,
+        server_revision INTEGER NOT NULL,
+        server_updated_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE sync_blob_conflicts (
+        blob_id TEXT PRIMARY KEY,
+        client_revision INTEGER NOT NULL,
+        server_revision INTEGER NOT NULL,
+        remote_payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL
       )
     ''');
   }

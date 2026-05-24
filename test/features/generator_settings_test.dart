@@ -4,9 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
+import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/sync/sync_models.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
@@ -18,6 +20,7 @@ import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
+import 'package:secure_box/features/migration/migration_wizard_page.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -104,7 +107,7 @@ void main() {
     expect(find.text('自动锁定'), findsOneWidget);
     expect(find.text('剪贴板清理'), findsOneWidget);
     expect(find.text('导出加密备份'), findsOneWidget);
-    expect(find.text('导入加密备份'), findsOneWidget);
+    expect(find.text('Migration import'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('清除本地密码库'),
       120,
@@ -115,6 +118,294 @@ void main() {
 
     expect(find.text('此操作会删除本机密码库和设置，无法找回。请确认已经导出可用备份。'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '清除'), findsOneWidget);
+  });
+
+  testWidgets(
+    'settings registers a cloud account with backend account credentials',
+    (tester) async {
+      String? registeredEmail;
+      String? registeredPassword;
+      final services = AppServices.fake(
+        hasVault: true,
+        unlocked: true,
+        cloudRegisterOverride: (email, password) async {
+          registeredEmail = email;
+          registeredPassword = password;
+        },
+      );
+
+      await tester.pumpWidget(SecureBoxApp(services: services));
+      await tester.pumpAndSettle();
+      services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+      await tester.pumpAndSettle();
+
+      final registerTile = find.widgetWithText(ListTile, 'Cloud register');
+      await tester.scrollUntilVisible(registerTile, 120);
+      await tester.tap(registerTile);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('cloud-register-email-field')),
+        'new@example.test',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('cloud-register-password-field')),
+        'backend-account-password',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Register'));
+      await tester.pumpAndSettle();
+
+      expect(registeredEmail, 'new@example.test');
+      expect(registeredPassword, 'backend-account-password');
+      expect(find.textContaining('backend-account-password'), findsNothing);
+      expect(find.text('Registered and connected'), findsOneWidget);
+    },
+  );
+
+  testWidgets('settings reports cloud sync conflicts instead of success', (
+    tester,
+  ) async {
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      biometricEnabledOverride: () async => false,
+      autoLockTimeoutOverride: () async => const Duration(minutes: 2),
+      clipboardCleanupTimeoutOverride: () async => const Duration(seconds: 30),
+      cloudSyncNowOverride: (masterPassword) async {
+        return const CloudSyncResult(
+          importedCount: 2,
+          itemConflictCount: 1,
+          blobConflictCount: 1,
+        );
+      },
+      trackActivity: false,
+    );
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+    await tester.pumpAndSettle();
+
+    final syncTile = find.widgetWithText(ListTile, 'Sync encrypted vault');
+    await tester.scrollUntilVisible(syncTile, 120);
+    await tester.tap(syncTile);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'local-master-password');
+    await tester.tap(find.widgetWithText(FilledButton, 'Sync'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Sync conflicts detected'), findsOneWidget);
+    expect(find.textContaining('2 unresolved conflicts'), findsOneWidget);
+    expect(find.textContaining('local-master-password'), findsNothing);
+    expect(find.textContaining('Synced; imported'), findsNothing);
+  });
+
+  testWidgets('cloud devices dialog can rename a device', (tester) async {
+    String? renamedDeviceId;
+    String? renamedDeviceName;
+    final services = AppServices.fake(
+      hasVault: true,
+      unlocked: true,
+      cloudDevices: const [
+        SyncDevice(
+          id: 'device-1',
+          deviceName: 'Old phone',
+          deviceType: 'mobile',
+          trusted: true,
+          platform: 'android',
+          clientVersion: '1.4.2',
+          createdAt: '2026-05-23T00:00:00Z',
+        ),
+      ],
+      renameCloudDeviceOverride: (deviceId, deviceName) async {
+        renamedDeviceId = deviceId;
+        renamedDeviceName = deviceName;
+        return SyncDevice(
+          id: deviceId,
+          deviceName: deviceName,
+          deviceType: 'mobile',
+          trusted: true,
+          platform: 'android',
+          clientVersion: '1.4.2',
+          createdAt: '2026-05-23T00:00:00Z',
+        );
+      },
+    );
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+    await tester.pumpAndSettle();
+
+    final devicesTile = find.widgetWithText(ListTile, 'Cloud devices');
+    await tester.scrollUntilVisible(devicesTile, 120);
+    await tester.tap(devicesTile);
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('cloud-device-rename-device-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-device-rename-field')),
+      'Travel phone',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Rename'));
+    await tester.pumpAndSettle();
+
+    expect(renamedDeviceId, 'device-1');
+    expect(renamedDeviceName, 'Travel phone');
+    expect(find.text('Travel phone'), findsOneWidget);
+    expect(find.text('Old phone'), findsNothing);
+  });
+
+  testWidgets('settings opens migration wizard from backup import', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+    await tester.pumpAndSettle();
+
+    final importTile = find.widgetWithText(ListTile, 'Migration import');
+    await tester.scrollUntilVisible(
+      importTile,
+      120,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.tap(importTile);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('migration-wizard-page')), findsOneWidget);
+    expect(find.text('Migration import'), findsOneWidget);
+  });
+
+  testWidgets(
+    'migration wizard previews CSV without rendering secrets and imports rows',
+    (tester) async {
+      final services = AppServices.fake(hasVault: true, unlocked: true);
+
+      await tester.pumpWidget(
+        MaterialApp(home: MigrationWizardPage(services: services)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('CSV'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('migration-csv-input')),
+        'title,website,username,password,notes,totp\n'
+        'Bank,https://bank.example,alice,bank-secret,private note,OTPSECRET\n',
+      );
+      await tester.tap(find.text('Preview'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 importable row'), findsOneWidget);
+      expect(find.text('Bank'), findsOneWidget);
+      expect(find.text('https://bank.example'), findsOneWidget);
+      expect(find.text('alice'), findsOneWidget);
+      expect(find.textContaining('bank-secret'), findsNothing);
+      expect(find.textContaining('private note'), findsNothing);
+      expect(find.textContaining('OTPSECRET'), findsNothing);
+
+      await tester.tap(find.text('Import'));
+      await tester.pumpAndSettle();
+
+      final items = await services.listVaultItems();
+      expect(items.single.title, 'Bank');
+    },
+  );
+
+  testWidgets('migration wizard clears visible CSV when preview fails', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(home: MigrationWizardPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('CSV'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-csv-input')),
+      'title,website,username,password\n"Broken,https://bank.example,alice,bank-secret',
+    );
+    await tester.tap(find.text('Preview'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('CSV import could not be parsed locally.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('bank-secret'), findsNothing);
+  });
+
+  testWidgets('migration wizard clears pasted CSV when switching source', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(home: MigrationWizardPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('CSV'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-csv-input')),
+      'title,website,username,password\nBank,https://bank.example,alice,bank-secret\n',
+    );
+    await tester.tap(find.text('Lockly JSON'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('bank-secret'), findsNothing);
+  });
+
+  testWidgets('migration wizard keeps Lockly encrypted JSON import path', (
+    tester,
+  ) async {
+    String? importedJson;
+    String? importedPassword;
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      clipboardService: ClipboardService(),
+      biometricEnabledOverride: () async => false,
+      autoLockTimeoutOverride: () async => const Duration(minutes: 2),
+      clipboardCleanupTimeoutOverride: () async => const Duration(seconds: 30),
+      importBackupOverride: (backupJson, masterPassword) async {
+        importedJson = backupJson;
+        importedPassword = masterPassword;
+        return 3;
+      },
+      trackActivity: false,
+    );
+    addTearDown(services.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: MigrationWizardPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-json-input')),
+      '{"version":2,"items":[]}',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-backup-password-input')),
+      'backup-master',
+    );
+    await tester.tap(find.text('Import'));
+    await tester.pumpAndSettle();
+
+    expect(importedJson, '{"version":2,"items":[]}');
+    expect(importedPassword, 'backup-master');
+    expect(find.textContaining('backup-master'), findsNothing);
   });
 
   testWidgets('backup export dialog can copy encrypted backup json', (

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/password_generator/password_generator_page.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
@@ -33,6 +34,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
   final TextEditingController _tagsController = TextEditingController();
 
   String? _totpSecret;
+  PasskeyRecord? _passkeyRecord;
 
   bool _isLoading = false;
   bool _isSaving = false;
@@ -69,6 +71,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
     _notesController.dispose();
     _tagsController.dispose();
     _totpSecret = null;
+    _passkeyRecord = null;
     super.dispose();
   }
 
@@ -90,6 +93,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       _notesController.text = entry.notes;
       _tagsController.text = entry.tags.join(', ');
       _totpSecret = entry.totpSecret;
+      _passkeyRecord = entry.passkey;
       setState(() => _isLoading = false);
     } on VaultItemNotFoundException {
       if (!mounted) {
@@ -130,6 +134,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       notes: _notesController.text.trim(),
       tags: _parseTags(_tagsController.text),
       totpSecret: _totpSecret,
+      passkey: _passkeyRecord,
     );
 
     try {
@@ -388,6 +393,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
                       ),
                     ],
                     const SizedBox(height: 14),
+                    _buildPasskeySection(theme),
+                    const SizedBox(height: 14),
                     ActivityTextFormField(
                       controller: _notesController,
                       onActivity: widget.services.recordActivity,
@@ -423,6 +430,103 @@ class _VaultEditPageState extends State<VaultEditPage> {
         ],
       ),
     );
+  }
+
+  Widget _buildPasskeySection(ThemeData theme) {
+    final passkey = _passkeyRecord;
+    final readiness = passkey?.platformReady == true
+        ? 'Platform API ready'
+        : 'Platform API not enabled';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Passkey', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        if (passkey == null)
+          OutlinedButton.icon(
+            key: const ValueKey('passkey-add-button'),
+            onPressed: _editPasskeyRecord,
+            icon: const Icon(Icons.key_rounded, size: 20),
+            label: const Text('Add passkey metadata'),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.key_rounded,
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        passkey.relyingPartyId,
+                        style: theme.textTheme.bodyLarge,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${passkey.credentialId} - $readiness',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      key: const ValueKey('passkey-add-button'),
+                      onPressed: _editPasskeyRecord,
+                      icon: const Icon(Icons.edit_rounded, size: 18),
+                      label: const Text('Edit metadata'),
+                    ),
+                    TextButton.icon(
+                      key: const ValueKey('passkey-remove-button'),
+                      onPressed: () {
+                        widget.services.recordActivity();
+                        setState(() => _passkeyRecord = null);
+                      },
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: const Text('Remove'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _editPasskeyRecord() async {
+    widget.services.recordActivity();
+    final record = await showDialog<PasskeyRecord>(
+      context: context,
+      builder: (context) => _PasskeyRecordDialog(
+        initialRecord: _passkeyRecord,
+        onActivity: widget.services.recordActivity,
+      ),
+    );
+    if (record == null || !mounted) {
+      return;
+    }
+    setState(() => _passkeyRecord = record);
   }
 
   void _showManualTotpInput() {
@@ -474,6 +578,193 @@ class _VaultEditPageState extends State<VaultEditPage> {
         .map((tag) => tag.trim())
         .where((tag) => tag.isNotEmpty)
         .toList(growable: false);
+  }
+}
+
+class _PasskeyRecordDialog extends StatefulWidget {
+  const _PasskeyRecordDialog({
+    required this.initialRecord,
+    required this.onActivity,
+  });
+
+  final PasskeyRecord? initialRecord;
+  final VoidCallback onActivity;
+
+  @override
+  State<_PasskeyRecordDialog> createState() => _PasskeyRecordDialogState();
+}
+
+class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _relyingPartyIdController;
+  late final TextEditingController _credentialIdController;
+  late final TextEditingController _userHandleController;
+  late final TextEditingController _displayNameController;
+  late final TextEditingController _algorithmController;
+  late final TextEditingController _platformController;
+  late bool _platformReady;
+
+  @override
+  void initState() {
+    super.initState();
+    final record = widget.initialRecord;
+    _relyingPartyIdController = TextEditingController(
+      text: record?.relyingPartyId ?? '',
+    );
+    _credentialIdController = TextEditingController(
+      text: record?.credentialId ?? '',
+    );
+    _userHandleController = TextEditingController(
+      text: record?.userHandle ?? '',
+    );
+    _displayNameController = TextEditingController(
+      text: record?.displayName ?? '',
+    );
+    _algorithmController = TextEditingController(
+      text: record?.publicKeyAlgorithm ?? '',
+    );
+    _platformController = TextEditingController(text: record?.platform ?? '');
+    _platformReady = record?.platformReady ?? false;
+  }
+
+  @override
+  void dispose() {
+    _relyingPartyIdController.dispose();
+    _credentialIdController.dispose();
+    _userHandleController.dispose();
+    _displayNameController.dispose();
+    _algorithmController.dispose();
+    _platformController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Passkey metadata'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  key: const ValueKey('passkey-rp-id-input'),
+                  controller: _relyingPartyIdController,
+                  decoration: const InputDecoration(
+                    labelText: 'Relying party ID',
+                    hintText: 'example.com',
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: _required,
+                  onChanged: (_) => widget.onActivity(),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const ValueKey('passkey-credential-id-input'),
+                  controller: _credentialIdController,
+                  decoration: const InputDecoration(
+                    labelText: 'Credential ID',
+                    hintText: 'base64url credential id',
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: _required,
+                  onChanged: (_) => widget.onActivity(),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const ValueKey('passkey-user-handle-input'),
+                  controller: _userHandleController,
+                  decoration: const InputDecoration(labelText: 'User handle'),
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => widget.onActivity(),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const ValueKey('passkey-display-name-input'),
+                  controller: _displayNameController,
+                  decoration: const InputDecoration(labelText: 'Display name'),
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => widget.onActivity(),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const ValueKey('passkey-algorithm-input'),
+                  controller: _algorithmController,
+                  decoration: const InputDecoration(
+                    labelText: 'Public key algorithm',
+                    hintText: 'ES256',
+                  ),
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => widget.onActivity(),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const ValueKey('passkey-platform-input'),
+                  controller: _platformController,
+                  decoration: const InputDecoration(
+                    labelText: 'Platform',
+                    hintText: 'android',
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onChanged: (_) => widget.onActivity(),
+                ),
+                const SizedBox(height: 6),
+                SwitchListTile(
+                  key: const ValueKey('passkey-platform-ready-toggle'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Platform API ready'),
+                  value: _platformReady,
+                  onChanged: (value) {
+                    widget.onActivity();
+                    setState(() => _platformReady = value);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('passkey-save-button'),
+          onPressed: _save,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    widget.onActivity();
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+    Navigator.of(context).pop(
+      PasskeyRecord(
+        relyingPartyId: _relyingPartyIdController.text.trim(),
+        credentialId: _credentialIdController.text.trim(),
+        userHandle: _userHandleController.text.trim(),
+        displayName: _displayNameController.text.trim(),
+        publicKeyAlgorithm: _algorithmController.text.trim(),
+        platform: _platformController.text.trim(),
+        platformReady: _platformReady,
+      ),
+    );
+  }
+
+  static String? _required(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Required';
+    }
+    return null;
   }
 }
 

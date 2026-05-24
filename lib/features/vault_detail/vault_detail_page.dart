@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
 
@@ -25,6 +29,8 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
   bool _isDeleting = false;
   bool _isExporting = false;
   String? _errorMessage;
+  List<VaultBlobListItem> _attachments = [];
+  bool _isLoadingAttachments = false;
   List<Map<String, dynamic>> _passwordHistory = [];
   bool _historyExpanded = false;
   final Set<int> _revealedHistoryIds = {};
@@ -59,6 +65,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
         _isLoading = false;
       });
       _loadHistory();
+      _loadAttachments();
     } on VaultItemNotFoundException {
       if (!mounted) {
         return;
@@ -295,6 +302,12 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   ),
                 ],
               ),
+              if (entry.passkey != null) ...[
+                const SizedBox(height: 16),
+                _buildPasskeySection(context, entry.passkey!),
+              ],
+              const SizedBox(height: 16),
+              _buildAttachmentsSection(context),
               if (_passwordHistory.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 InkWell(
@@ -374,6 +387,205 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       setState(() => _passwordHistory = history);
     } catch (_) {
       // History is optional; silently fail
+    }
+  }
+
+  Future<void> _loadAttachments() async {
+    setState(() => _isLoadingAttachments = true);
+    try {
+      final attachments = await widget.services.listVaultBlobs(widget.itemId);
+      if (!mounted) return;
+      setState(() {
+        _attachments = attachments;
+        _isLoadingAttachments = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingAttachments = false);
+    }
+  }
+
+  Widget _buildPasskeySection(BuildContext context, PasskeyRecord passkey) {
+    final theme = Theme.of(context);
+    final readiness = passkey.platformReady
+        ? 'Platform API ready'
+        : 'Platform API not enabled';
+
+    return Semantics(
+      label: 'Passkey',
+      child: _DetailSection(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.key_rounded,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text('Passkey', style: theme.textTheme.titleSmall),
+              ],
+            ),
+          ),
+          _DetailRow(label: 'RP ID', value: passkey.relyingPartyId),
+          _DetailRow(label: 'Credential', value: passkey.credentialId),
+          _DetailRow(label: 'User', value: _fallback(passkey.userHandle)),
+          _DetailRow(label: 'Display', value: _fallback(passkey.displayName)),
+          _DetailRow(
+            label: 'Algorithm',
+            value: _fallback(passkey.publicKeyAlgorithm),
+          ),
+          _DetailRow(label: 'Platform', value: _fallback(passkey.platform)),
+          _DetailRow(label: 'Readiness', value: readiness),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttachmentsSection(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Semantics(
+      label: 'Attachments',
+      child: _DetailSection(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.attach_file_rounded,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text('Attachments', style: theme.textTheme.titleSmall),
+                const Spacer(),
+                if (_isLoadingAttachments)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  IconButton(
+                    key: const ValueKey('attachment-add-button'),
+                    onPressed: _showAddAttachmentDialog,
+                    tooltip: 'Add attachment',
+                    icon: const Icon(Icons.add_rounded),
+                  ),
+              ],
+            ),
+          ),
+          if (!_isLoadingAttachments && _attachments.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Text(
+                'No attachments',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            )
+          else
+            ..._attachments.map((attachment) {
+              return _AttachmentRow(
+                attachment: attachment,
+                onOpen: () => _openAttachment(attachment.blobId),
+                onDelete: () => _deleteAttachment(attachment.blobId),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddAttachmentDialog() async {
+    widget.services.recordActivity();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return _AddAttachmentDialog(
+          onSave:
+              ({required displayName, required mediaType, required content}) {
+                return widget.services.addVaultBlob(
+                  itemId: widget.itemId,
+                  displayName: displayName,
+                  mediaType: mediaType,
+                  bytes: Uint8List.fromList(utf8.encode(content)),
+                );
+              },
+        );
+      },
+    );
+
+    if (saved == true && mounted) {
+      await _loadAttachments();
+    }
+  }
+
+  Future<void> _openAttachment(String blobId) async {
+    widget.services.recordActivity();
+    try {
+      final blob = await widget.services.openVaultBlob(blobId);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          final text = utf8.decode(blob.bytes, allowMalformed: true);
+          return AlertDialog(
+            title: Text(blob.displayName),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _DialogMetadataRow(
+                      label: 'Media type',
+                      value: blob.mediaType,
+                    ),
+                    _DialogMetadataRow(
+                      label: 'Size',
+                      value: _formatAttachmentSize(blob.bytes.length),
+                    ),
+                    const SizedBox(height: 12),
+                    SelectableText(text),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Attachment open failed')));
+    }
+  }
+
+  Future<void> _deleteAttachment(String blobId) async {
+    widget.services.recordActivity();
+    try {
+      await widget.services.deleteVaultBlob(blobId);
+      if (!mounted) return;
+      await _loadAttachments();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Attachment delete failed')));
     }
   }
 
@@ -634,6 +846,233 @@ class _DetailRow extends StatelessWidget {
             ),
           ),
           if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+        ],
+      ),
+    );
+  }
+}
+
+String _formatAttachmentSize(int bytes) {
+  if (bytes < 1024) {
+    return '$bytes B';
+  }
+  final kib = bytes / 1024;
+  if (kib < 1024) {
+    return '${kib.toStringAsFixed(kib >= 10 ? 0 : 1)} KB';
+  }
+  final mib = kib / 1024;
+  return '${mib.toStringAsFixed(mib >= 10 ? 0 : 1)} MB';
+}
+
+class _AddAttachmentDialog extends StatefulWidget {
+  const _AddAttachmentDialog({required this.onSave});
+
+  final Future<void> Function({
+    required String displayName,
+    required String mediaType,
+    required String content,
+  })
+  onSave;
+
+  @override
+  State<_AddAttachmentDialog> createState() => _AddAttachmentDialogState();
+}
+
+class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _mediaTypeController = TextEditingController(text: 'text/plain');
+  final _contentController = TextEditingController();
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _nameController.clear();
+    _mediaTypeController.clear();
+    _contentController.clear();
+    _nameController.dispose();
+    _mediaTypeController.dispose();
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+    setState(() => _isSaving = true);
+    try {
+      final mediaType = _mediaTypeController.text.trim().isEmpty
+          ? 'text/plain'
+          : _mediaTypeController.text.trim();
+      await widget.onSave(
+        displayName: _nameController.text.trim(),
+        mediaType: mediaType,
+        content: _contentController.text,
+      );
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Attachment add failed')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add attachment'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                key: const ValueKey('attachment-name-input'),
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: 'Display name'),
+                textInputAction: TextInputAction.next,
+                validator: (value) => (value == null || value.trim().isEmpty)
+                    ? 'Display name is required'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('attachment-media-type-input'),
+                controller: _mediaTypeController,
+                decoration: const InputDecoration(labelText: 'Media type'),
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('attachment-content-input'),
+                controller: _contentController,
+                decoration: const InputDecoration(labelText: 'Content'),
+                minLines: 3,
+                maxLines: 6,
+                validator: (value) => (value == null || value.isEmpty)
+                    ? 'Content is required'
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('attachment-save-button'),
+          onPressed: _isSaving ? null : _save,
+          child: _isSaving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _DialogMetadataRow extends StatelessWidget {
+  const _DialogMetadataRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 84,
+            child: Text(label, style: theme.textTheme.bodyMedium),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentRow extends StatelessWidget {
+  const _AttachmentRow({
+    required this.attachment,
+    required this.onOpen,
+    required this.onDelete,
+  });
+
+  final VaultBlobListItem attachment;
+  final VoidCallback onOpen;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
+      child: Row(
+        children: [
+          Icon(
+            Icons.insert_drive_file_outlined,
+            size: 22,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  attachment.displayName,
+                  style: theme.textTheme.bodyLarge,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _formatAttachmentSize(attachment.sizeBytes),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            key: ValueKey('attachment-open-${attachment.blobId}'),
+            onPressed: onOpen,
+            tooltip: 'Open attachment',
+            icon: const Icon(Icons.open_in_new_rounded),
+          ),
+          IconButton(
+            key: ValueKey('attachment-delete-${attachment.blobId}'),
+            onPressed: onDelete,
+            tooltip: 'Delete attachment',
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
         ],
       ),
     );

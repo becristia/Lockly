@@ -58,6 +58,11 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     setState(() {});
   }
 
+  void _recordForegroundActivity() {
+    _privacyCoverVisible.value = false;
+    widget.services.recordActivity();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -85,15 +90,19 @@ class _SecureBoxAppState extends State<SecureBoxApp>
         return Focus(
           focusNode: _activityFocusNode,
           autofocus: true,
-          onFocusChange: (hasFocus) => widget.services.recordActivity(),
+          onFocusChange: (hasFocus) {
+            if (hasFocus) {
+              _recordForegroundActivity();
+            }
+          },
           onKeyEvent: (node, event) {
-            widget.services.recordActivity();
+            _recordForegroundActivity();
             return KeyEventResult.ignored;
           },
           child: Listener(
             behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => widget.services.recordActivity(),
-            onPointerSignal: (_) => widget.services.recordActivity(),
+            onPointerDown: (_) => _recordForegroundActivity(),
+            onPointerSignal: (_) => _recordForegroundActivity(),
             child: ValueListenableBuilder<bool>(
               valueListenable: _privacyCoverVisible,
               builder: (context, coverVisible, _) {
