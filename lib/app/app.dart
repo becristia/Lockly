@@ -5,6 +5,11 @@ import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/features/setup/setup_page.dart';
 import 'package:secure_box/features/unlock/unlock_page.dart';
 import 'package:secure_box/features/vault_shell/vault_shell_page.dart';
+import 'package:secure_box/shared/i18n/app_language.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/i18n/app_strings_en.dart';
+import 'package:secure_box/shared/i18n/app_strings_scope.dart';
+import 'package:secure_box/shared/i18n/app_strings_zh.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
 
 class SecureBoxApp extends StatefulWidget {
@@ -27,6 +32,7 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     WidgetsBinding.instance.addObserver(this);
     widget.services.recordActivity();
     widget.services.themeModeNotifier.addListener(_onThemeModeChanged);
+    widget.services.languageNotifier.addListener(_onLanguageChanged);
   }
 
   @override
@@ -35,6 +41,7 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     _activityFocusNode.dispose();
     _privacyCoverVisible.dispose();
     widget.services.themeModeNotifier.removeListener(_onThemeModeChanged);
+    widget.services.languageNotifier.removeListener(_onLanguageChanged);
     widget.services.dispose();
     super.dispose();
   }
@@ -58,6 +65,10 @@ class _SecureBoxAppState extends State<SecureBoxApp>
     setState(() {});
   }
 
+  void _onLanguageChanged() {
+    setState(() {});
+  }
+
   void _recordForegroundActivity() {
     _privacyCoverVisible.value = false;
     widget.services.recordActivity();
@@ -65,8 +76,9 @@ class _SecureBoxAppState extends State<SecureBoxApp>
 
   @override
   Widget build(BuildContext context) {
+    final strings = _stringsFor(widget.services.language);
     return MaterialApp(
-      title: 'Lockly',
+      title: strings.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
@@ -87,33 +99,36 @@ class _SecureBoxAppState extends State<SecureBoxApp>
         );
       },
       builder: (context, child) {
-        return Focus(
-          focusNode: _activityFocusNode,
-          autofocus: true,
-          onFocusChange: (hasFocus) {
-            if (hasFocus) {
+        return AppStringsScope(
+          strings: strings,
+          child: Focus(
+            focusNode: _activityFocusNode,
+            autofocus: true,
+            onFocusChange: (hasFocus) {
+              if (hasFocus) {
+                _recordForegroundActivity();
+              }
+            },
+            onKeyEvent: (node, event) {
               _recordForegroundActivity();
-            }
-          },
-          onKeyEvent: (node, event) {
-            _recordForegroundActivity();
-            return KeyEventResult.ignored;
-          },
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => _recordForegroundActivity(),
-            onPointerSignal: (_) => _recordForegroundActivity(),
-            child: ValueListenableBuilder<bool>(
-              valueListenable: _privacyCoverVisible,
-              builder: (context, coverVisible, _) {
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    child ?? const SizedBox.shrink(),
-                    if (coverVisible) const _PrivacyCover(),
-                  ],
-                );
-              },
+              return KeyEventResult.ignored;
+            },
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) => _recordForegroundActivity(),
+              onPointerSignal: (_) => _recordForegroundActivity(),
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _privacyCoverVisible,
+                builder: (context, coverVisible, _) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      child ?? const SizedBox.shrink(),
+                      if (coverVisible) const _PrivacyCover(),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         );
@@ -132,6 +147,13 @@ class _SecureBoxAppState extends State<SecureBoxApp>
       _ => UnlockPage(services: widget.services),
     };
   }
+
+  AppStrings _stringsFor(AppLanguage language) {
+    return switch (language) {
+      AppLanguage.zh => const AppStringsZh(),
+      AppLanguage.en => const AppStringsEn(),
+    };
+  }
 }
 
 class _PrivacyCover extends StatelessWidget {
@@ -140,6 +162,7 @@ class _PrivacyCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return ColoredBox(
       color: theme.colorScheme.surface,
@@ -153,10 +176,10 @@ class _PrivacyCover extends StatelessWidget {
               color: theme.colorScheme.primary,
             ),
             const SizedBox(height: 12),
-            Text('Lockly', style: theme.textTheme.titleLarge),
+            Text(strings.appName, style: theme.textTheme.titleLarge),
             const SizedBox(height: 6),
             Text(
-              '隐私保护中……',
+              strings.privacyCoverMessage,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),

@@ -163,10 +163,10 @@ void main() {
       await tester.tap(find.text('GitHub'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Passkey'), findsOneWidget);
+      expect(find.text('通行密钥'), findsOneWidget);
       expect(find.text('github.com'), findsWidgets);
       expect(find.text('credential-id'), findsOneWidget);
-      expect(find.text('Platform API not enabled'), findsOneWidget);
+      expect(find.text('平台 API 未启用'), findsOneWidget);
     },
   );
 
@@ -279,7 +279,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Attachments'), findsOneWidget);
+    expect(find.text('附件'), findsOneWidget);
     expect(find.text('recovery-codes.txt'), findsOneWidget);
     expect(find.text('20 B'), findsOneWidget);
   });
@@ -355,7 +355,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No attachments'), findsOneWidget);
+    expect(find.text('没有附件'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('attachment-add-button')));
     await tester.pumpAndSettle();
@@ -390,12 +390,12 @@ void main() {
     expect(find.text('20 B'), findsWidgets);
     expect(find.text('plain recovery bytes'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, 'Close'));
+    await tester.tap(find.widgetWithText(TextButton, '关闭'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('attachment-delete-blob-1')));
     await tester.pumpAndSettle();
 
-    expect(find.text('No attachments'), findsOneWidget);
+    expect(find.text('没有附件'), findsOneWidget);
     expect(find.text('recovery-codes.txt'), findsNothing);
     expect(find.text('plain recovery bytes'), findsNothing);
   });

@@ -1,33 +1,33 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const Color _trustBlue = Color(0xFF0B66F6);
-  static const Color _secondaryBlue = Color(0xFF24D3E7);
-  static const Color _securityGreen = Color(0xFF55B965);
-  static const Color _danger = Color(0xFFE33C32);
-  static const Color _lightCanvas = Color(0xFFF4FAFF);
+  static const Color _trustBlue = Color(0xFF0369A1);
+  static const Color _signalTeal = Color(0xFF0F766E);
+  static const Color _securityGreen = Color(0xFF15803D);
+  static const Color _danger = Color(0xFFB42318);
+  static const Color _lightCanvas = Color(0xFFF6F7F9);
   static const Color _lightSurface = Color(0xFFFFFFFF);
-  static const Color _lightInk = Color(0xFF08224A);
-  static const Color _lightMuted = Color(0xFF6D7F9B);
-  static const Color _lightOutline = Color(0xFFDDE9F6);
-  static const Color _darkCanvas = Color(0xFF08151F);
-  static const Color _darkSurface = Color(0xFF102331);
-  static const Color _darkSurfaceHigh = Color(0xFF173245);
-  static const Color _darkInk = Color(0xFFEAF6FC);
-  static const Color _darkMuted = Color(0xFFA8BECA);
-  static const Color _darkOutline = Color(0xFF29485B);
+  static const Color _lightInk = Color(0xFF111827);
+  static const Color _lightMuted = Color(0xFF5F6B7A);
+  static const Color _lightOutline = Color(0xFFD7DDE5);
+  static const Color _darkCanvas = Color(0xFF111827);
+  static const Color _darkSurface = Color(0xFF182230);
+  static const Color _darkSurfaceHigh = Color(0xFF233044);
+  static const Color _darkInk = Color(0xFFF8FAFC);
+  static const Color _darkMuted = Color(0xFFB4C0CC);
+  static const Color _darkOutline = Color(0xFF334155);
 
   static ThemeData light() {
     return _build(
       brightness: Brightness.light,
       canvas: _lightCanvas,
       surface: _lightSurface,
-      surfaceHigh: const Color(0xFFE7F3FA),
+      surfaceHigh: const Color(0xFFECEFF3),
       ink: _lightInk,
       muted: _lightMuted,
       outline: _lightOutline,
       primary: _trustBlue,
-      secondary: _secondaryBlue,
+      secondary: _signalTeal,
       tertiary: _securityGreen,
       danger: _danger,
     );
@@ -43,7 +43,7 @@ class AppTheme {
       muted: _darkMuted,
       outline: _darkOutline,
       primary: const Color(0xFF38BDF8),
-      secondary: const Color(0xFF7DD3FC),
+      secondary: const Color(0xFF2DD4BF),
       tertiary: const Color(0xFF4ADE80),
       danger: const Color(0xFFF97066),
     );
@@ -96,6 +96,7 @@ class AppTheme {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: canvas,
       visualDensity: VisualDensity.standard,
+      splashFactory: InkSparkle.splashFactory,
     );
 
     final textTheme = base.textTheme.copyWith(
@@ -149,10 +150,10 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         height: 72,
-        backgroundColor: surface.withValues(alpha: 0.94),
+        backgroundColor: surface,
         elevation: 0,
-        shadowColor: primary.withValues(alpha: 0.10),
-        indicatorColor: primary.withValues(alpha: 0.12),
+        shadowColor: Colors.transparent,
+        indicatorColor: primary.withValues(alpha: 0.10),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
@@ -168,8 +169,8 @@ class AppTheme {
         color: surface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: outline.withValues(alpha: 0.68)),
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: outline),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -178,7 +179,7 @@ class AppTheme {
         textColor: ink,
         tileColor: surface,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         isDense: true,

@@ -93,24 +93,6 @@ final RegExp _plaintextAssignmentPattern = RegExp(
   r'(master|password|plaintext|secret|totp|passkey|raw[_-]?key|raw[_-]?dek|private[_-]?key)\s*[:=]',
   caseSensitive: false,
 );
-const Set<String> _forbiddenSyncAadValueTerms = {
-  'master',
-  'password',
-  'plaintext',
-  'secret',
-  'username',
-  'note',
-  'notes',
-  'totp',
-  'key',
-  'kek',
-  'dek',
-  'passkey',
-  'attachment',
-  'decrypted',
-  'privatekey',
-  'rawdek',
-};
 const Set<String> _forbiddenSyncItemIdValueTerms = {
   'master',
   'masterkey',
@@ -149,6 +131,19 @@ const Set<String> _forbiddenSyncEncryptedValueTerms = {
   'passkey',
   'attachment',
   'decrypted',
+};
+const Set<String> _forbiddenSyncAadExactValues = {
+  'plaintext',
+  'secret',
+  'totp',
+  'kek',
+  'decrypted',
+  'privatekey',
+  'rawdek',
+  'rawkey',
+  'masterkey',
+  'masterpassword',
+  'passwordplaintext',
 };
 
 List<String> findForbiddenSyncFields(Object? payload) {
@@ -299,7 +294,8 @@ List<String> _splitSyncFieldName(String value) {
 
 bool _hasForbiddenSyncAadValue(String value) {
   final normalized = _normalizeSyncFieldName(value);
-  return _forbiddenSyncAadValueTerms.any(normalized.contains);
+  return _forbiddenSyncAadExactValues.contains(normalized) ||
+      _looksLikePlaintextSecretValue(value);
 }
 
 bool _hasForbiddenSyncItemIdValue(String value) {

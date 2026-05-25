@@ -1,20 +1,21 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 class SecureVisualColors {
-  static const navy = Color(0xFF08224A);
-  static const text = Color(0xFF0B2855);
-  static const muted = Color(0xFF6D7F9B);
-  static const blue = Color(0xFF0B66F6);
-  static const cyan = Color(0xFF24D3E7);
-  static const paleBlue = Color(0xFFEAF5FF);
-  static const card = Color(0xF7FFFFFF);
-  static const line = Color(0xFFDDE9F6);
-  static const danger = Color(0xFFE33C32);
-  static const success = Color(0xFF55B965);
-  static const warning = Color(0xFFF5A623);
-  static const softSurface = Color(0xFFF7FBFF);
+  static const navy = Color(0xFF111827);
+  static const text = Color(0xFF111827);
+  static const muted = Color(0xFF5F6B7A);
+  static const blue = Color(0xFF0369A1);
+  static const cyan = Color(0xFF0F766E);
+  static const paleBlue = Color(0xFFE8F3FA);
+  static const card = Color(0xFFFFFFFF);
+  static const line = Color(0xFFD7DDE5);
+  static const danger = Color(0xFFB42318);
+  static const success = Color(0xFF15803D);
+  static const warning = Color(0xFFB7791F);
+  static const softSurface = Color(0xFFF6F7F9);
+  static const amberSurface = Color(0xFFFFF7E6);
+  static const dangerSurface = Color(0xFFFFF1F0);
+  static const successSurface = Color(0xFFEAF7EE);
 }
 
 class SecureVisualBackground extends StatelessWidget {
@@ -33,15 +34,10 @@ class SecureVisualBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.topRight,
-            radius: 1.28,
-            colors: [Color(0xFFFFFFFF), Color(0xFFF2F9FF), Color(0xFFEAF5FF)],
-          ),
-        ),
+        decoration: BoxDecoration(color: theme.scaffoldBackgroundColor),
         child: Stack(
           children: [
             const Positioned(
@@ -110,7 +106,7 @@ class SecureGlassCard extends StatelessWidget {
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(18),
-    this.borderRadius = 20,
+    this.borderRadius = 12,
     this.color,
     this.borderColor,
     this.shadow = true,
@@ -125,30 +121,165 @@ class SecureGlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: color ?? SecureVisualColors.card,
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(
-              color: borderColor ?? Colors.white.withValues(alpha: 0.86),
-              width: 1.2,
+    final theme = Theme.of(context);
+    final effectiveRadius = borderRadius.clamp(0, 14).toDouble();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color ?? theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(effectiveRadius),
+        border: Border.all(color: borderColor ?? theme.colorScheme.outline),
+        boxShadow: shadow
+            ? [
+                BoxShadow(
+                  color: SecureVisualColors.navy.withValues(alpha: 0.06),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ]
+            : null,
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
+class SecureStatusSurface extends StatelessWidget {
+  const SecureStatusSurface({
+    super.key,
+    required this.child,
+    required this.color,
+    this.padding = const EdgeInsets.all(18),
+    this.borderRadius = 12,
+  });
+
+  final Widget child;
+  final Color color;
+  final EdgeInsetsGeometry padding;
+  final double borderRadius;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
+class SecureIconTile extends StatelessWidget {
+  const SecureIconTile({
+    super.key,
+    required this.icon,
+    this.color = SecureVisualColors.blue,
+    this.size = 42,
+  });
+
+  final IconData icon;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.14)),
+      ),
+      child: Icon(icon, color: color, size: size * 0.52),
+    );
+  }
+}
+
+class SecureActionButton extends StatelessWidget {
+  const SecureActionButton({
+    super.key,
+    required this.onPressed,
+    required this.label,
+    this.icon,
+    this.height = 52,
+  });
+
+  final VoidCallback? onPressed;
+  final String label;
+  final IconData? icon;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final child = icon == null
+        ? Text(label)
+        : Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18),
+              const SizedBox(width: 8),
+              Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+            ],
+          );
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: FilledButton(onPressed: onPressed, child: child),
+    );
+  }
+}
+
+class SecureMetricCard extends StatelessWidget {
+  const SecureMetricCard({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.color = SecureVisualColors.blue,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
+    return SecureStatusSurface(
+      color: color,
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          SecureIconTile(icon: icon, color: color, size: 34),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
             ),
-            boxShadow: shadow
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFF7DADE3).withValues(alpha: 0.18),
-                      blurRadius: 34,
-                      offset: const Offset(0, 18),
-                    ),
-                  ]
-                : null,
           ),
-          child: Padding(padding: padding, child: child),
-        ),
+        ],
       ),
     );
   }
@@ -160,7 +291,7 @@ class SecureGradientButton extends StatelessWidget {
     required this.onPressed,
     required this.label,
     this.icon,
-    this.height = 58,
+    this.height = 52,
   });
 
   final VoidCallback? onPressed;
@@ -170,49 +301,11 @@ class SecureGradientButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onPressed == null;
-    return SizedBox(
+    return SecureActionButton(
+      onPressed: onPressed,
+      label: label,
+      icon: icon,
       height: height,
-      width: double.infinity,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: disabled
-              ? null
-              : const LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [Color(0xFF0B65F0), Color(0xFF28D7E4)],
-                ),
-          color: disabled ? const Color(0xFFD4E0EF) : null,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: disabled
-              ? null
-              : [
-                  BoxShadow(
-                    color: SecureVisualColors.blue.withValues(alpha: 0.28),
-                    blurRadius: 24,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
-        ),
-        child: FilledButton.icon(
-          onPressed: onPressed,
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.transparent,
-            disabledBackgroundColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 18),
-          label: Text(label),
-        ),
-      ),
     );
   }
 }
@@ -235,32 +328,19 @@ class SecureIconBadge extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.white, color.withValues(alpha: 0.12)],
-        ),
-        border: Border.all(color: Colors.white, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.18),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Center(
         child: Container(
-          width: size * 0.58,
-          height: size * 0.58,
+          width: size * 0.56,
+          height: size * 0.56,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [color.withValues(alpha: 0.95), const Color(0xFF78C8FF)],
-            ),
+            color: color,
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, color: Colors.white, size: size * 0.34),
+          child: Icon(icon, color: Colors.white, size: size * 0.32),
         ),
       ),
     );
@@ -284,6 +364,7 @@ class SecureSectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -306,7 +387,7 @@ class SecureSectionTitle extends StatelessWidget {
               Text(
                 title,
                 style: theme.textTheme.titleMedium?.copyWith(
-                  color: SecureVisualColors.text,
+                  color: onSurface,
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -339,6 +420,7 @@ class SecureReplicaHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -350,7 +432,7 @@ class SecureReplicaHeader extends StatelessWidget {
               Text(
                 title,
                 style: theme.textTheme.headlineMedium?.copyWith(
-                  color: SecureVisualColors.text,
+                  color: onSurface,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -359,7 +441,7 @@ class SecureReplicaHeader extends StatelessWidget {
                 Text(
                   subtitle!,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: SecureVisualColors.text.withValues(alpha: 0.78),
+                    color: onSurface.withValues(alpha: 0.78),
                   ),
                 ),
               ],

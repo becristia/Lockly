@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/migration/plaintext_csv_importer.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 enum _MigrationSource { locklyJson, csv }
@@ -49,7 +50,7 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
       setState(() {
         _preparedCsvText = null;
         _csvReport = null;
-        _error = 'CSV import could not be parsed locally.';
+        _error = AppStrings.of(context).text('csvParseFailed');
       });
       _sourceController.clear();
     }
@@ -87,7 +88,7 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
           _preparedCsvText = null;
           _csvReport = null;
         }
-        _error = 'Import failed. Check the source data and try again.';
+        _error = AppStrings.of(context).text('importFailed');
       });
       if (_source == _MigrationSource.csv) {
         _sourceController.clear();
@@ -97,6 +98,7 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final isCsv = _source == _MigrationSource.csv;
     final report = _csvReport;
     final canImport = !_busy && (!isCsv || report != null);
@@ -106,8 +108,8 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
       child: ListView(
         children: [
           SecureReplicaHeader(
-            title: 'Migration import',
-            subtitle: 'Local import wizard',
+            title: strings.text('migrationImport'),
+            subtitle: strings.text('migrationLocalSubtitle'),
             leading: IconButton(
               onPressed: _busy ? null : () => Navigator.of(context).maybePop(),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -121,16 +123,16 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SegmentedButton<_MigrationSource>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: _MigrationSource.locklyJson,
-                      icon: Icon(Icons.lock_outline_rounded),
-                      label: Text('Lockly JSON'),
+                      icon: const Icon(Icons.lock_outline_rounded),
+                      label: Text(strings.text('locklyJson')),
                     ),
                     ButtonSegment(
                       value: _MigrationSource.csv,
-                      icon: Icon(Icons.table_chart_outlined),
-                      label: Text('CSV'),
+                      icon: const Icon(Icons.table_chart_outlined),
+                      label: Text(strings.text('csv')),
                     ),
                   ],
                   selected: {_source},
@@ -148,17 +150,42 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
                         },
                 ),
                 const SizedBox(height: 14),
+                if (isCsv) ...[
+                  SecureStatusSurface(
+                    color: SecureVisualColors.warning,
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          size: 20,
+                          color: SecureVisualColors.warning,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            strings.text('plaintextCsvWarning'),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 TextField(
                   key: ValueKey(
                     isCsv ? 'migration-csv-input' : 'migration-json-input',
                   ),
                   controller: _sourceController,
+                  onChanged: isCsv ? (_) => _clearCsvPreview() : null,
                   minLines: 6,
                   maxLines: 9,
                   decoration: InputDecoration(
                     labelText: isCsv
-                        ? 'CSV export'
-                        : 'Encrypted backup JSON',
+                        ? strings.text('plaintextCsvExport')
+                        : strings.text('encryptedBackupJson'),
                     prefixIcon: const Icon(Icons.data_object_rounded),
                   ),
                 ),
@@ -168,9 +195,9 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
                     key: const ValueKey('migration-backup-password-input'),
                     controller: _passwordController,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Backup master password',
-                      prefixIcon: Icon(Icons.lock_outline_rounded),
+                    decoration: InputDecoration(
+                      labelText: strings.text('backupMasterPassword'),
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
                     ),
                   ),
                 ],
@@ -179,7 +206,7 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _previewCsv,
                     icon: const Icon(Icons.visibility_outlined),
-                    label: const Text('Preview'),
+                    label: Text(strings.text('preview')),
                   ),
                 const SizedBox(height: 14),
                 FilledButton.icon(
@@ -191,7 +218,9 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.file_download_outlined),
-                  label: Text(_busy ? 'Importing' : 'Import'),
+                  label: Text(
+                    _busy ? strings.text('importing') : strings.text('import'),
+                  ),
                 ),
                 if (report != null) ...[
                   const SizedBox(height: 12),
@@ -213,6 +242,17 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
       ),
     );
   }
+
+  void _clearCsvPreview() {
+    if (_preparedCsvText == null && _csvReport == null) {
+      return;
+    }
+    setState(() {
+      _preparedCsvText = null;
+      _csvReport = null;
+      _error = null;
+    });
+  }
 }
 
 class _CsvPreview extends StatelessWidget {
@@ -222,14 +262,16 @@ class _CsvPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final countLabel = report.importableRows == 1
-        ? '1 importable row'
-        : '${report.importableRows} importable rows';
+        ? '1 ${strings.text('importableRow')}'
+        : '${report.importableRows} ${strings.text('importableRows')}';
+    final skippedRows = '${report.skippedRows} ${strings.text('skippedRows')}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(countLabel, style: Theme.of(context).textTheme.titleSmall),
-        Text('${report.skippedRows} skipped rows'),
+        Text(skippedRows),
         const SizedBox(height: 8),
         for (final row in report.previewRows)
           ListTile(

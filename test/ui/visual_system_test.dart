@@ -6,34 +6,52 @@ import 'package:secure_box/core/sync/sync_models.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
+import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 void main() {
-  testWidgets('app theme provides a dark security console surface', (
+  test('app theme provides calm security ops tokens', () {
+    final theme = AppTheme.light();
+    final shape = theme.cardTheme.shape! as RoundedRectangleBorder;
+    final radius = shape.borderRadius as BorderRadius;
+
+    expect(theme.scaffoldBackgroundColor, const Color(0xFFF6F7F9));
+    expect(theme.colorScheme.primary, const Color(0xFF0369A1));
+    expect(theme.colorScheme.secondary, const Color(0xFF0F766E));
+    expect(theme.colorScheme.tertiary, const Color(0xFF15803D));
+    expect(theme.colorScheme.error, const Color(0xFFB42318));
+    expect(radius.topLeft.x, 12);
+  });
+
+  testWidgets('shared visual text follows dark theme surface contrast', (
     tester,
   ) async {
+    final darkTheme = AppTheme.dark();
+
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(),
-        darkTheme: AppTheme.dark(),
-        themeMode: ThemeMode.dark,
-        home: Builder(
-          builder: (context) {
-            final theme = Theme.of(context);
-            return Scaffold(
-              body: Text(
-                '${theme.brightness.name}:${theme.colorScheme.surface}',
-              ),
-            );
-          },
+        theme: darkTheme,
+        home: const Scaffold(
+          body: SecureGlassCard(
+            child: Column(
+              children: [
+                SecureSectionTitle(title: 'Dark section'),
+                SecureMetricCard(
+                  icon: Icons.lock_rounded,
+                  label: 'Records',
+                  value: '12',
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
 
-    expect(find.textContaining('dark:'), findsOneWidget);
-    expect(
-      find.textContaining('Color(alpha: 1.0000, red: 1.0000'),
-      findsNothing,
-    );
+    final sectionText = tester.widget<Text>(find.text('Dark section'));
+    final metricText = tester.widget<Text>(find.text('12'));
+
+    expect(sectionText.style?.color, darkTheme.colorScheme.onSurface);
+    expect(metricText.style?.color, darkTheme.colorScheme.onSurface);
   });
 
   testWidgets('vault list shows a security summary above records', (
@@ -97,16 +115,18 @@ void main() {
       find.byKey(const ValueKey('settings-section-cloud-sync')),
       findsOneWidget,
     );
-    await tester.scrollUntilVisible(
+    expect(
       find.byKey(const ValueKey('settings-section-autofill')),
+      findsNothing,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-cloud-download')),
       160,
     );
     expect(
-      find.byKey(const ValueKey('settings-section-autofill')),
+      find.byKey(const ValueKey('settings-cloud-download')),
       findsOneWidget,
     );
-    await tester.scrollUntilVisible(find.text('Download cloud vault'), 160);
-    expect(find.text('Download cloud vault'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('settings-section-danger')),
       160,
@@ -128,6 +148,7 @@ void main() {
       biometricEnabledOverride: () async => false,
       autoLockTimeoutOverride: () async => const Duration(minutes: 2),
       clipboardCleanupTimeoutOverride: () async => const Duration(seconds: 30),
+      cloudAccountEmailOverride: () async => 'sync@example.test',
       cloudSyncNowOverride: (masterPassword) async {
         syncCalled = true;
         submittedPassword = masterPassword;
@@ -142,16 +163,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Sync encrypted vault'), 160);
-    await tester.tap(find.text('Sync encrypted vault'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-cloud-sync-now')),
+      160,
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-cloud-sync-now')));
     await tester.pumpAndSettle();
 
     expect(syncCalled, isFalse);
-    expect(find.text('Sync encrypted vault'), findsNWidgets(2));
+    expect(find.text('同步加密密码库'), findsNWidgets(2));
     expect(find.byType(TextFormField), findsOneWidget);
 
     await tester.enterText(find.byType(TextFormField), 'local-master');
-    await tester.tap(find.text('Sync'));
+    await tester.tap(find.text('同步'));
     await tester.pumpAndSettle();
 
     expect(syncCalled, isTrue);
@@ -169,6 +193,7 @@ void main() {
       biometricEnabledOverride: () async => false,
       autoLockTimeoutOverride: () async => const Duration(minutes: 2),
       clipboardCleanupTimeoutOverride: () async => const Duration(seconds: 30),
+      cloudAccountEmailOverride: () async => 'sync@example.test',
       cloudDownloadOverride: (masterPassword) async {
         downloadCalled = true;
         submittedPassword = masterPassword;
@@ -183,56 +208,42 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Download cloud vault'), 160);
-    await tester.tap(find.text('Download cloud vault'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-cloud-download')),
+      160,
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-cloud-download')));
     await tester.pumpAndSettle();
 
     expect(downloadCalled, isFalse);
-    expect(find.text('Download cloud vault'), findsNWidgets(2));
+    expect(find.text('下载云端密码库'), findsWidgets);
 
     await tester.enterText(find.byType(TextFormField), 'local-master');
-    await tester.tap(find.text('Download'));
+    await tester.tap(find.text('下载'));
     await tester.pumpAndSettle();
 
     expect(downloadCalled, isTrue);
     expect(submittedPassword, 'local-master');
   });
 
-  testWidgets(
-    'settings opens Android Autofill settings without plaintext access',
-    (tester) async {
-      var openSettingsCalls = 0;
-      final services = AppServices.fake(
-        hasVault: true,
-        unlocked: true,
-        autofillSupported: true,
-        autofillEnabled: false,
-        openAutofillSettingsOverride: () async {
-          openSettingsCalls += 1;
-        },
-      );
+  testWidgets('settings hides Android Autofill while feature is disabled', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: SettingsPage(services: services)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('settings-section-autofill')),
-        160,
-      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: SettingsPage(services: services)),
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('Android Autofill'), findsOneWidget);
-      expect(find.text('Disabled'), findsOneWidget);
-      expect(find.textContaining('master password'), findsNothing);
-
-      await tester.tap(find.byKey(const ValueKey('settings-open-autofill')));
-      await tester.pumpAndSettle();
-
-      expect(openSettingsCalls, 1);
-    },
-  );
+    expect(
+      find.byKey(const ValueKey('settings-section-autofill')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('settings-open-autofill')), findsNothing);
+  });
 
   testWidgets('cloud devices dialog displays sync device metadata', (
     tester,
@@ -240,6 +251,7 @@ void main() {
     final services = AppServices.fake(
       hasVault: true,
       unlocked: true,
+      cloudAccountEmail: 'sync@example.test',
       cloudDevices: const [
         SyncDevice(
           id: 'device-1',
@@ -262,8 +274,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Cloud devices'), 160);
-    await tester.tap(find.text('Cloud devices'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-cloud-devices')),
+      160,
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-cloud-devices')));
     await tester.pumpAndSettle();
 
     expect(find.text('Travel laptop'), findsOneWidget);
@@ -280,6 +295,7 @@ void main() {
     final services = AppServices.fake(
       hasVault: true,
       unlocked: true,
+      cloudAccountEmail: 'sync@example.test',
       cloudDevices: const [
         SyncDevice(
           id: 'device-1',
@@ -302,8 +318,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Cloud devices'), 160);
-    await tester.tap(find.text('Cloud devices'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-cloud-devices')),
+      160,
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-cloud-devices')));
     await tester.pumpAndSettle();
 
     expect(find.text('Office desktop'), findsOneWidget);

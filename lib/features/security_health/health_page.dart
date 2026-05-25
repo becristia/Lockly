@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class HealthPage extends StatefulWidget {
@@ -40,7 +41,7 @@ class _HealthPageState extends State<HealthPage> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = '分析失败，请重试';
+        _errorMessage = AppStrings.of(context).text('analysisFailed');
       });
     }
   }
@@ -48,12 +49,13 @@ class _HealthPageState extends State<HealthPage> {
   @override
   Widget build(BuildContext context) {
     final report = _report;
+    final strings = AppStrings.of(context);
     return SecureVisualBackground(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       child: Column(
         children: [
           SecureReplicaHeader(
-            title: '密码健康',
+            title: strings.text('healthTitle'),
             leading: IconButton(
               onPressed: () => Navigator.of(context).maybePop(),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -97,6 +99,9 @@ class _ScoreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final totalRecords =
+        '${strings.text('totalRecordsPrefix')} ${report.totalItems} ${strings.text('totalRecordsSuffix')}';
     return ClipRRect(
       borderRadius: BorderRadius.circular(26),
       child: DecoratedBox(
@@ -130,9 +135,9 @@ class _ScoreCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '密码健康分',
-                    style: TextStyle(
+                  Text(
+                    strings.text('healthScore'),
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -150,7 +155,7 @@ class _ScoreCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    '共 ${report.totalItems} 条记录',
+                    totalRecords,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.88),
                       fontSize: 16,
@@ -174,6 +179,7 @@ class _StatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final highRisk =
         (report.categoryCounts[HealthCategory.weak] ?? 0) +
         (report.categoryCounts[HealthCategory.reused] ?? 0);
@@ -188,19 +194,19 @@ class _StatsCard extends StatelessWidget {
       child: Row(
         children: [
           _StatItem(
-            label: '高风险',
+            label: strings.text('highRisk'),
             count: highRisk,
             color: SecureVisualColors.danger,
           ),
           Container(width: 1, height: 42, color: SecureVisualColors.line),
           _StatItem(
-            label: '提醒',
+            label: strings.text('reminder'),
             count: warnings,
             color: SecureVisualColors.warning,
           ),
           Container(width: 1, height: 42, color: SecureVisualColors.line),
           _StatItem(
-            label: '健康',
+            label: strings.text('healthy'),
             count: healthy,
             color: SecureVisualColors.success,
           ),
@@ -257,6 +263,7 @@ class _CategoryList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final findingMap = <HealthCategory, List<HealthFinding>>{};
     for (final finding in report.findings) {
       for (final category in finding.categories) {
@@ -267,36 +274,36 @@ class _CategoryList extends StatelessWidget {
     final categories = [
       _CategorySpec(
         category: HealthCategory.weak,
-        title: '弱密码',
-        subtitle: '密码长度不足或字符类型单一',
+        title: strings.text('weakPassword'),
+        subtitle: strings.text('weakPasswordSubtitle'),
         color: SecureVisualColors.danger,
         icon: Icons.gpp_bad_outlined,
       ),
       _CategorySpec(
         category: HealthCategory.reused,
-        title: '重复密码',
-        subtitle: '多个条目使用相同密码',
+        title: strings.text('duplicatePassword'),
+        subtitle: strings.text('duplicatePasswordSubtitle'),
         color: SecureVisualColors.success,
         icon: Icons.copy_rounded,
       ),
       _CategorySpec(
         category: HealthCategory.stale,
-        title: '过期密码',
-        subtitle: '超过 365 天未更新',
+        title: strings.text('expiredPassword'),
+        subtitle: strings.text('expiredPasswordSubtitle'),
         color: SecureVisualColors.warning,
         icon: Icons.history_rounded,
       ),
       _CategorySpec(
         category: HealthCategory.similar,
-        title: '相似密码',
-        subtitle: '密码包含标题或网站名',
+        title: strings.text('similarPassword'),
+        subtitle: strings.text('similarPasswordSubtitle'),
         color: SecureVisualColors.blue,
         icon: Icons.groups_rounded,
       ),
       _CategorySpec(
         category: HealthCategory.neverEdited,
-        title: '从未更新',
-        subtitle: '创建后从未修改过密码',
+        title: strings.text('neverUpdated'),
+        subtitle: strings.text('neverUpdatedSubtitle'),
         color: SecureVisualColors.muted,
         icon: Icons.update_rounded,
       ),
@@ -533,7 +540,7 @@ class _FindingItem extends StatelessWidget {
                     ),
                   );
                 },
-                child: const Text('修改密码'),
+                child: Text(AppStrings.of(context).text('changePassword')),
               ),
             ),
           ],
@@ -548,6 +555,7 @@ class _HealthyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return Center(
       child: SecureGlassCard(
         borderRadius: 26,
@@ -559,9 +567,15 @@ class _HealthyState extends StatelessWidget {
               color: SecureVisualColors.success,
             ),
             const SizedBox(height: 16),
-            Text('密码库很健康', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              strings.text('vaultHealthy'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 6),
-            Text('没有发现安全风险', style: Theme.of(context).textTheme.bodyMedium),
+            Text(
+              strings.text('noSecurityRisks'),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
           ],
         ),
       ),
@@ -591,7 +605,10 @@ class _ErrorState extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
-            OutlinedButton(onPressed: onRetry, child: const Text('重试')),
+            OutlinedButton(
+              onPressed: onRetry,
+              child: Text(AppStrings.of(context).retry),
+            ),
           ],
         ),
       ),

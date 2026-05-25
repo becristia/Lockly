@@ -103,7 +103,7 @@ class PasswordHealthService {
 
   static Set<HealthCategory> _checkWeak(String password) {
     final categories = <HealthCategory>{};
-    final result = MasterPasswordPolicy.evaluate(password);
+    final result = EntryPasswordPolicy.evaluate(password);
     if (!result.isAcceptable) {
       categories.add(HealthCategory.weak);
     }

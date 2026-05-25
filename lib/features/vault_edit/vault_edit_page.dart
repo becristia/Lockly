@@ -5,6 +5,7 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/password_generator/password_generator_page.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
@@ -101,7 +102,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       }
       setState(() {
         _isLoading = false;
-        _pageError = '这条记录不存在或已删除。';
+        _pageError = AppStrings.of(context).text('vaultItemMissing');
       });
     } catch (_) {
       if (!mounted) {
@@ -109,7 +110,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       }
       setState(() {
         _isLoading = false;
-        _pageError = '暂时无法加载记录，请重试。';
+        _pageError = AppStrings.of(context).text('vaultEditLoadFailed');
       });
     }
   }
@@ -152,24 +153,29 @@ class _VaultEditPageState extends State<VaultEditPage> {
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('这条记录不存在或已删除。')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('vaultItemMissing')),
+        ),
+      );
     } catch (_) {
       if (!mounted) {
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('保存失败，请稍后重试。')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('saveFailed'))),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final title = _isEditing ? '编辑密码' : '新增密码';
+    final strings = AppStrings.of(context);
+    final title = _isEditing
+        ? strings.text('editPassword')
+        : strings.text('addPassword');
 
     return SecureVisualBackground(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
@@ -195,9 +201,9 @@ class _VaultEditPageState extends State<VaultEditPage> {
             )
           else if (_pageError != null)
             _EditMessage(
-              title: '无法编辑',
+              title: strings.text('editUnavailable'),
               message: _pageError!,
-              actionLabel: '重试',
+              actionLabel: strings.retry,
               onAction: _loadExistingItem,
             )
           else
@@ -212,15 +218,15 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     ActivityTextFormField(
                       controller: _titleController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(
-                        labelText: '标题',
-                        hintText: '例如：公司邮箱',
-                        suffixIcon: Icon(Icons.bookmark_border_rounded),
+                      decoration: InputDecoration(
+                        labelText: strings.text('titleField'),
+                        hintText: strings.text('titleHint'),
+                        suffixIcon: const Icon(Icons.bookmark_border_rounded),
                       ),
                       textInputAction: TextInputAction.next,
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
-                          return '请输入标题';
+                          return strings.text('enterTitle');
                         }
                         return null;
                       },
@@ -229,10 +235,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     ActivityTextFormField(
                       controller: _websiteController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(
-                        labelText: '网址',
-                        hintText: 'https://example.com',
-                        suffixIcon: Icon(Icons.language_rounded),
+                      decoration: InputDecoration(
+                        labelText: strings.text('websiteField'),
+                        hintText: strings.text('websiteHint'),
+                        suffixIcon: const Icon(Icons.language_rounded),
                       ),
                       keyboardType: TextInputType.url,
                       textInputAction: TextInputAction.next,
@@ -241,10 +247,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     ActivityTextFormField(
                       controller: _usernameController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(
-                        labelText: '用户名',
-                        hintText: '用户名或邮箱',
-                        suffixIcon: Icon(Icons.person_outline_rounded),
+                      decoration: InputDecoration(
+                        labelText: strings.text('usernameField'),
+                        hintText: strings.text('usernameHint'),
+                        suffixIcon: const Icon(Icons.person_outline_rounded),
                       ),
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
@@ -258,8 +264,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
                             controller: _passwordController,
                             onActivity: widget.services.recordActivity,
                             decoration: InputDecoration(
-                              labelText: '密码',
-                              hintText: '输入或生成密码',
+                              labelText: strings.text('passwordField'),
+                              hintText: strings.text('passwordHint'),
                               suffixIcon: IconButton(
                                 onPressed: () {
                                   widget.services.recordActivity();
@@ -267,7 +273,9 @@ class _VaultEditPageState extends State<VaultEditPage> {
                                     _isPasswordVisible = !_isPasswordVisible;
                                   });
                                 },
-                                tooltip: _isPasswordVisible ? '隐藏密码' : '显示密码',
+                                tooltip: _isPasswordVisible
+                                    ? strings.text('hidePassword')
+                                    : strings.text('showPassword'),
                                 icon: Icon(
                                   _isPasswordVisible
                                       ? Icons.visibility_off_outlined
@@ -279,7 +287,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                             textInputAction: TextInputAction.next,
                             validator: (value) {
                               if (value == null || value.isEmpty) {
-                                return '请输入密码';
+                                return strings.text('enterPassword');
                               }
                               return null;
                             },
@@ -298,6 +306,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                                       builder: (context) =>
                                           PasswordGeneratorPage(
                                             services: widget.services,
+                                            mode: PasswordGeneratorMode.picker,
                                           ),
                                     ),
                                   );
@@ -308,7 +317,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                               }
                             },
                             child: Tooltip(
-                              message: '生成密码',
+                              message: strings.generatePassword,
                               child: const Icon(Icons.key_rounded),
                             ),
                           ),
@@ -318,7 +327,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     const SizedBox(height: 6),
                     _StrengthIndicator(password: _passwordController.text),
                     const SizedBox(height: 14),
-                    Text('TOTP 二次验证', style: theme.textTheme.titleSmall),
+                    Text(
+                      strings.text('totpTwoFactor'),
+                      style: theme.textTheme.titleSmall,
+                    ),
                     const SizedBox(height: 8),
                     if (_totpSecret == null) ...[
                       Row(
@@ -330,8 +342,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
                                 Icons.qr_code_scanner_rounded,
                                 size: 20,
                               ),
-                              label: const Text(
-                                '扫描 QR 码',
+                              label: Text(
+                                strings.text('scanQrCode'),
                                 style: TextStyle(fontSize: 13),
                               ),
                             ),
@@ -341,8 +353,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
                             child: OutlinedButton.icon(
                               onPressed: _showManualTotpInput,
                               icon: const Icon(Icons.edit_rounded, size: 20),
-                              label: const Text(
-                                '手动输入',
+                              label: Text(
+                                strings.text('manualInput'),
                                 style: TextStyle(fontSize: 13),
                               ),
                             ),
@@ -371,8 +383,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
                               size: 20,
                             ),
                             const SizedBox(width: 8),
-                            const Text(
-                              'TOTP 已设置',
+                            Text(
+                              strings.text('totpConfigured'),
                               style: TextStyle(
                                 fontSize: 13,
                                 color: SecureVisualColors.success,
@@ -383,8 +395,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
                             TextButton(
                               onPressed: () =>
                                   setState(() => _totpSecret = null),
-                              child: const Text(
-                                '移除',
+                              child: Text(
+                                strings.text('remove'),
                                 style: TextStyle(fontSize: 13),
                               ),
                             ),
@@ -398,9 +410,9 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     ActivityTextFormField(
                       controller: _notesController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(
-                        labelText: '备注',
-                        hintText: '添加备注信息...',
+                      decoration: InputDecoration(
+                        labelText: strings.text('notesField'),
+                        hintText: strings.text('addNotesHint'),
                       ),
                       keyboardType: TextInputType.multiline,
                       minLines: 5,
@@ -410,10 +422,10 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     ActivityTextFormField(
                       controller: _tagsController,
                       onActivity: widget.services.recordActivity,
-                      decoration: const InputDecoration(
-                        labelText: '标签',
-                        hintText: '选择或创建标签',
-                        suffixIcon: Icon(Icons.sell_outlined),
+                      decoration: InputDecoration(
+                        labelText: strings.text('tagsField'),
+                        hintText: strings.text('tagsHint'),
+                        suffixIcon: const Icon(Icons.sell_outlined),
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -421,7 +433,9 @@ class _VaultEditPageState extends State<VaultEditPage> {
                       onPressed: _isSaving ? null : _save,
                       icon: Icons.lock_rounded,
                       height: 62,
-                      label: _isSaving ? '保存中...' : '保存',
+                      label: _isSaving
+                          ? strings.text('saveBusy')
+                          : strings.text('save'),
                     ),
                   ],
                 ),
@@ -433,22 +447,23 @@ class _VaultEditPageState extends State<VaultEditPage> {
   }
 
   Widget _buildPasskeySection(ThemeData theme) {
+    final strings = AppStrings.of(context);
     final passkey = _passkeyRecord;
     final readiness = passkey?.platformReady == true
-        ? 'Platform API ready'
-        : 'Platform API not enabled';
+        ? strings.text('platformApiReady')
+        : strings.text('platformApiNotEnabled');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Passkey', style: theme.textTheme.titleSmall),
+        Text(strings.text('passkeys'), style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         if (passkey == null)
           OutlinedButton.icon(
             key: const ValueKey('passkey-add-button'),
             onPressed: _editPasskeyRecord,
             icon: const Icon(Icons.key_rounded, size: 20),
-            label: const Text('Add passkey metadata'),
+            label: Text(strings.text('addPasskeyMetadata')),
           )
         else
           Container(
@@ -494,7 +509,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                       key: const ValueKey('passkey-add-button'),
                       onPressed: _editPasskeyRecord,
                       icon: const Icon(Icons.edit_rounded, size: 18),
-                      label: const Text('Edit metadata'),
+                      label: Text(strings.text('editMetadata')),
                     ),
                     TextButton.icon(
                       key: const ValueKey('passkey-remove-button'),
@@ -503,7 +518,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                         setState(() => _passkeyRecord = null);
                       },
                       icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                      label: const Text('Remove'),
+                      label: Text(strings.text('remove')),
                     ),
                   ],
                 ),
@@ -534,19 +549,19 @@ class _VaultEditPageState extends State<VaultEditPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('输入 TOTP 密钥'),
+        title: Text(AppStrings.of(ctx).text('enterTotpSecret')),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: '粘贴 Base32 密钥',
-            helperText: '例如：JBSWY3DPEHPK3PXP',
+          decoration: InputDecoration(
+            hintText: AppStrings.of(ctx).text('totpSecretHint'),
+            helperText: AppStrings.of(ctx).text('totpSecretHelper'),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+            child: Text(AppStrings.of(ctx).text('cancel')),
           ),
           FilledButton(
             onPressed: () {
@@ -559,7 +574,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
               }
               Navigator.pop(ctx);
             },
-            child: const Text('确认'),
+            child: Text(AppStrings.of(ctx).text('confirm')),
           ),
         ],
       ),
@@ -567,9 +582,11 @@ class _VaultEditPageState extends State<VaultEditPage> {
   }
 
   void _scanQrCode() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('QR 码扫描功能需要 camera 权限')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppStrings.of(context).text('cameraPermissionRequired')),
+      ),
+    );
   }
 
   static List<String> _parseTags(String rawText) {
@@ -640,8 +657,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return AlertDialog(
-      title: const Text('Passkey metadata'),
+      title: Text(strings.text('passkeyMetadata')),
       content: SizedBox(
         width: 420,
         child: SingleChildScrollView(
@@ -653,9 +671,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-rp-id-input'),
                   controller: _relyingPartyIdController,
-                  decoration: const InputDecoration(
-                    labelText: 'Relying party ID',
-                    hintText: 'example.com',
+                  decoration: InputDecoration(
+                    labelText: strings.text('relyingPartyId'),
+                    hintText: strings.text('exampleDomain'),
                   ),
                   textInputAction: TextInputAction.next,
                   validator: _required,
@@ -665,9 +683,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-credential-id-input'),
                   controller: _credentialIdController,
-                  decoration: const InputDecoration(
-                    labelText: 'Credential ID',
-                    hintText: 'base64url credential id',
+                  decoration: InputDecoration(
+                    labelText: strings.text('credentialId'),
+                    hintText: strings.text('credentialIdHint'),
                   ),
                   textInputAction: TextInputAction.next,
                   validator: _required,
@@ -677,7 +695,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-user-handle-input'),
                   controller: _userHandleController,
-                  decoration: const InputDecoration(labelText: 'User handle'),
+                  decoration: InputDecoration(
+                    labelText: strings.text('userHandle'),
+                  ),
                   textInputAction: TextInputAction.next,
                   onChanged: (_) => widget.onActivity(),
                 ),
@@ -685,7 +705,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-display-name-input'),
                   controller: _displayNameController,
-                  decoration: const InputDecoration(labelText: 'Display name'),
+                  decoration: InputDecoration(
+                    labelText: strings.text('displayName'),
+                  ),
                   textInputAction: TextInputAction.next,
                   onChanged: (_) => widget.onActivity(),
                 ),
@@ -693,9 +715,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-algorithm-input'),
                   controller: _algorithmController,
-                  decoration: const InputDecoration(
-                    labelText: 'Public key algorithm',
-                    hintText: 'ES256',
+                  decoration: InputDecoration(
+                    labelText: strings.text('publicKeyAlgorithm'),
+                    hintText: strings.text('algorithmHint'),
                   ),
                   textInputAction: TextInputAction.next,
                   onChanged: (_) => widget.onActivity(),
@@ -704,9 +726,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-platform-input'),
                   controller: _platformController,
-                  decoration: const InputDecoration(
-                    labelText: 'Platform',
-                    hintText: 'android',
+                  decoration: InputDecoration(
+                    labelText: strings.text('platform'),
+                    hintText: strings.text('platformHint'),
                   ),
                   textInputAction: TextInputAction.done,
                   onChanged: (_) => widget.onActivity(),
@@ -715,7 +737,7 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 SwitchListTile(
                   key: const ValueKey('passkey-platform-ready-toggle'),
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Platform API ready'),
+                  title: Text(strings.text('platformApiReady')),
                   value: _platformReady,
                   onChanged: (value) {
                     widget.onActivity();
@@ -730,12 +752,12 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(strings.text('cancel')),
         ),
         FilledButton(
           key: const ValueKey('passkey-save-button'),
           onPressed: _save,
-          child: const Text('Save'),
+          child: Text(strings.text('save')),
         ),
       ],
     );
@@ -760,9 +782,9 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
     );
   }
 
-  static String? _required(String? value) {
+  String? _required(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Required';
+      return AppStrings.of(context).text('requiredField');
     }
     return null;
   }
@@ -775,32 +797,60 @@ class _StrengthIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final result = MasterPasswordPolicy.evaluate(password);
+    final result = EntryPasswordPolicy.evaluate(password);
     final filledBars = result.score.clamp(0, 5);
     final color = switch (result.label) {
       MasterPasswordStrengthLabel.weak => Colors.red,
       MasterPasswordStrengthLabel.fair => Colors.orange,
       MasterPasswordStrengthLabel.strong => Colors.green,
     };
+    final strings = AppStrings.of(context);
+    final label = switch (result.label) {
+      MasterPasswordStrengthLabel.weak => strings.text('passwordStrengthWeak'),
+      MasterPasswordStrengthLabel.fair => strings.text('passwordStrengthFair'),
+      MasterPasswordStrengthLabel.strong => strings.text(
+        'passwordStrengthStrongShort',
+      ),
+    };
 
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('密码强度', style: Theme.of(context).textTheme.bodySmall),
-        const SizedBox(width: 12),
-        for (var i = 0; i < 4; i++) ...[
-          Expanded(
-            child: Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: i < (filledBars * 4 ~/ 5)
-                    ? color
-                    : SecureVisualColors.line,
-                borderRadius: BorderRadius.circular(99),
+        Row(
+          children: [
+            Text(
+              strings.text('passwordStrength'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
               ),
             ),
-          ),
-          if (i != 3) const SizedBox(width: 8),
-        ],
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            for (var i = 0; i < 4; i++) ...[
+              Expanded(
+                child: Container(
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: i < (filledBars * 4 ~/ 5)
+                        ? color
+                        : SecureVisualColors.line,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              if (i != 3) const SizedBox(width: 8),
+            ],
+          ],
+        ),
       ],
     );
   }

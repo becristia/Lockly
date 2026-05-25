@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class TagManagementPage extends StatefulWidget {
@@ -38,12 +39,13 @@ class _TagManagementPageState extends State<TagManagementPage> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return SecureVisualBackground(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       child: Column(
         children: [
           SecureReplicaHeader(
-            title: '标签管理',
+            title: strings.text('tagManagementTitle'),
             leading: IconButton(
               onPressed: () => Navigator.of(context).maybePop(),
               icon: const Icon(Icons.arrow_back_rounded),
@@ -80,19 +82,22 @@ class _TagManagementPageState extends State<TagManagementPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('重命名标签'),
+        title: Text(AppStrings.of(ctx).text('renameTag')),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(labelText: '新标签名'),
+          decoration: InputDecoration(
+            labelText: AppStrings.of(ctx).text('newTagName'),
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+            child: Text(AppStrings.of(ctx).text('cancel')),
           ),
           FilledButton(
             onPressed: () async {
+              final strings = AppStrings.of(ctx);
               final navigator = Navigator.of(ctx);
               final messenger = ScaffoldMessenger.of(ctx);
               final newTag = controller.text.trim();
@@ -107,10 +112,12 @@ class _TagManagementPageState extends State<TagManagementPage> {
                 _load();
               } catch (_) {
                 if (!mounted) return;
-                messenger.showSnackBar(const SnackBar(content: Text('重命名失败')));
+                messenger.showSnackBar(
+                  SnackBar(content: Text(strings.text('renameFailed'))),
+                );
               }
             },
-            child: const Text('确认'),
+            child: Text(AppStrings.of(ctx).text('confirm')),
           ),
         ],
       ),
@@ -121,15 +128,18 @@ class _TagManagementPageState extends State<TagManagementPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('删除标签'),
-        content: Text('将从所有条目中移除 "$tag" 标签'),
+        title: Text(AppStrings.of(ctx).text('deleteTag')),
+        content: Text(
+          '${AppStrings.of(ctx).text('deleteTagMessagePrefix')} "$tag" ${AppStrings.of(ctx).text('deleteTagMessageSuffix')}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+            child: Text(AppStrings.of(ctx).text('cancel')),
           ),
           FilledButton(
             onPressed: () async {
+              final strings = AppStrings.of(ctx);
               final navigator = Navigator.of(ctx);
               final messenger = ScaffoldMessenger.of(ctx);
               try {
@@ -139,13 +149,15 @@ class _TagManagementPageState extends State<TagManagementPage> {
                 _load();
               } catch (_) {
                 if (!mounted) return;
-                messenger.showSnackBar(const SnackBar(content: Text('删除失败')));
+                messenger.showSnackBar(
+                  SnackBar(content: Text(strings.text('deleteFailed'))),
+                );
               }
             },
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
-            child: const Text('删除'),
+            child: Text(AppStrings.of(ctx).text('delete')),
           ),
         ],
       ),
@@ -166,6 +178,7 @@ class _TagTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return SecureGlassCard(
       padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
       borderRadius: 22,
@@ -197,7 +210,7 @@ class _TagTile extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: '重命名',
+            tooltip: strings.text('rename'),
             onPressed: onRename,
             icon: const Icon(
               Icons.edit_rounded,
@@ -205,7 +218,7 @@ class _TagTile extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: '删除',
+            tooltip: strings.text('delete'),
             onPressed: onDelete,
             icon: Icon(
               Icons.delete_outline_rounded,
@@ -231,7 +244,10 @@ class _EmptyTags extends StatelessWidget {
           children: [
             const SecureIconBadge(icon: Icons.sell_outlined),
             const SizedBox(height: 16),
-            Text('暂无标签', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              AppStrings.of(context).text('emptyTags'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
           ],
         ),
       ),

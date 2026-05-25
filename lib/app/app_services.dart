@@ -18,6 +18,8 @@ import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/sync_state_dao.dart';
 import 'package:secure_box/data/models/password_entry.dart';
+import 'package:secure_box/shared/i18n/app_language.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum AppShellState { setupRequired, locked, unlocked }
 
@@ -100,6 +102,7 @@ class AppServices {
     Future<void> Function(String email, String password)? cloudRegisterOverride,
     Future<void> Function(String email, String password)? cloudLoginOverride,
     Future<void> Function()? cloudLogoutOverride,
+    Future<String?> Function()? cloudAccountEmailOverride,
     Future<CloudSyncResult> Function(String masterPassword)?
     cloudSyncNowOverride,
     Future<int> Function(String masterPassword)? cloudDownloadOverride,
@@ -148,6 +151,7 @@ class AppServices {
     Future<int> Function()? deletedItemCountOverride,
     Future<AndroidAutofillStatus> Function()? autofillStatusOverride,
     Future<void> Function()? openAutofillSettingsOverride,
+    bool persistLanguagePreference = false,
     bool trackActivity = true,
   }) : _hasVault = hasVault,
        _vaultService = vaultService,
@@ -181,6 +185,7 @@ class AppServices {
        _cloudRegisterOverride = cloudRegisterOverride,
        _cloudLoginOverride = cloudLoginOverride,
        _cloudLogoutOverride = cloudLogoutOverride,
+       _cloudAccountEmailOverride = cloudAccountEmailOverride,
        _cloudSyncNowOverride = cloudSyncNowOverride,
        _cloudDownloadOverride = cloudDownloadOverride,
        _listCloudDevicesOverride = listCloudDevicesOverride,
@@ -209,6 +214,7 @@ class AppServices {
        _deletedItemCountOverride = deletedItemCountOverride,
        _autofillStatusOverride = autofillStatusOverride,
        _openAutofillSettingsOverride = openAutofillSettingsOverride,
+       _persistLanguagePreferenceEnabled = persistLanguagePreference,
        _autoLockTimeout = autoLockTimeout,
        _clipboardCleanupTimeout = clipboardCleanupTimeout,
        _trackActivity = trackActivity,
@@ -217,6 +223,9 @@ class AppServices {
          initialShellState ??
              (hasVault ? AppShellState.locked : AppShellState.setupRequired),
        ) {
+    if (_persistLanguagePreferenceEnabled) {
+      unawaited(_restoreLanguagePreference());
+    }
     autoLockService = AutoLockService(
       timeout: autoLockTimeout,
       onLock: lockVault,
@@ -235,16 +244,34 @@ class AppServices {
   static const routeSettings = '/settings';
   static const routeHealth = '/health';
   static const maxImportedBackupJsonBytes = 8 * 1024 * 1024;
+  static const _languagePreferenceKey = 'lockly.language';
 
   final GlobalKey<NavigatorState> navigatorKey;
   final ValueNotifier<AppShellState> shellState;
   final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(
     ThemeMode.system,
   );
+  final ValueNotifier<AppLanguage> languageNotifier = ValueNotifier(
+    AppLanguage.zh,
+  );
 
   ThemeMode get themeMode => themeModeNotifier.value;
   set themeMode(ThemeMode mode) {
     themeModeNotifier.value = mode;
+  }
+
+  AppLanguage get language => languageNotifier.value;
+  set language(AppLanguage value) {
+    if (_isDisposed) {
+      return;
+    }
+    _languagePreferenceRevision += 1;
+    if (languageNotifier.value != value) {
+      languageNotifier.value = value;
+    }
+    if (_persistLanguagePreferenceEnabled) {
+      unawaited(_persistLanguagePreference(value));
+    }
   }
 
   final VaultService? _vaultService;
@@ -296,6 +323,7 @@ class AppServices {
   final Future<void> Function(String email, String password)?
   _cloudLoginOverride;
   final Future<void> Function()? _cloudLogoutOverride;
+  final Future<String?> Function()? _cloudAccountEmailOverride;
   final Future<CloudSyncResult> Function(String masterPassword)?
   _cloudSyncNowOverride;
   final Future<int> Function(String masterPassword)? _cloudDownloadOverride;
@@ -345,6 +373,7 @@ class AppServices {
   final Future<int> Function()? _deletedItemCountOverride;
   final Future<AndroidAutofillStatus> Function()? _autofillStatusOverride;
   final Future<void> Function()? _openAutofillSettingsOverride;
+  final bool _persistLanguagePreferenceEnabled;
   Duration _autoLockTimeout;
   Duration _clipboardCleanupTimeout;
   final bool _trackActivity;
@@ -352,6 +381,8 @@ class AppServices {
   late final AppLifecycleGuard appLifecycleGuard;
 
   bool _hasVault;
+  bool _isDisposed = false;
+  int _languagePreferenceRevision = 0;
   int _fakeCreateVaultCalls = 0;
   String? _fakeLastCreateVaultPassword;
   bool? _fakeLastCreateVaultBiometricEnabled;
@@ -369,6 +400,7 @@ class AppServices {
     List<PasswordEntry> initialVaultItems = const <PasswordEntry>[],
     Future<HealthReport> Function()? analyzePasswordHealthOverride,
     List<SyncDevice> cloudDevices = const <SyncDevice>[],
+    String? cloudAccountEmail,
     Future<void> Function(String email, String password)? cloudRegisterOverride,
     Future<SyncDevice> Function(String deviceId, String deviceName)?
     renameCloudDeviceOverride,
@@ -381,6 +413,7 @@ class AppServices {
     bool autofillSupported = false,
     bool autofillEnabled = false,
     Future<void> Function()? openAutofillSettingsOverride,
+    bool persistLanguagePreference = false,
   }) {
     AppServices? fakeServices;
     final fakeItems = <String, _FakeVaultItem>{};
@@ -389,6 +422,7 @@ class AppServices {
     var fakeBiometricEnabled = biometricEnabled;
     var fakeAutoLockTimeout = const Duration(minutes: 2);
     var fakeClipboardCleanupTimeout = const Duration(seconds: 30);
+    var fakeCloudAccountEmail = cloudAccountEmail;
     final fakeCloudDevices = <String, SyncDevice>{
       for (final device in cloudDevices) device.id: device,
     };
@@ -573,10 +607,20 @@ class AppServices {
       exportBackupOverride: () async =>
           jsonEncode({'version': 1, 'items': fakeItems.length}),
       importBackupOverride: (backupJson, masterPassword) async => 0,
-      cloudRegisterOverride:
-          cloudRegisterOverride ?? (email, password) async {},
-      cloudLoginOverride: (email, password) async {},
-      cloudLogoutOverride: () async {},
+      cloudRegisterOverride: (email, password) async {
+        final override = cloudRegisterOverride;
+        if (override != null) {
+          await override(email, password);
+        }
+        fakeCloudAccountEmail = email;
+      },
+      cloudLoginOverride: (email, password) async {
+        fakeCloudAccountEmail = email;
+      },
+      cloudLogoutOverride: () async {
+        fakeCloudAccountEmail = null;
+      },
+      cloudAccountEmailOverride: () async => fakeCloudAccountEmail,
       cloudSyncNowOverride: (masterPassword) async =>
           const CloudSyncResult(importedCount: 0),
       listCloudDevicesOverride: () async =>
@@ -737,6 +781,7 @@ class AppServices {
         fakeServices.shellState.value = AppShellState.setupRequired;
       },
       analyzePasswordHealthOverride: analyzePasswordHealthOverride,
+      persistLanguagePreference: persistLanguagePreference,
       trackActivity: false,
     );
 
@@ -1212,6 +1257,22 @@ class AppServices {
       return override();
     }
     return syncService.logout();
+  }
+
+  Future<String?> cloudSyncAccountEmail() async {
+    final override = _cloudAccountEmailOverride;
+    if (override != null) {
+      return override();
+    }
+    final service = _syncService;
+    if (service == null) {
+      return null;
+    }
+    return service.currentAccountEmail();
+  }
+
+  Future<bool> isCloudSyncSignedIn() async {
+    return (await cloudSyncAccountEmail()) != null;
   }
 
   Future<List<SyncDevice>> listCloudSyncDevices() async {
@@ -1717,13 +1778,63 @@ class AppServices {
     }
   }
 
+  Future<void> _restoreLanguagePreference() async {
+    final revision = _languagePreferenceRevision;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final restoredLanguage = AppLanguageX.parse(
+        preferences.getString(_languagePreferenceKey),
+      );
+      if (_isDisposed || revision != _languagePreferenceRevision) {
+        return;
+      }
+      if (languageNotifier.value != restoredLanguage) {
+        languageNotifier.value = restoredLanguage;
+      }
+    } catch (error, stackTrace) {
+      if (_isDisposed) {
+        return;
+      }
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'secure_box',
+          context: ErrorDescription('while restoring language preference'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _persistLanguagePreference(AppLanguage value) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_languagePreferenceKey, value.code);
+    } catch (error, stackTrace) {
+      if (_isDisposed) {
+        return;
+      }
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'secure_box',
+          context: ErrorDescription('while saving language preference'),
+        ),
+      );
+    }
+  }
+
   void dispose() {
+    _isDisposed = true;
     shellState.removeListener(_syncNavigatorToShellState);
     WidgetsBinding.instance.removeObserver(appLifecycleGuard);
     autoLockService.dispose();
     _masterUnlockRetryTimer?.cancel();
     _clipboardService?.dispose();
     shellState.dispose();
+    themeModeNotifier.dispose();
+    languageNotifier.dispose();
   }
 
   void _syncNavigatorToShellState() {

@@ -5,6 +5,7 @@ import 'package:secure_box/features/security_center/security_center_page.dart';
 import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/features/totp/totp_page.dart';
 import 'package:secure_box/features/vault_list/vault_list_page.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class VaultShellPage extends StatefulWidget {
@@ -21,12 +22,16 @@ class _VaultShellPageState extends State<VaultShellPage> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final isDesktopWidth = MediaQuery.sizeOf(context).width >= 900;
     final page = switch (_selectedIndex) {
       0 => VaultListPage(services: widget.services),
       1 => SecurityCenterPage(services: widget.services),
       2 => TotpPage(services: widget.services),
-      3 => PasswordGeneratorPage(services: widget.services),
+      3 => PasswordGeneratorPage(
+        services: widget.services,
+        onSavedToVault: () => setState(() => _selectedIndex = 0),
+      ),
       _ => SettingsPage(services: widget.services),
     };
 
@@ -49,34 +54,34 @@ class _VaultShellPageState extends State<VaultShellPage> {
                     labelType: NavigationRailLabelType.all,
                     minWidth: 96,
                     groupAlignment: -0.92,
-                    destinations: const [
+                    destinations: [
                       NavigationRailDestination(
-                        icon: Icon(Icons.lock_outline_rounded),
-                        selectedIcon: Icon(Icons.lock_rounded),
-                        label: Text('Vault'),
+                        icon: const Icon(Icons.lock_outline_rounded),
+                        selectedIcon: const Icon(Icons.lock_rounded),
+                        label: Text(strings.vaultTab),
                       ),
                       NavigationRailDestination(
-                        icon: Icon(
+                        icon: const Icon(
                           Icons.security_outlined,
                           key: ValueKey('vault-shell-security-tab'),
                         ),
-                        selectedIcon: Icon(Icons.security_rounded),
-                        label: Text('Security'),
+                        selectedIcon: const Icon(Icons.security_rounded),
+                        label: Text(strings.securityTab),
                       ),
                       NavigationRailDestination(
-                        icon: Icon(Icons.qr_code_2_outlined),
-                        selectedIcon: Icon(Icons.qr_code_2_rounded),
-                        label: Text('TOTP'),
+                        icon: const Icon(Icons.qr_code_2_outlined),
+                        selectedIcon: const Icon(Icons.qr_code_2_rounded),
+                        label: Text(strings.totpTab),
                       ),
                       NavigationRailDestination(
-                        icon: Icon(Icons.auto_awesome_outlined),
-                        selectedIcon: Icon(Icons.auto_awesome_rounded),
-                        label: Text('Generator'),
+                        icon: const Icon(Icons.auto_awesome_outlined),
+                        selectedIcon: const Icon(Icons.auto_awesome_rounded),
+                        label: Text(strings.generatorTab),
                       ),
                       NavigationRailDestination(
-                        icon: Icon(Icons.settings_outlined),
-                        selectedIcon: Icon(Icons.settings_rounded),
-                        label: Text('Settings'),
+                        icon: const Icon(Icons.settings_outlined),
+                        selectedIcon: const Icon(Icons.settings_rounded),
+                        label: Text(strings.settingsTab),
                       ),
                     ],
                   ),
@@ -103,36 +108,36 @@ class _VaultShellPageState extends State<VaultShellPage> {
               widget.services.recordActivity();
               setState(() => _selectedIndex = index);
             },
-            destinations: const [
+            destinations: [
               NavigationDestination(
-                key: ValueKey('vault-shell-vault-tab'),
-                icon: Icon(Icons.lock_outline_rounded),
-                selectedIcon: Icon(Icons.lock_rounded),
-                label: 'Vault',
+                key: const ValueKey('vault-shell-vault-tab'),
+                icon: const Icon(Icons.lock_outline_rounded),
+                selectedIcon: const Icon(Icons.lock_rounded),
+                label: strings.vaultTab,
               ),
               NavigationDestination(
-                key: ValueKey('vault-shell-security-tab'),
-                icon: Icon(Icons.security_outlined),
-                selectedIcon: Icon(Icons.security_rounded),
-                label: 'Security',
+                key: const ValueKey('vault-shell-security-tab'),
+                icon: const Icon(Icons.security_outlined),
+                selectedIcon: const Icon(Icons.security_rounded),
+                label: strings.securityTab,
               ),
               NavigationDestination(
-                key: ValueKey('vault-shell-totp-tab'),
-                icon: Icon(Icons.qr_code_2_outlined),
-                selectedIcon: Icon(Icons.qr_code_2_rounded),
-                label: 'TOTP',
+                key: const ValueKey('vault-shell-totp-tab'),
+                icon: const Icon(Icons.qr_code_2_outlined),
+                selectedIcon: const Icon(Icons.qr_code_2_rounded),
+                label: strings.totpTab,
               ),
               NavigationDestination(
-                key: ValueKey('vault-shell-generator-tab'),
-                icon: Icon(Icons.auto_awesome_outlined),
-                selectedIcon: Icon(Icons.auto_awesome_rounded),
-                label: 'Generator',
+                key: const ValueKey('vault-shell-generator-tab'),
+                icon: const Icon(Icons.auto_awesome_outlined),
+                selectedIcon: const Icon(Icons.auto_awesome_rounded),
+                label: strings.generatorTab,
               ),
               NavigationDestination(
-                key: ValueKey('vault-shell-settings-tab'),
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings_rounded),
-                label: 'Settings',
+                key: const ValueKey('vault-shell-settings-tab'),
+                icon: const Icon(Icons.settings_outlined),
+                selectedIcon: const Icon(Icons.settings_rounded),
+                label: strings.settingsTab,
               ),
             ],
           ),

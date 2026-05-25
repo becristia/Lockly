@@ -107,7 +107,7 @@ void main() {
     expect(find.text('自动锁定'), findsOneWidget);
     expect(find.text('剪贴板清理'), findsOneWidget);
     expect(find.text('导出加密备份'), findsOneWidget);
-    expect(find.text('Migration import'), findsOneWidget);
+    expect(find.text('迁移导入'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('清除本地密码库'),
       120,
@@ -139,7 +139,9 @@ void main() {
       services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
       await tester.pumpAndSettle();
 
-      final registerTile = find.widgetWithText(ListTile, 'Cloud register');
+      final registerTile = find.byKey(
+        const ValueKey('settings-cloud-register'),
+      );
       await tester.scrollUntilVisible(registerTile, 120);
       await tester.tap(registerTile);
       await tester.pumpAndSettle();
@@ -152,13 +154,13 @@ void main() {
         find.byKey(const ValueKey('cloud-register-password-field')),
         'backend-account-password',
       );
-      await tester.tap(find.widgetWithText(FilledButton, 'Register'));
+      await tester.tap(find.widgetWithText(FilledButton, '注册'));
       await tester.pumpAndSettle();
 
       expect(registeredEmail, 'new@example.test');
       expect(registeredPassword, 'backend-account-password');
       expect(find.textContaining('backend-account-password'), findsNothing);
-      expect(find.text('Registered and connected'), findsOneWidget);
+      expect(find.textContaining('已注册并连接'), findsOneWidget);
     },
   );
 
@@ -171,6 +173,7 @@ void main() {
       biometricEnabledOverride: () async => false,
       autoLockTimeoutOverride: () async => const Duration(minutes: 2),
       clipboardCleanupTimeoutOverride: () async => const Duration(seconds: 30),
+      cloudAccountEmailOverride: () async => 'sync@example.test',
       cloudSyncNowOverride: (masterPassword) async {
         return const CloudSyncResult(
           importedCount: 2,
@@ -186,18 +189,18 @@ void main() {
     services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
     await tester.pumpAndSettle();
 
-    final syncTile = find.widgetWithText(ListTile, 'Sync encrypted vault');
+    final syncTile = find.byKey(const ValueKey('settings-cloud-sync-now'));
     await tester.scrollUntilVisible(syncTile, 120);
     await tester.tap(syncTile);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField), 'local-master-password');
-    await tester.tap(find.widgetWithText(FilledButton, 'Sync'));
+    await tester.tap(find.widgetWithText(FilledButton, '同步'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Sync conflicts detected'), findsOneWidget);
-    expect(find.textContaining('2 unresolved conflicts'), findsOneWidget);
+    expect(find.textContaining('检测到同步冲突'), findsOneWidget);
+    expect(find.textContaining('2 个未解决冲突'), findsOneWidget);
     expect(find.textContaining('local-master-password'), findsNothing);
-    expect(find.textContaining('Synced; imported'), findsNothing);
+    expect(find.textContaining('已同步；已导入'), findsNothing);
   });
 
   testWidgets('cloud devices dialog can rename a device', (tester) async {
@@ -206,6 +209,7 @@ void main() {
     final services = AppServices.fake(
       hasVault: true,
       unlocked: true,
+      cloudAccountEmail: 'sync@example.test',
       cloudDevices: const [
         SyncDevice(
           id: 'device-1',
@@ -237,7 +241,7 @@ void main() {
     services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
     await tester.pumpAndSettle();
 
-    final devicesTile = find.widgetWithText(ListTile, 'Cloud devices');
+    final devicesTile = find.byKey(const ValueKey('settings-cloud-devices'));
     await tester.scrollUntilVisible(devicesTile, 120);
     await tester.tap(devicesTile);
     await tester.pumpAndSettle();
@@ -250,7 +254,7 @@ void main() {
       find.byKey(const ValueKey('cloud-device-rename-field')),
       'Travel phone',
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Rename'));
+    await tester.tap(find.widgetWithText(FilledButton, '重命名'));
     await tester.pumpAndSettle();
 
     expect(renamedDeviceId, 'device-1');
@@ -269,7 +273,7 @@ void main() {
     services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
     await tester.pumpAndSettle();
 
-    final importTile = find.widgetWithText(ListTile, 'Migration import');
+    final importTile = find.widgetWithText(ListTile, '迁移导入');
     await tester.scrollUntilVisible(
       importTile,
       120,
@@ -279,7 +283,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('migration-wizard-page')), findsOneWidget);
-    expect(find.text('Migration import'), findsOneWidget);
+    expect(find.text('迁移导入'), findsOneWidget);
   });
 
   testWidgets(
@@ -299,10 +303,10 @@ void main() {
         'title,website,username,password,notes,totp\n'
         'Bank,https://bank.example,alice,bank-secret,private note,OTPSECRET\n',
       );
-      await tester.tap(find.text('Preview'));
+      await tester.tap(find.text('预览'));
       await tester.pumpAndSettle();
 
-      expect(find.text('1 importable row'), findsOneWidget);
+      expect(find.text('1 可导入行'), findsOneWidget);
       expect(find.text('Bank'), findsOneWidget);
       expect(find.text('https://bank.example'), findsOneWidget);
       expect(find.text('alice'), findsOneWidget);
@@ -310,7 +314,7 @@ void main() {
       expect(find.textContaining('private note'), findsNothing);
       expect(find.textContaining('OTPSECRET'), findsNothing);
 
-      await tester.tap(find.text('Import'));
+      await tester.tap(find.text('导入'));
       await tester.pumpAndSettle();
 
       final items = await services.listVaultItems();
@@ -334,13 +338,10 @@ void main() {
       find.byKey(const ValueKey('migration-csv-input')),
       'title,website,username,password\n"Broken,https://bank.example,alice,bank-secret',
     );
-    await tester.tap(find.text('Preview'));
+    await tester.tap(find.text('预览'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('CSV import could not be parsed locally.'),
-      findsOneWidget,
-    );
+    expect(find.text('无法在本地解析 CSV 导入内容。'), findsOneWidget);
     expect(find.textContaining('bank-secret'), findsNothing);
   });
 
@@ -364,6 +365,47 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('bank-secret'), findsNothing);
+  });
+
+  testWidgets('migration wizard requires a new preview after CSV changes', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(home: MigrationWizardPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('CSV'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-csv-input')),
+      'title,website,username,password\n'
+      'Bank,https://bank.example,alice,bank-secret\n',
+    );
+    await tester.tap(find.text('预览'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 可导入行'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-csv-input')),
+      'title,website,username,password\n'
+      'Mail,https://mail.example,bob,mail-secret\n',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 可导入行'), findsNothing);
+    expect(find.widgetWithText(FilledButton, '导入'), findsOneWidget);
+
+    await tester.tap(find.text('预览'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入'));
+    await tester.pumpAndSettle();
+
+    final items = await services.listVaultItems();
+    expect(items.single.title, 'Mail');
   });
 
   testWidgets('migration wizard keeps Lockly encrypted JSON import path', (
@@ -400,7 +442,7 @@ void main() {
       find.byKey(const ValueKey('migration-backup-password-input')),
       'backup-master',
     );
-    await tester.tap(find.text('Import'));
+    await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
 
     expect(importedJson, '{"version":2,"items":[]}');

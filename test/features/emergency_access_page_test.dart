@@ -148,7 +148,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('lockly-x25519-private-v1.'), findsOneWidget);
-      expect(find.byTooltip('Copy'), findsNWidgets(2));
+      expect(find.byTooltip('复制'), findsNWidgets(2));
     },
   );
 
@@ -346,10 +346,10 @@ void main() {
     await _dragPrimaryList(tester, -900);
     await tester.tap(revokeContactButton);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Revoke').last);
+    await tester.tap(find.text('撤销联系人').last);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('revoked'), findsWidgets);
+    expect(find.textContaining('已撤销'), findsWidgets);
   });
 }
 

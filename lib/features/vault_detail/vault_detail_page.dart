@@ -7,6 +7,7 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 
 class VaultDetailPage extends StatefulWidget {
   const VaultDetailPage({
@@ -72,7 +73,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       }
       setState(() {
         _isLoading = false;
-        _errorMessage = '这条记录不存在或已删除。';
+        _errorMessage = AppStrings.of(context).text('vaultItemMissing');
       });
     } catch (_) {
       if (!mounted) {
@@ -80,7 +81,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       }
       setState(() {
         _isLoading = false;
-        _errorMessage = '暂时无法读取详情，请重试。';
+        _errorMessage = AppStrings.of(context).text('vaultDetailLoadFailed');
       });
     }
   }
@@ -109,7 +110,11 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       return;
     }
     messenger.showSnackBar(
-      SnackBar(content: Text(copied ? successMessage : '复制失败，请重试。')),
+      SnackBar(
+        content: Text(
+          copied ? successMessage : AppStrings.of(context).copyFailed,
+        ),
+      ),
     );
   }
 
@@ -119,16 +124,16 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('删除记录'),
-          content: const Text('删除后此条记录将无法在列表中显示。确认删除？'),
+          title: Text(AppStrings.of(context).text('deleteRecord')),
+          content: Text(AppStrings.of(context).text('deleteRecordMessage')),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
+              child: Text(AppStrings.of(context).text('cancel')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('确认删除'),
+              child: Text(AppStrings.of(context).text('confirmDelete')),
             ),
           ],
         );
@@ -152,7 +157,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('这条记录不存在或已删除。')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('vaultItemMissing'))),
+      );
       Navigator.of(context).pop(true);
     } catch (_) {
       if (!mounted) {
@@ -161,7 +168,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       setState(() => _isDeleting = false);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('删除失败，请稍后重试。')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('deleteRecordFailed'))),
+      );
     }
   }
 
@@ -188,7 +197,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('这条记录不存在或已删除。')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('vaultItemMissing'))),
+      );
       Navigator.of(context).pop(true);
     } catch (_) {
       if (!mounted) {
@@ -196,7 +207,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('导出失败，请稍后重试。')));
+      ).showSnackBar(SnackBar(content: Text(AppStrings.of(context).text('exportFailed'))));
     } finally {
       if (mounted) {
         setState(() => _isExporting = false);
@@ -207,16 +218,17 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
   @override
   Widget build(BuildContext context) {
     final entry = _entry;
+    final strings = AppStrings.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(entry?.title ?? '密码详情'),
+        title: Text(entry?.title ?? strings.text('passwordDetail')),
         actions: [
           IconButton(
             onPressed: entry == null || _isLoading || _isExporting
                 ? null
                 : _exportItem,
-            tooltip: '导出此密码',
+            tooltip: strings.text('exportPassword'),
             icon: _isExporting
                 ? const SizedBox(
                     width: 18,
@@ -227,7 +239,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
           ),
           IconButton(
             onPressed: entry == null || _isLoading ? null : _openEdit,
-            tooltip: '编辑',
+            tooltip: strings.text('edit'),
             icon: const Icon(Icons.edit_outlined),
           ),
         ],
@@ -243,18 +255,18 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               )
             else if (_errorMessage != null)
               _DetailMessage(
-                title: '无法显示详情',
+                title: strings.text('detailUnavailable'),
                 message: _errorMessage!,
-                actionLabel: '重试',
+                actionLabel: strings.retry,
                 onAction: _loadItem,
               )
             else if (entry != null) ...[
               _DetailSection(
                 children: [
-                  _DetailRow(label: '标题', value: entry.title),
-                  _DetailRow(label: '网址', value: _fallback(entry.website)),
+                  _DetailRow(label: strings.text('titleField'), value: entry.title),
+                  _DetailRow(label: strings.text('websiteField'), value: _fallback(entry.website)),
                   _DetailRow(
-                    label: '用户名',
+                    label: strings.text('usernameField'),
                     value: _fallback(entry.username),
                     trailing: IconButton(
                       onPressed: entry.username.isEmpty
@@ -262,15 +274,15 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                           : () => _copyValue(
                               action: () =>
                                   widget.services.copyUsername(entry.username),
-                              successMessage: '用户名已复制。',
+                              successMessage: strings.text('usernameCopied'),
                             ),
-                      tooltip: '复制用户名',
+                      tooltip: strings.text('copyUsername'),
                       icon: const Icon(Icons.content_copy_outlined),
                     ),
                   ),
                   _DetailRow(
-                    label: '密码',
-                    value: _isPasswordVisible ? entry.password : '已隐藏',
+                    label: strings.text('passwordField'),
+                    value: _isPasswordVisible ? entry.password : strings.text('hidden'),
                     trailing: Wrap(
                       spacing: 4,
                       children: [
@@ -281,7 +293,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                               _isPasswordVisible = !_isPasswordVisible;
                             });
                           },
-                          tooltip: _isPasswordVisible ? '隐藏密码' : '显示密码',
+                          tooltip: _isPasswordVisible
+                              ? strings.text('hidePassword')
+                              : strings.text('showPassword'),
                           icon: Icon(
                             _isPasswordVisible
                                 ? Icons.visibility_off_outlined
@@ -292,9 +306,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                           onPressed: () => _copyValue(
                             action: () =>
                                 widget.services.copyPassword(entry.password),
-                            successMessage: '密码已复制，30 秒后将自动清理剪贴板。',
+                            successMessage: strings.passwordCopied,
                           ),
-                          tooltip: '复制密码',
+                          tooltip: strings.copyPasswordTooltip,
                           icon: const Icon(Icons.content_copy_outlined),
                         ),
                       ],
@@ -322,7 +336,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '密码历史 (${_passwordHistory.length})',
+                        '${strings.text('passwordHistory')} (${_passwordHistory.length})',
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       const Spacer(),
@@ -347,10 +361,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               const SizedBox(height: 16),
               _DetailSection(
                 children: [
-                  _DetailRow(label: '备注', value: _fallback(entry.notes)),
+                  _DetailRow(label: strings.text('notesField'), value: _fallback(entry.notes)),
                   _DetailRow(
-                    label: '标签',
-                    value: entry.tags.isEmpty ? '未填写' : entry.tags.join('、'),
+                    label: strings.text('tagsField'),
+                    value: entry.tags.isEmpty ? strings.text('notFilled') : entry.tags.join('、'),
                   ),
                 ],
               ),
@@ -364,7 +378,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.delete_outline_rounded),
-                label: const Text('删除'),
+                label: Text(strings.text('delete')),
               ),
             ],
           ],
@@ -373,9 +387,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     );
   }
 
-  static String _fallback(String value) {
+  String _fallback(String value) {
     if (value.trim().isEmpty) {
-      return '未填写';
+      return AppStrings.of(context).text('notFilled');
     }
     return value;
   }
@@ -407,12 +421,13 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
 
   Widget _buildPasskeySection(BuildContext context, PasskeyRecord passkey) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     final readiness = passkey.platformReady
-        ? 'Platform API ready'
-        : 'Platform API not enabled';
+        ? strings.text('platformApiReady')
+        : strings.text('platformApiNotEnabled');
 
     return Semantics(
-      label: 'Passkey',
+      label: strings.text('passkeys'),
       child: _DetailSection(
         children: [
           Padding(
@@ -425,20 +440,20 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text('Passkey', style: theme.textTheme.titleSmall),
+                Text(strings.text('passkeys'), style: theme.textTheme.titleSmall),
               ],
             ),
           ),
-          _DetailRow(label: 'RP ID', value: passkey.relyingPartyId),
-          _DetailRow(label: 'Credential', value: passkey.credentialId),
-          _DetailRow(label: 'User', value: _fallback(passkey.userHandle)),
-          _DetailRow(label: 'Display', value: _fallback(passkey.displayName)),
+          _DetailRow(label: strings.text('rpId'), value: passkey.relyingPartyId),
+          _DetailRow(label: strings.text('credential'), value: passkey.credentialId),
+          _DetailRow(label: strings.text('user'), value: _fallback(passkey.userHandle)),
+          _DetailRow(label: strings.text('display'), value: _fallback(passkey.displayName)),
           _DetailRow(
-            label: 'Algorithm',
+            label: strings.text('algorithm'),
             value: _fallback(passkey.publicKeyAlgorithm),
           ),
-          _DetailRow(label: 'Platform', value: _fallback(passkey.platform)),
-          _DetailRow(label: 'Readiness', value: readiness),
+          _DetailRow(label: strings.text('platform'), value: _fallback(passkey.platform)),
+          _DetailRow(label: strings.text('readiness'), value: readiness),
         ],
       ),
     );
@@ -446,9 +461,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
 
   Widget _buildAttachmentsSection(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return Semantics(
-      label: 'Attachments',
+      label: strings.text('attachments'),
       child: _DetailSection(
         children: [
           Padding(
@@ -461,7 +477,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text('Attachments', style: theme.textTheme.titleSmall),
+                Text(strings.text('attachments'), style: theme.textTheme.titleSmall),
                 const Spacer(),
                 if (_isLoadingAttachments)
                   const SizedBox(
@@ -473,7 +489,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   IconButton(
                     key: const ValueKey('attachment-add-button'),
                     onPressed: _showAddAttachmentDialog,
-                    tooltip: 'Add attachment',
+                    tooltip: strings.text('addAttachment'),
                     icon: const Icon(Icons.add_rounded),
                   ),
               ],
@@ -483,7 +499,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
               child: Text(
-                'No attachments',
+                strings.text('noAttachments'),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -545,11 +561,11 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _DialogMetadataRow(
-                      label: 'Media type',
+                      label: AppStrings.of(context).text('mediaType'),
                       value: blob.mediaType,
                     ),
                     _DialogMetadataRow(
-                      label: 'Size',
+                      label: AppStrings.of(context).text('size'),
                       value: _formatAttachmentSize(blob.bytes.length),
                     ),
                     const SizedBox(height: 12),
@@ -561,7 +577,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+                child: Text(AppStrings.of(context).text('close')),
               ),
             ],
           );
@@ -571,7 +587,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Attachment open failed')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('attachmentOpenFailed'))),
+      );
     }
   }
 
@@ -585,7 +603,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Attachment delete failed')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('attachmentDeleteFailed'))),
+      );
     }
   }
 
@@ -616,7 +636,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               TextButton.icon(
                 onPressed: _isRestoring ? null : () => _confirmRestore(record),
                 icon: const Icon(Icons.restore_rounded, size: 16),
-                label: const Text('恢复', style: TextStyle(fontSize: 12)),
+                label: Text(
+                  AppStrings.of(context).text('restore'),
+                  style: const TextStyle(fontSize: 12),
+                ),
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   visualDensity: VisualDensity.compact,
@@ -665,25 +688,27 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     final diff = DateTime.now().difference(
       DateTime.fromMillisecondsSinceEpoch(timestampMs),
     );
-    if (diff.inDays > 0) return '${diff.inDays} 天前';
-    if (diff.inHours > 0) return '${diff.inHours} 小时前';
-    if (diff.inMinutes > 0) return '${diff.inMinutes} 分钟前';
-    return '刚刚';
+    if (diff.inDays > 0) return '${diff.inDays} ${AppStrings.of(context).text('daysAgo')}';
+    if (diff.inHours > 0) return '${diff.inHours} ${AppStrings.of(context).text('hoursAgo')}';
+    if (diff.inMinutes > 0) return '${diff.inMinutes} ${AppStrings.of(context).text('minutesAgo')}';
+    return AppStrings.of(context).text('justNow');
   }
 
   void _confirmRestore(Map<String, dynamic> record) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('恢复密码'),
-        content: const Text('将当前密码归档到历史记录，并用此密码替换。确认恢复？'),
+        title: Text(AppStrings.of(ctx).text('restorePassword')),
+        content: Text(AppStrings.of(ctx).text('restorePasswordMessage')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+            child: Text(AppStrings.of(ctx).text('cancel')),
           ),
           FilledButton(
             onPressed: () async {
+              final strings = AppStrings.of(ctx);
+              final messenger = ScaffoldMessenger.of(context);
               Navigator.pop(ctx);
               setState(() => _isRestoring = true);
               try {
@@ -694,19 +719,19 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                 if (!mounted) return;
                 await _loadItem();
                 if (!mounted) return;
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('密码已恢复')));
+                messenger.showSnackBar(
+                  SnackBar(content: Text(strings.text('passwordRestored'))),
+                );
               } catch (_) {
                 if (!mounted) return;
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('恢复失败')));
+                messenger.showSnackBar(
+                  SnackBar(content: Text(strings.text('restorePasswordFailed'))),
+                );
               } finally {
                 if (mounted) setState(() => _isRestoring = false);
               }
             },
-            child: const Text('确认恢复'),
+            child: Text(AppStrings.of(ctx).text('confirmRestore')),
           ),
         ],
       ),
@@ -742,7 +767,11 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
     setState(() => _copied = copied);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(copied ? '单条加密备份已复制，30 秒后将自动清理剪贴板。' : '复制失败，请重试。'),
+        content: Text(
+          copied
+              ? AppStrings.of(context).text('singleBackupCopied')
+              : AppStrings.of(context).copyFailed,
+        ),
       ),
     );
   }
@@ -750,17 +779,18 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return AlertDialog(
       icon: Icon(Icons.ios_share_outlined, color: theme.colorScheme.primary),
-      title: const Text('导出单个密码'),
+      title: Text(strings.text('exportSinglePassword')),
       content: SizedBox(
         width: double.maxFinite,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '导出内容已加密，仅包含当前记录。导入时需要此备份对应的主密码，导入后会使用本地密钥重新加密保存。',
+              strings.text('exportSinglePasswordSubtitle'),
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
@@ -790,12 +820,14 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('关闭'),
+          child: Text(strings.text('close')),
         ),
         FilledButton.icon(
           onPressed: _copyBackupJson,
           icon: Icon(_copied ? Icons.check_rounded : Icons.copy_rounded),
-          label: Text(_copied ? '已复制' : '复制备份'),
+          label: Text(
+            _copied ? strings.text('copied') : strings.text('copyBackup'),
+          ),
         ),
       ],
     );
@@ -918,14 +950,17 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
       setState(() => _isSaving = false);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Attachment add failed')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('attachmentAddFailed'))),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return AlertDialog(
-      title: const Text('Add attachment'),
+      title: Text(strings.text('addAttachment')),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
@@ -935,28 +970,28 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
               TextFormField(
                 key: const ValueKey('attachment-name-input'),
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Display name'),
+                decoration: InputDecoration(labelText: strings.text('displayName')),
                 textInputAction: TextInputAction.next,
                 validator: (value) => (value == null || value.trim().isEmpty)
-                    ? 'Display name is required'
+                    ? strings.text('displayNameRequired')
                     : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 key: const ValueKey('attachment-media-type-input'),
                 controller: _mediaTypeController,
-                decoration: const InputDecoration(labelText: 'Media type'),
+                decoration: InputDecoration(labelText: strings.text('mediaType')),
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 key: const ValueKey('attachment-content-input'),
                 controller: _contentController,
-                decoration: const InputDecoration(labelText: 'Content'),
+                decoration: InputDecoration(labelText: strings.text('content')),
                 minLines: 3,
                 maxLines: 6,
                 validator: (value) => (value == null || value.isEmpty)
-                    ? 'Content is required'
+                    ? strings.text('contentRequired')
                     : null,
               ),
             ],
@@ -966,7 +1001,7 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
       actions: [
         TextButton(
           onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(strings.text('cancel')),
         ),
         FilledButton(
           key: const ValueKey('attachment-save-button'),
@@ -977,7 +1012,7 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Save'),
+              : Text(strings.text('save')),
         ),
       ],
     );
@@ -1030,6 +1065,7 @@ class _AttachmentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
@@ -1064,13 +1100,13 @@ class _AttachmentRow extends StatelessWidget {
           IconButton(
             key: ValueKey('attachment-open-${attachment.blobId}'),
             onPressed: onOpen,
-            tooltip: 'Open attachment',
+            tooltip: strings.text('openAttachment'),
             icon: const Icon(Icons.open_in_new_rounded),
           ),
           IconButton(
             key: ValueKey('attachment-delete-${attachment.blobId}'),
             onPressed: onDelete,
-            tooltip: 'Delete attachment',
+            tooltip: strings.text('deleteAttachment'),
             icon: const Icon(Icons.delete_outline_rounded),
           ),
         ],

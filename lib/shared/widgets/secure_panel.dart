@@ -21,8 +21,8 @@ class SecurePanel extends StatelessWidget {
 
     return SecureGlassCard(
       padding: padding,
-      color: color ?? theme.colorScheme.surface.withValues(alpha: 0.92),
-      borderColor: borderColor ?? Colors.white,
+      color: color ?? theme.colorScheme.surface,
+      borderColor: borderColor ?? theme.colorScheme.outline,
       child: child,
     );
   }
@@ -74,9 +74,9 @@ class SecureStatusPill extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: resolvedColor.withValues(alpha: 0.12),
+        color: resolvedColor.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: resolvedColor.withValues(alpha: 0.16)),
+        border: Border.all(color: resolvedColor.withValues(alpha: 0.24)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

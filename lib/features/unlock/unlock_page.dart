@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
@@ -45,6 +46,7 @@ class _UnlockPageState extends State<UnlockPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return SecureVisualBackground(
       child: SingleChildScrollView(
@@ -54,7 +56,7 @@ class _UnlockPageState extends State<UnlockPage> {
             const SecureIconBadge(icon: Icons.lock_rounded, size: 106),
             const SizedBox(height: 24),
             Text(
-              '解锁密码库',
+              strings.text('unlockTitle'),
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontSize: 26,
                 height: 1.05,
@@ -63,7 +65,7 @@ class _UnlockPageState extends State<UnlockPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              '输入主密码以解锁本地加密密码库。',
+              strings.text('unlockSubtitle'),
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
             ),
@@ -82,10 +84,12 @@ class _UnlockPageState extends State<UnlockPage> {
                 textInputAction: TextInputAction.done,
                 autofillHints: const [AutofillHints.password],
                 decoration: InputDecoration(
-                  labelText: '主密码',
+                  labelText: strings.text('masterPassword'),
                   errorText: _errorText,
                   suffixIcon: IconButton(
-                    tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
+                    tooltip: _passwordObscured
+                        ? strings.text('showMasterPassword')
+                        : strings.text('hideMasterPassword'),
                     onPressed: _togglePasswordVisibility,
                     icon: Icon(
                       _passwordObscured
@@ -109,7 +113,9 @@ class _UnlockPageState extends State<UnlockPage> {
             SecureGradientButton(
               onPressed: _submitting || _isRetryLocked ? null : _submitUnlock,
               icon: Icons.lock_open_rounded,
-              label: _submitting ? '解锁中...' : '解锁',
+              label: _submitting
+                  ? strings.text('unlockBusy')
+                  : strings.text('unlock'),
             ),
             if (_biometricEnabled) ...[
               const SizedBox(height: 12),
@@ -118,7 +124,7 @@ class _UnlockPageState extends State<UnlockPage> {
                 child: OutlinedButton.icon(
                   onPressed: _submitting ? null : _unlockWithBiometrics,
                   icon: const Icon(Icons.fingerprint_rounded),
-                  label: const Text('使用生物识别'),
+                  label: Text(strings.text('useBiometric')),
                 ),
               ),
             ],
@@ -134,7 +140,7 @@ class _UnlockPageState extends State<UnlockPage> {
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
-                    '连续输错后会短暂延迟重试\n以降低暴力尝试风险',
+                    strings.text('unlockRetryHint'),
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
                   ),
@@ -184,7 +190,7 @@ class _UnlockPageState extends State<UnlockPage> {
       setState(() {
         _submitting = false;
         _errorText = null;
-        _retryMessage = '暂时无法解锁，请重试';
+        _retryMessage = AppStrings.of(context).text('unlockRetryFailed');
       });
       return;
     }
@@ -220,9 +226,10 @@ class _UnlockPageState extends State<UnlockPage> {
     setState(() {
       _submitting = false;
       _failedAttempts = nextFailures;
-      _errorText = '主密码不正确';
+      final strings = AppStrings.of(context);
+      _errorText = strings.text('wrongMasterPassword');
       _retryMessage = delay > Duration.zero
-          ? '请等待 ${delay.inSeconds} 秒后重试'
+          ? '${strings.text('waitRetryPrefix')} ${delay.inSeconds} ${strings.text('waitRetrySuffix')}'
           : null;
     });
   }
@@ -243,7 +250,7 @@ class _UnlockPageState extends State<UnlockPage> {
       }
       setState(() {
         _submitting = false;
-        _retryMessage = '请使用主密码解锁';
+        _retryMessage = AppStrings.of(context).text('useMasterPassword');
       });
       return;
     }
@@ -254,7 +261,7 @@ class _UnlockPageState extends State<UnlockPage> {
     setState(() {
       _submitting = false;
       if (!unlocked) {
-        _retryMessage = '请使用主密码解锁';
+        _retryMessage = AppStrings.of(context).text('useMasterPassword');
       }
     });
   }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/i18n/password_policy_strings.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 import 'package:secure_box/features/setup/privacy_policy_page.dart';
@@ -40,6 +42,7 @@ class _SetupPageState extends State<SetupPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return SecureVisualBackground(
       child: SingleChildScrollView(
@@ -52,13 +55,13 @@ class _SetupPageState extends State<SetupPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              '创建主密码',
+              strings.text('setupTitle'),
               textAlign: TextAlign.center,
               style: theme.textTheme.headlineMedium,
             ),
             const SizedBox(height: 8),
             Text(
-              '主密码不会上传，也无法找回。请务必牢记。',
+              strings.text('setupSubtitle'),
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium,
             ),
@@ -78,10 +81,12 @@ class _SetupPageState extends State<SetupPage> {
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.newPassword],
                       decoration: InputDecoration(
-                        labelText: '主密码',
-                        helperText: '至少 12 个字符',
+                        labelText: strings.text('masterPassword'),
+                        helperText: strings.text('passwordMinLength'),
                         suffixIcon: IconButton(
-                          tooltip: _passwordObscured ? '显示主密码' : '隐藏主密码',
+                          tooltip: _passwordObscured
+                              ? strings.text('showMasterPassword')
+                              : strings.text('hideMasterPassword'),
                           onPressed: _togglePasswordVisibility,
                           icon: Icon(
                             _passwordObscured
@@ -106,11 +111,11 @@ class _SetupPageState extends State<SetupPage> {
                       textInputAction: TextInputAction.done,
                       autofillHints: const [AutofillHints.newPassword],
                       decoration: InputDecoration(
-                        labelText: '确认主密码',
+                        labelText: strings.text('confirmMasterPassword'),
                         suffixIcon: IconButton(
                           tooltip: _confirmPasswordObscured
-                              ? '显示确认密码'
-                              : '隐藏确认密码',
+                              ? strings.text('showConfirmPassword')
+                              : strings.text('hideConfirmPassword'),
                           onPressed: _toggleConfirmPasswordVisibility,
                           icon: Icon(
                             _confirmPasswordObscured
@@ -149,9 +154,9 @@ class _SetupPageState extends State<SetupPage> {
                           _biometricEnabled = value;
                         });
                       },
-                title: const Text('启用生物识别快速解锁'),
+                title: Text(strings.text('enableBiometricQuickUnlock')),
                 subtitle: Text(
-                  '生物识别仅用于快速解锁本地密码库，失败仍需输入主密码。',
+                  strings.text('biometricSetupSubtitle'),
                   style: theme.textTheme.bodyMedium,
                 ),
               ),
@@ -159,7 +164,9 @@ class _SetupPageState extends State<SetupPage> {
             const SizedBox(height: 12),
             SecureGradientButton(
               onPressed: _submitting ? null : _submit,
-              label: _submitting ? '创建中...' : '创建密码库',
+              label: _submitting
+                  ? strings.text('creatingVault')
+                  : strings.text('createVault'),
             ),
             const SizedBox(height: 12),
             SecureGlassCard(
@@ -187,7 +194,7 @@ class _SetupPageState extends State<SetupPage> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                '主密码仅存储在设备本地',
+                                strings.text('setupLocalOnly'),
                                 style: theme.textTheme.bodySmall,
                               ),
                             ],
@@ -202,7 +209,7 @@ class _SetupPageState extends State<SetupPage> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                '无法查看或恢复你的主密码',
+                                strings.text('setupCannotRecover'),
                                 style: theme.textTheme.bodySmall,
                               ),
                             ],
@@ -217,7 +224,7 @@ class _SetupPageState extends State<SetupPage> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                '数据采用端到端加密保护',
+                                strings.text('setupEncrypted'),
                                 style: theme.textTheme.bodySmall,
                               ),
                             ],
@@ -243,7 +250,7 @@ class _SetupPageState extends State<SetupPage> {
                 text: TextSpan(
                   children: [
                     TextSpan(
-                      text: '继续操作即表示你已经阅读并同意 ',
+                      text: strings.text('privacyAgreementPrefix'),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(
                           alpha: 0.6,
@@ -251,7 +258,7 @@ class _SetupPageState extends State<SetupPage> {
                       ),
                     ),
                     TextSpan(
-                      text: '隐私政策',
+                      text: strings.text('privacyPolicy'),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: SecureVisualColors.blue,
                       ),
@@ -268,15 +275,21 @@ class _SetupPageState extends State<SetupPage> {
 
   String? _validatePassword(String? value) {
     final result = MasterPasswordPolicy.evaluate(value ?? '');
-    return result.isAcceptable ? null : result.message;
+    return result.isAcceptable
+        ? null
+        : localizedMasterPasswordPolicyMessage(
+            result,
+            AppStrings.of(context),
+          );
   }
 
   String? _validateConfirmPassword(String? value) {
+    final strings = AppStrings.of(context);
     if ((value ?? '').isEmpty) {
-      return '请再次输入主密码';
+      return strings.text('enterMasterPasswordAgain');
     }
     if (value != _passwordController.text) {
-      return '两次输入的主密码不一致';
+      return strings.text('passwordMismatch');
     }
     return null;
   }
@@ -303,7 +316,11 @@ class _SetupPageState extends State<SetupPage> {
       if (_biometricEnabled && biometricResult == BiometricSetupResult.failed) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('密码库已创建，但未能启用生物识别。')));
+        ).showSnackBar(
+          SnackBar(
+            content: Text(AppStrings.of(context).text('vaultCreatedBiometricFailed')),
+          ),
+        );
       }
     } catch (_) {
       if (!mounted) {
@@ -311,7 +328,9 @@ class _SetupPageState extends State<SetupPage> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('创建失败，请稍后重试')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('createVaultFailed'))),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -350,6 +369,7 @@ class _PasswordStrengthHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     final colorScheme = theme.colorScheme;
     final color = switch (strength.label) {
       MasterPasswordStrengthLabel.weak => colorScheme.error,
@@ -371,7 +391,7 @@ class _PasswordStrengthHint extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          strength.message,
+          localizedMasterPasswordPolicyMessage(strength, strings),
           style: theme.textTheme.bodySmall?.copyWith(color: color),
         ),
       ],

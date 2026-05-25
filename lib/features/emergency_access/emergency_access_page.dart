@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/emergency/emergency_crypto_service.dart';
 import 'package:secure_box/core/sync/sync_models.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class EmergencyAccessPage extends StatefulWidget {
@@ -124,7 +125,7 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
       setState(() {
         _generatingKeyPair = false;
       });
-      _showSnack('Emergency key generation failed');
+      _showSnack(AppStrings.of(context).text('emergencyKeyGenerationFailed'));
     }
   }
 
@@ -141,14 +142,14 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
     if (request.recipientEmail.isEmpty ||
         request.recipientPublicKey.isEmpty ||
         request.recipientKeyFingerprint.isEmpty) {
-      _showSnack('Email, public key, and fingerprint are required');
+      _showSnack(AppStrings.of(context).text('emergencyContactRequiredFields'));
       return;
     }
 
     try {
       request.toJson();
     } catch (_) {
-      _showSnack('Contact key details are not accepted');
+      _showSnack(AppStrings.of(context).text('emergencyContactKeyRejected'));
       return;
     }
 
@@ -173,15 +174,16 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
       setState(() {
         _creatingContact = false;
       });
-      _showSnack('Contact creation failed');
+      _showSnack(AppStrings.of(context).text('emergencyContactCreationFailed'));
     }
   }
 
   Future<void> _revokeContact(EmergencyContact contact) async {
+    final strings = AppStrings.of(context);
     final confirmed = await _confirm(
-      title: 'Revoke contact',
-      message: 'Revoke emergency access setup for this contact?',
-      action: 'Revoke',
+      title: strings.text('revokeContact'),
+      message: strings.text('revokeContactMessage'),
+      action: strings.text('revokeContact'),
     );
     if (!confirmed || _busyContactIds.contains(contact.id)) {
       return;
@@ -194,7 +196,7 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
       await widget.services.revokeEmergencyContact(contact.id);
       await _refresh();
     } catch (_) {
-      _showSnack('Contact revoke failed');
+      _showSnack(strings.text('emergencyContactRevokeFailed'));
     } finally {
       if (mounted) {
         setState(() {
@@ -212,22 +214,26 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
         .where((candidate) => candidate.id == _selectedContactId)
         .firstOrNull;
     if (contact == null) {
-      _showSnack('Choose an active contact');
+      _showSnack(AppStrings.of(context).text('emergencyChooseActiveContact'));
       return;
     }
     final waitingHours = int.tryParse(_waitingHoursController.text.trim());
     if (waitingHours == null || waitingHours < 1 || waitingHours > 2160) {
-      _showSnack('Waiting period must be 1 to 2160 hours');
+      _showSnack(AppStrings.of(context).text('emergencyWaitingPeriodInvalid'));
       return;
     }
     final plaintext = _grantPlaintextController.text;
     if (plaintext.isEmpty) {
-      _showSnack('Recovery package plaintext is required');
+      _showSnack(
+        AppStrings.of(context).text('emergencyRecoveryPlaintextRequired'),
+      );
       return;
     }
     final plaintextBytes = utf8.encode(plaintext);
     if (plaintextBytes.length > _maxPlaintextBytes) {
-      _showSnack('Recovery package plaintext must be 64 KiB or less');
+      _showSnack(
+        AppStrings.of(context).text('emergencyRecoveryPlaintextTooLarge'),
+      );
       return;
     }
 
@@ -262,15 +268,16 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
       setState(() {
         _creatingGrant = false;
       });
-      _showSnack('Grant creation failed');
+      _showSnack(AppStrings.of(context).text('emergencyGrantCreationFailed'));
     }
   }
 
   Future<void> _acceptGrant(EmergencyGrant grant) async {
+    final strings = AppStrings.of(context);
     final fingerprint = await _promptText(
-      title: 'Accept emergency grant',
-      label: 'Recipient key fingerprint',
-      action: 'Accept',
+      title: strings.text('acceptEmergencyGrant'),
+      label: strings.text('recipientKeyFingerprint'),
+      action: strings.text('accept'),
       keyValue: 'emergency-accept-fingerprint-field',
     );
     if (fingerprint == null || fingerprint.trim().isEmpty) {
@@ -282,23 +289,25 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
         grantId: grant.id,
         recipientKeyFingerprint: fingerprint.trim(),
       ),
-      failureMessage: 'Grant accept failed',
+      failureMessage: strings.text('emergencyGrantAcceptFailed'),
     );
   }
 
   Future<void> _requestGrantAccess(EmergencyGrant grant) {
+    final strings = AppStrings.of(context);
     return _runGrantAction(
       grant.id,
       () => widget.services.requestEmergencyGrantAccess(grantId: grant.id),
-      failureMessage: 'Access request failed',
+      failureMessage: strings.text('emergencyAccessRequestFailed'),
     );
   }
 
   Future<void> _cancelGrant(EmergencyGrant grant) async {
+    final strings = AppStrings.of(context);
     final confirmed = await _confirm(
-      title: 'Cancel request',
-      message: 'Cancel the pending emergency access request?',
-      action: 'Cancel request',
+      title: strings.text('cancelRequest'),
+      message: strings.text('cancelRequestMessage'),
+      action: strings.text('cancelRequest'),
     );
     if (!confirmed) {
       return;
@@ -306,15 +315,16 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
     await _runGrantAction(
       grant.id,
       () => widget.services.cancelEmergencyGrant(grant.id),
-      failureMessage: 'Cancel failed',
+      failureMessage: strings.text('emergencyCancelFailed'),
     );
   }
 
   Future<void> _revokeGrant(EmergencyGrant grant) async {
+    final strings = AppStrings.of(context);
     final confirmed = await _confirm(
-      title: 'Revoke grant',
-      message: 'Revoke this emergency grant?',
-      action: 'Revoke',
+      title: strings.text('revokeGrant'),
+      message: strings.text('revokeGrantMessage'),
+      action: strings.text('revokeGrant'),
     );
     if (!confirmed) {
       return;
@@ -322,11 +332,12 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
     await _runGrantAction(
       grant.id,
       () => widget.services.revokeEmergencyGrant(grant.id),
-      failureMessage: 'Grant revoke failed',
+      failureMessage: strings.text('emergencyGrantRevokeFailed'),
     );
   }
 
   Future<void> _downloadGrant(EmergencyGrant grant) async {
+    final strings = AppStrings.of(context);
     if (_busyGrantIds.contains(grant.id)) {
       return;
     }
@@ -345,7 +356,7 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
             _EmergencyPackageDialog(package: package, crypto: _crypto),
       );
     } catch (_) {
-      _showSnack('Package download failed');
+      _showSnack(strings.text('emergencyPackageDownloadFailed'));
     } finally {
       if (mounted) {
         setState(() {
@@ -394,7 +405,7 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep'),
+            child: Text(AppStrings.of(context).text('keep')),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -429,7 +440,7 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
               controller.clear();
               Navigator.of(context).pop();
             },
-            child: const Text('Cancel'),
+            child: Text(AppStrings.of(context).text('cancel')),
           ),
           FilledButton(
             onPressed: () {
@@ -455,6 +466,7 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return SecureVisualBackground(
       key: const ValueKey('emergency-access-page'),
       bottomInset: 64,
@@ -469,16 +481,15 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
               children: [
                 SecureReplicaHeader(
-                  title: 'Emergency Access',
-                  subtitle:
-                      'Manage recovery contacts, encrypted grants, and local recipient package decryption.',
+                  title: strings.text('emergencyAccess'),
+                  subtitle: strings.text('emergencyHeaderSubtitle'),
                   leading: IconButton(
-                    tooltip: 'Back',
+                    tooltip: strings.text('back'),
                     onPressed: () => Navigator.of(context).maybePop(),
                     icon: const Icon(Icons.arrow_back_rounded),
                   ),
                   trailing: IconButton(
-                    tooltip: 'Refresh',
+                    tooltip: strings.text('refresh'),
                     onPressed: snapshot.connectionState == ConnectionState.done
                         ? _refresh
                         : null,
@@ -572,11 +583,14 @@ class _EmergencyAccessPageState extends State<EmergencyAccessPage> {
   }
 
   Future<void> _copyLocalValue(String value) async {
+    final strings = AppStrings.of(context);
     try {
       final copied = await widget.services.copySensitiveTemporary(value);
-      _showSnack(copied ? 'Copied locally' : 'Copy failed');
+      _showSnack(
+        copied ? strings.text('copiedLocally') : strings.copyFailed,
+      );
     } catch (_) {
-      _showSnack('Copy unavailable');
+      _showSnack(strings.text('copyUnavailable'));
     }
   }
 }
@@ -604,16 +618,17 @@ class _LoadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SecureGlassCard(
+    final strings = AppStrings.of(context);
+    return SecureGlassCard(
       child: Row(
         children: [
-          SizedBox(
+          const SizedBox(
             width: 22,
             height: 22,
             child: CircularProgressIndicator(strokeWidth: 2.4),
           ),
-          SizedBox(width: 12),
-          Text('Loading emergency access'),
+          const SizedBox(width: 12),
+          Text(strings.text('emergencyLoading')),
         ],
       ),
     );
@@ -636,17 +651,17 @@ class _KeyPairCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final keyPair = this.keyPair;
+    final strings = AppStrings.of(context);
     return SecureGlassCard(
       borderRadius: 16,
       shadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardTitle(
+          _CardTitle(
             icon: Icons.key_rounded,
-            title: 'Recipient setup key',
-            detail:
-                'Generate locally for a recipient. Public key and fingerprint can be shared; private key stays local.',
+            title: strings.text('recipientSetupKey'),
+            detail: strings.text('recipientSetupKey'),
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
@@ -659,22 +674,22 @@ class _KeyPairCard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.auto_fix_high_rounded),
-            label: const Text('Generate local key pair'),
+            label: Text(strings.text('generateLocalKeyPair')),
           ),
           if (keyPair != null) ...[
             const SizedBox(height: 14),
             _TokenRow(
-              label: 'Public key',
+              label: strings.text('publicKey'),
               value: keyPair.publicKey,
               onCopy: () => onCopy(keyPair.publicKey),
             ),
             _TokenRow(
-              label: 'Fingerprint',
+              label: strings.text('fingerprint'),
               value: keyPair.fingerprint,
               onCopy: () => onCopy(keyPair.fingerprint),
             ),
             _TokenRow(
-              label: 'Private key (local only)',
+              label: strings.text('privateKeyLocalOnly'),
               value: keyPair.privateKey,
             ),
           ],
@@ -703,31 +718,31 @@ class _CreateContactCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return SecureGlassCard(
       borderRadius: 16,
       shadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardTitle(
+          _CardTitle(
             icon: Icons.person_add_alt_1_rounded,
-            title: 'Create contact',
-            detail:
-                'Register recipient email, public key, and fingerprint. No master password or private key is collected.',
+            title: strings.text('createContact'),
+            detail: strings.text('createContact'),
           ),
           const SizedBox(height: 12),
           TextField(
             key: const ValueKey('emergency-contact-email-field'),
             controller: emailController,
-            decoration: const InputDecoration(labelText: 'Recipient email'),
+            decoration: InputDecoration(labelText: strings.text('recipientEmail')),
             keyboardType: TextInputType.emailAddress,
           ),
           const SizedBox(height: 10),
           TextField(
             key: const ValueKey('emergency-contact-public-key-field'),
             controller: publicKeyController,
-            decoration: const InputDecoration(
-              labelText: 'Recipient public key',
+            decoration: InputDecoration(
+              labelText: strings.text('recipientPublicKey'),
             ),
             minLines: 1,
             maxLines: 3,
@@ -736,15 +751,15 @@ class _CreateContactCard extends StatelessWidget {
           TextField(
             key: const ValueKey('emergency-contact-fingerprint-field'),
             controller: fingerprintController,
-            decoration: const InputDecoration(
-              labelText: 'Recipient key fingerprint',
+            decoration: InputDecoration(
+              labelText: strings.text('recipientKeyFingerprint'),
             ),
           ),
           const SizedBox(height: 10),
           TextField(
             key: const ValueKey('emergency-contact-label-field'),
             controller: labelController,
-            decoration: const InputDecoration(labelText: 'Label (optional)'),
+            decoration: InputDecoration(labelText: strings.text('optionalLabel')),
           ),
           const SizedBox(height: 12),
           Align(
@@ -759,7 +774,7 @@ class _CreateContactCard extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.add_rounded),
-              label: const Text('Create contact'),
+              label: Text(strings.text('createContact')),
             ),
           ),
         ],
@@ -789,17 +804,17 @@ class _CreateGrantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return SecureGlassCard(
       borderRadius: 16,
       shadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardTitle(
+          _CardTitle(
             icon: Icons.enhanced_encryption_rounded,
-            title: 'Create encrypted grant',
-            detail:
-                'Paste a local recovery package, encrypt to an active contact, then upload only the encrypted envelope.',
+            title: strings.text('createEncryptedGrant'),
+            detail: strings.text('createEncryptedGrant'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
@@ -816,14 +831,14 @@ class _CreateGrantCard extends StatelessWidget {
                 ),
             ],
             onChanged: isCreating || contacts.isEmpty ? null : onContactChanged,
-            decoration: const InputDecoration(labelText: 'Active contact'),
+            decoration: InputDecoration(labelText: strings.text('activeContact')),
           ),
           const SizedBox(height: 10),
           TextField(
             key: const ValueKey('emergency-grant-wait-hours-field'),
             controller: waitingHoursController,
-            decoration: const InputDecoration(
-              labelText: 'Waiting period (hours)',
+            decoration: InputDecoration(
+              labelText: strings.text('waitingPeriodHours'),
             ),
             keyboardType: TextInputType.number,
           ),
@@ -831,9 +846,9 @@ class _CreateGrantCard extends StatelessWidget {
           TextField(
             key: const ValueKey('emergency-grant-plaintext-field'),
             controller: plaintextController,
-            decoration: const InputDecoration(
-              labelText: 'Local recovery package plaintext',
-              helperText: '64 KiB max. Cleared after submit.',
+            decoration: InputDecoration(
+              labelText: strings.text('localRecoveryPackagePlaintext'),
+              helperText: strings.text('localRecoveryPackageHelper'),
             ),
             minLines: 3,
             maxLines: 6,
@@ -852,7 +867,7 @@ class _CreateGrantCard extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.lock_rounded),
-              label: const Text('Encrypt and create grant'),
+              label: Text(strings.text('encryptAndCreateGrant')),
             ),
           ),
         ],
@@ -877,22 +892,23 @@ class _ContactsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final contacts = this.contacts;
+    final strings = AppStrings.of(context);
     return SecureGlassCard(
       borderRadius: 16,
       shadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardTitle(
+          _CardTitle(
             icon: Icons.contacts_rounded,
-            title: 'Contacts',
-            detail: 'Stored recipient metadata only.',
+            title: strings.text('contacts'),
+            detail: strings.text('contacts'),
           ),
           const SizedBox(height: 12),
           if (contacts == null)
-            const Text('Emergency contacts unavailable')
+            Text(strings.text('contactsUnavailable'))
           else if (contacts.isEmpty)
-            const Text('No emergency contacts')
+            Text(strings.text('noContacts'))
           else
             ListView.separated(
               shrinkWrap: true,
@@ -933,6 +949,7 @@ class _ContactListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -953,7 +970,7 @@ class _ContactListItem extends StatelessWidget {
               Text(
                 [
                   if (contact.recipientLabel != null) contact.recipientLabel!,
-                  contact.status,
+                  _emergencyStatusLabel(strings, contact.status),
                   contact.recipientKeyFingerprint,
                 ].join(' · '),
                 style: theme.textTheme.bodySmall?.copyWith(
@@ -973,7 +990,7 @@ class _ContactListItem extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.block_rounded),
-          label: const Text('Revoke'),
+          label: Text(strings.text('revokeContact')),
         ),
       ],
     );
@@ -1004,23 +1021,23 @@ class _GrantsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final grants = this.grants;
+    final strings = AppStrings.of(context);
     return SecureGlassCard(
       borderRadius: 16,
       shadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardTitle(
+          _CardTitle(
             icon: Icons.assignment_turned_in_outlined,
-            title: 'Grants',
-            detail:
-                'Metadata view only. Encrypted package bytes appear only after explicit download.',
+            title: strings.text('grants'),
+            detail: strings.text('grants'),
           ),
           const SizedBox(height: 12),
           if (grants == null)
-            const Text('Emergency grants unavailable')
+            Text(strings.text('grantsUnavailable'))
           else if (grants.isEmpty)
-            const Text('No emergency grants')
+            Text(strings.text('noGrants'))
           else
             ListView.separated(
               shrinkWrap: true,
@@ -1070,6 +1087,7 @@ class _GrantListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     final terminal = grant.status == 'revoked' || grant.status == 'cancelled';
     final canDownload = _canDownloadGrantPackage(grant);
     return Column(
@@ -1085,7 +1103,7 @@ class _GrantListItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${grant.id} · ${grant.status}',
+                    '${grant.id} · ${_emergencyStatusLabel(strings, grant.status)}',
                     style: theme.textTheme.titleSmall?.copyWith(
                       color: SecureVisualColors.text,
                       fontWeight: FontWeight.w800,
@@ -1093,7 +1111,7 @@ class _GrantListItem extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${grant.waitingPeriodHours}h wait · ${grant.packageFingerprint}',
+                    '${grant.waitingPeriodHours} ${strings.text('waitingHoursSuffix')} · ${grant.packageFingerprint}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: SecureVisualColors.muted,
                     ),
@@ -1113,35 +1131,35 @@ class _GrantListItem extends StatelessWidget {
                 key: ValueKey('emergency-accept-grant-${grant.id}'),
                 onPressed: busy ? null : () => onAccept(grant),
                 icon: const Icon(Icons.check_rounded),
-                label: const Text('Accept'),
+                label: Text(strings.text('accept')),
               ),
             if (grant.status == 'active')
               OutlinedButton.icon(
                 key: ValueKey('emergency-request-grant-${grant.id}'),
                 onPressed: busy ? null : () => onRequestAccess(grant),
                 icon: const Icon(Icons.timer_outlined),
-                label: const Text('Request access'),
+                label: Text(strings.text('requestAccess')),
               ),
             if (grant.status == 'access_requested')
               OutlinedButton.icon(
                 key: ValueKey('emergency-cancel-grant-${grant.id}'),
                 onPressed: busy ? null : () => onCancel(grant),
                 icon: const Icon(Icons.cancel_outlined),
-                label: const Text('Cancel'),
+                label: Text(strings.text('cancel')),
               ),
             if (canDownload)
               FilledButton.icon(
                 key: ValueKey('emergency-download-grant-${grant.id}'),
                 onPressed: busy ? null : () => onDownload(grant),
                 icon: const Icon(Icons.cloud_download_outlined),
-                label: const Text('Download'),
+                label: Text(strings.text('download')),
               ),
             if (!terminal)
               TextButton.icon(
                 key: ValueKey('emergency-revoke-grant-${grant.id}'),
                 onPressed: busy ? null : () => onRevoke(grant),
                 icon: const Icon(Icons.block_rounded),
-                label: const Text('Revoke'),
+                label: Text(strings.text('revokeGrant')),
               ),
           ],
         ),
@@ -1163,6 +1181,19 @@ bool _canDownloadGrantPackage(EmergencyGrant grant) {
     return true;
   }
   return grant.status == 'access_requested' && readyAtValue != null;
+}
+
+String _emergencyStatusLabel(AppStrings strings, String status) {
+  return switch (status) {
+    'active' => strings.text('emergencyStatusActive'),
+    'revoked' => strings.text('emergencyStatusRevoked'),
+    'pending_acceptance' => strings.text('emergencyStatusPendingAcceptance'),
+    'access_requested' => strings.text('emergencyStatusAccessRequested'),
+    'ready_for_download' => strings.text('emergencyStatusReadyForDownload'),
+    'cancelled' => strings.text('emergencyStatusCancelled'),
+    'downloaded' => strings.text('emergencyStatusDownloaded'),
+    _ => status,
+  };
 }
 
 class _EmergencyPackageDialog extends StatefulWidget {
@@ -1222,32 +1253,35 @@ class _EmergencyPackageDialogState extends State<_EmergencyPackageDialog> {
       });
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Local decrypt failed')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('localDecryptFailed'))),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final package = widget.package;
+    final strings = AppStrings.of(context);
     return AlertDialog(
-      title: const Text('Emergency package'),
+      title: Text(strings.text('emergencyPackage')),
       content: SizedBox(
         width: 620,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _DialogToken(label: 'Grant', value: package.grantId),
+              _DialogToken(label: strings.text('grant'), value: package.grantId),
               _DialogToken(
-                label: 'Package fingerprint',
+                label: strings.text('packageFingerprint'),
                 value: package.packageFingerprint,
               ),
               const SizedBox(height: 12),
               TextField(
                 key: const ValueKey('emergency-package-private-key-field'),
                 controller: _privateKeyController,
-                decoration: const InputDecoration(
-                  labelText: 'Recipient private key (local only)',
+                decoration: InputDecoration(
+                  labelText: strings.text('recipientPrivateKeyLocalOnly'),
                 ),
                 minLines: 1,
                 maxLines: 3,
@@ -1265,22 +1299,22 @@ class _EmergencyPackageDialogState extends State<_EmergencyPackageDialog> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.lock_open_rounded),
-                  label: const Text('Decrypt locally'),
+                  label: Text(strings.text('decryptLocally')),
                 ),
               ),
               if (_decryptedText != null) ...[
                 const SizedBox(height: 12),
                 Text(
-                  'Decrypted package',
+                  strings.text('decryptedPackage'),
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 6),
                 SelectableText(_decryptedText!),
               ],
               const SizedBox(height: 12),
-              _DialogToken(label: 'Package AAD', value: package.packageAad),
+              _DialogToken(label: strings.text('packageAad'), value: package.packageAad),
               _DialogToken(
-                label: 'Encrypted package envelope',
+                label: strings.text('encryptedPackageEnvelope'),
                 value: package.encryptedRecoveryPackage,
               ),
             ],
@@ -1296,7 +1330,7 @@ class _EmergencyPackageDialogState extends State<_EmergencyPackageDialog> {
             });
             Navigator.of(context).pop();
           },
-          child: const Text('Close'),
+          child: Text(strings.text('close')),
         ),
       ],
     );
@@ -1398,7 +1432,7 @@ class _TokenRow extends StatelessWidget {
               ),
               if (onCopy != null)
                 IconButton(
-                  tooltip: 'Copy',
+                  tooltip: AppStrings.of(context).text('copy'),
                   onPressed: onCopy,
                   icon: const Icon(Icons.copy_rounded, size: 18),
                 ),

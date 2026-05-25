@@ -40,6 +40,21 @@ void main() {
 
       expect(result.isAcceptable, isTrue);
       expect(result.label, MasterPasswordStrengthLabel.strong);
+      expect(result.score, greaterThanOrEqualTo(4));
+    });
+
+    test('uses entry password strength for saved vault passwords', () {
+      final result = EntryPasswordPolicy.evaluate('8aB!2cD#');
+
+      expect(result.isAcceptable, isTrue);
+      expect(result.label, MasterPasswordStrengthLabel.fair);
+    });
+
+    test('rejects common entry passwords as weak', () {
+      final result = EntryPasswordPolicy.evaluate('password123456');
+
+      expect(result.isAcceptable, isFalse);
+      expect(result.label, MasterPasswordStrengthLabel.weak);
     });
   });
 }

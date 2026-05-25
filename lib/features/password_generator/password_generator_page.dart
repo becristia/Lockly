@@ -2,13 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/password_generator/password_generator.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
+enum PasswordGeneratorMode { standalone, picker }
+
 class PasswordGeneratorPage extends StatefulWidget {
-  const PasswordGeneratorPage({super.key, required this.services});
+  const PasswordGeneratorPage({
+    super.key,
+    required this.services,
+    this.mode = PasswordGeneratorMode.standalone,
+    this.onSavedToVault,
+  });
 
   final AppServices services;
+  final PasswordGeneratorMode mode;
+  final VoidCallback? onSavedToVault;
 
   @override
   State<PasswordGeneratorPage> createState() => _PasswordGeneratorPageState();
@@ -61,7 +71,12 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
       return;
     }
 
-    await Navigator.of(context).push<bool>(
+    if (widget.mode == PasswordGeneratorMode.picker) {
+      Navigator.of(context).pop(_generatedPassword);
+      return;
+    }
+
+    final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         builder: (context) => VaultEditPage(
           services: widget.services,
@@ -69,6 +84,9 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
         ),
       ),
     );
+    if (saved == true && mounted) {
+      widget.onSavedToVault?.call();
+    }
   }
 
   Future<void> _copyGeneratedPassword() async {
@@ -81,13 +99,20 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(copied ? '密码已复制，30 秒后将自动清理剪贴板。' : '复制失败，请重试。')),
+      SnackBar(
+        content: Text(
+          copied
+              ? AppStrings.of(context).passwordCopied
+              : AppStrings.of(context).copyFailed,
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return SecureVisualBackground(
       bottomInset: 0,
@@ -96,7 +121,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 92),
         children: [
           SecureReplicaHeader(
-            title: '密码生成器',
+            title: strings.passwordGeneratorTitle,
             leading: Icon(
               Icons.auto_awesome_rounded,
               color: theme.colorScheme.primary,
@@ -112,16 +137,23 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                 onGenerate: _generatePassword,
                 onCopy: _copyGeneratedPassword,
                 onSave: _savePassword,
+                saveLabel: widget.mode == PasswordGeneratorMode.picker
+                    ? strings.text('useGeneratedPassword')
+                    : strings.saveThisPassword,
+                strings: strings,
               ),
               const SizedBox(height: 16),
               SecureSection(
-                title: '生成规则',
-                subtitle: '默认保证每类已选字符至少出现一次。',
+                title: strings.generatorRulesTitle,
+                subtitle: strings.generatorRulesSubtitle,
                 icon: Icons.tune_rounded,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('长度', style: theme.textTheme.titleMedium),
+                    Text(
+                      strings.generatorLengthLabel,
+                      style: theme.textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 10),
                     SegmentedButton<int>(
                       segments: _lengthChoices
@@ -152,7 +184,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             _GeneratorSwitch(
                               width: tileWidth,
                               icon: Icons.text_fields_rounded,
-                              title: '小写字母',
+                              title: strings.generatorLowercase,
                               value: _lowercase,
                               onChanged: (value) =>
                                   setState(() => _lowercase = value),
@@ -160,7 +192,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             _GeneratorSwitch(
                               width: tileWidth,
                               icon: Icons.title_rounded,
-                              title: '大写字母',
+                              title: strings.generatorUppercase,
                               value: _uppercase,
                               onChanged: (value) =>
                                   setState(() => _uppercase = value),
@@ -168,7 +200,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             _GeneratorSwitch(
                               width: tileWidth,
                               icon: Icons.pin_rounded,
-                              title: '数字',
+                              title: strings.generatorNumbers,
                               value: _numbers,
                               onChanged: (value) =>
                                   setState(() => _numbers = value),
@@ -176,7 +208,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             _GeneratorSwitch(
                               width: tileWidth,
                               icon: Icons.alternate_email_rounded,
-                              title: '特殊符号',
+                              title: strings.generatorSymbols,
                               value: _symbols,
                               onChanged: (value) =>
                                   setState(() => _symbols = value),
@@ -184,7 +216,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             _GeneratorSwitch(
                               width: tileWidth,
                               icon: Icons.visibility_off_outlined,
-                              title: '排除易混字符',
+                              title: strings.generatorExcludeConfusing,
                               value: _excludeConfusing,
                               onChanged: (value) =>
                                   setState(() => _excludeConfusing = value),
@@ -192,7 +224,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
                             _GeneratorSwitch(
                               width: tileWidth,
                               icon: Icons.done_all_rounded,
-                              title: '每类至少一个',
+                              title: strings.generatorRequireEveryClass,
                               value: _requireEverySelectedClass,
                               onChanged: (value) => setState(
                                 () => _requireEverySelectedClass = value,
@@ -220,6 +252,8 @@ class _ResultPanel extends StatelessWidget {
     required this.onGenerate,
     required this.onCopy,
     required this.onSave,
+    required this.saveLabel,
+    required this.strings,
   });
 
   final String password;
@@ -227,97 +261,80 @@ class _ResultPanel extends StatelessWidget {
   final VoidCallback onGenerate;
   final VoidCallback onCopy;
   final VoidCallback onSave;
+  final String saveLabel;
+  final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasPassword = password.isNotEmpty;
 
-    return Container(
+    return SecureGlassCard(
       key: hasPassword ? const ValueKey('generator-result-panel') : null,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF55B4FF), Color(0xFF0B66F6), Color(0xFF9A6BFF)],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: SecureVisualColors.blue.withValues(alpha: 0.24),
-            blurRadius: 24,
-            offset: const Offset(0, 14),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(18),
+      shadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.86),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  child: Text(
-                    '生成结果',
-                    style: TextStyle(
-                      color: SecureVisualColors.blue,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
+              SecureStatusPill(
+                icon: hasPassword
+                    ? Icons.check_circle_rounded
+                    : Icons.auto_awesome_rounded,
+                label: strings.generatorResult,
+                color: hasPassword
+                    ? SecureVisualColors.success
+                    : SecureVisualColors.blue,
               ),
             ],
           ),
           const SizedBox(height: 12),
           if (hasPassword)
-            Row(
-              children: [
-                Expanded(
-                  child: SelectableText(
-                    password,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+            SecureStatusSurface(
+              color: SecureVisualColors.success,
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      password,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Tooltip(
-                  message: '复制密码',
-                  child: Material(
-                    color: Colors.white.withValues(alpha: 0.86),
-                    shape: const CircleBorder(),
-                    child: IconButton(
+                  const SizedBox(width: 10),
+                  Tooltip(
+                    message: strings.copyPasswordTooltip,
+                    child: IconButton.filledTonal(
                       onPressed: onCopy,
                       icon: const Icon(Icons.copy_rounded),
-                      color: SecureVisualColors.blue,
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             )
           else
             Text(
-              errorText ?? '点击生成后，可直接保存到新增密码页面。',
-              style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white),
+              errorText ?? strings.generatorEmptyHint,
+              style: theme.textTheme.bodyMedium,
             ),
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(Icons.check_circle_rounded, color: Color(0xFFB9FFD0)),
+              const Icon(
+                Icons.check_circle_rounded,
+                color: SecureVisualColors.success,
+              ),
               const SizedBox(width: 8),
               Text(
-                '强',
+                strings.generatorStrengthStrong,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white,
+                  color: theme.colorScheme.onSurface,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -328,22 +345,17 @@ class _ResultPanel extends StatelessWidget {
             key: const ValueKey('generator-generate-button'),
             onPressed: onGenerate,
             icon: const Icon(Icons.refresh_rounded),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF0B66F6),
-              foregroundColor: Colors.white,
+            label: Text(
+              hasPassword
+                  ? strings.regeneratePassword
+                  : strings.generatePassword,
             ),
-            label: Text(hasPassword ? '重新生成' : '生成密码'),
           ),
           const SizedBox(height: 10),
           FilledButton.tonalIcon(
             onPressed: hasPassword ? onSave : null,
             icon: const Icon(Icons.save_outlined),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.white.withValues(alpha: 0.82),
-              foregroundColor: SecureVisualColors.blue,
-              disabledBackgroundColor: Colors.white.withValues(alpha: 0.42),
-            ),
-            label: const Text('保存此密码'),
+            label: Text(saveLabel),
           ),
         ],
       ),
@@ -374,21 +386,7 @@ class _GeneratorSwitch extends StatelessWidget {
         contentPadding: EdgeInsets.zero,
         dense: true,
         visualDensity: VisualDensity.compact,
-        secondary: Container(
-          width: 26,
-          height: 26,
-          decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.primary.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Icon(
-            icon,
-            size: 15,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
+        secondary: SecureIconTile(icon: icon, size: 28),
         title: Text(title),
         value: value,
         onChanged: onChanged,

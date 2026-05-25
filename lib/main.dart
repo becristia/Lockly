@@ -70,6 +70,7 @@ Future<void> main() async {
   final services = AppServices(
     hasVault: hasVault,
     autoLockTimeout: autoLockTimeout,
+    persistLanguagePreference: true,
     vaultService: vaultService,
     syncService: syncService,
     backupService: BackupService(

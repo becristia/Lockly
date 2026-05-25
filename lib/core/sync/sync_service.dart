@@ -73,6 +73,14 @@ class SyncService {
     return account;
   }
 
+  Future<String?> currentAccountEmail() async {
+    final tokens = await _credentials.readTokens();
+    if (tokens == null) {
+      return null;
+    }
+    return _credentials.readDeviceAccountEmail();
+  }
+
   Future<T> refreshIfNeeded<T>(
     Future<T> Function(String accessToken) operation,
   ) async {

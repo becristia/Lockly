@@ -4,6 +4,7 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/features/trash/trash_page.dart';
 import 'package:secure_box/features/vault_detail/vault_detail_page.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
@@ -70,7 +71,7 @@ class _VaultListPageState extends State<VaultListPage> {
       setState(() {
         _items = const <VaultListItem>[];
         _isLoading = false;
-        _errorMessage = '暂时无法读取密码列表，请重试。';
+        _errorMessage = AppStrings.of(context).vaultLoadFailedMessage;
       });
     }
   }
@@ -123,26 +124,25 @@ class _VaultListPageState extends State<VaultListPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     final hasQuery = _searchController.text.trim().isNotEmpty;
 
     return SecureVisualBackground(
-      bottomInset: 84,
+      bottomInset: 0,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         floatingActionButton: FloatingActionButton(
           onPressed: _handleAdd,
-          tooltip: '新增密码',
-          backgroundColor: SecureVisualColors.blue,
-          foregroundColor: Colors.white,
+          tooltip: strings.addPasswordTooltip,
           child: const Icon(Icons.add_rounded),
         ),
         body: RefreshIndicator(
           onRefresh: _loadItems,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
+            padding: EdgeInsets.fromLTRB(0, 8, 0, hasQuery ? 32 : 96),
             children: [
-              SecureReplicaHeader(title: '密码库'),
+              SecureReplicaHeader(title: strings.vaultTitle),
               const SizedBox(height: 22),
               _SecuritySummary(itemCount: _items.length, isLoading: _isLoading),
               const SizedBox(height: 16),
@@ -156,11 +156,11 @@ class _VaultListPageState extends State<VaultListPage> {
                     widget.services.recordActivity();
                     _loadItems();
                   },
-                  decoration: const InputDecoration(
-                    labelText: '搜索',
-                    hintText: '搜索记录',
-                    prefixIcon: Icon(Icons.search_rounded),
-                    suffixIcon: Icon(Icons.tune_rounded),
+                  decoration: InputDecoration(
+                    labelText: strings.searchLabel,
+                    hintText: strings.searchHint,
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: const Icon(Icons.tune_rounded),
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
@@ -180,8 +180,8 @@ class _VaultListPageState extends State<VaultListPage> {
                       if (index == 0) {
                         return FilterChip(
                           selected: _selectedTag == null,
-                          label: const Text(
-                            '全部',
+                          label: Text(
+                            strings.allTagsFilter,
                             style: TextStyle(fontSize: 12),
                           ),
                           onSelected: (_) {
@@ -221,7 +221,9 @@ class _VaultListPageState extends State<VaultListPage> {
               ],
               const SizedBox(height: 16),
               Text(
-                hasQuery ? '搜索结果 ${_items.length} 条' : '最近使用',
+                hasQuery
+                    ? strings.searchResultCount(_items.length)
+                    : strings.recentItemsTitle,
                 style: theme.textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
@@ -232,19 +234,24 @@ class _VaultListPageState extends State<VaultListPage> {
                 )
               else if (_errorMessage != null)
                 _ListMessage(
-                  title: '读取失败',
+                  title: strings.vaultLoadFailedTitle,
                   message: _errorMessage!,
-                  actionLabel: '重试',
+                  actionLabel: strings.retry,
                   onAction: _loadItems,
                 )
               else if (_items.isEmpty)
                 _ListMessage(
-                  title: hasQuery ? '没有匹配结果' : '还没有保存的密码',
-                  message: hasQuery ? '试试缩短关键词。' : '点击右下角按钮新增第一条记录。',
+                  title: hasQuery
+                      ? strings.noSearchResultsTitle
+                      : strings.emptyVaultTitle,
+                  message: hasQuery
+                      ? strings.noSearchResultsMessage
+                      : strings.emptyVaultMessage,
                 )
               else
                 SecureGlassCard(
                   padding: EdgeInsets.zero,
+                  shadow: false,
                   child: Column(
                     children: [
                       for (final item in _items)
@@ -260,7 +267,7 @@ class _VaultListPageState extends State<VaultListPage> {
                   padding: const EdgeInsets.only(top: 16),
                   child: ListTile(
                     leading: const Icon(Icons.delete_outline_rounded),
-                    title: Text('回收站 ($_deletedCount 条)'),
+                    title: Text(strings.trashTitleWithCount(_deletedCount)),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () async {
                       widget.services.recordActivity();
@@ -291,6 +298,7 @@ class _VaultReplicaTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -320,7 +328,9 @@ class _VaultReplicaTile extends StatelessWidget {
                     Text(item.title, style: theme.textTheme.titleMedium),
                     const SizedBox(height: 2),
                     Text(
-                      item.username.isEmpty ? '未填写用户名' : item.username,
+                      item.username.isEmpty
+                          ? strings.missingUsername
+                          : item.username,
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
@@ -344,41 +354,21 @@ class _SecuritySummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
-    return Container(
+    return SecureGlassCard(
       key: const ValueKey('vault-list-security-summary'),
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0B66F6), Color(0xFF5BA7FF)],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: SecureVisualColors.blue.withValues(alpha: 0.28),
-            blurRadius: 24,
-            offset: const Offset(0, 14),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(18),
+      shadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.20),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.enhanced_encryption_outlined,
-                  color: Colors.white,
-                ),
+              const SecureIconTile(
+                icon: Icons.enhanced_encryption_outlined,
+                color: SecureVisualColors.blue,
+                size: 46,
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -386,16 +376,18 @@ class _SecuritySummary extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '本地密码库',
+                      strings.securitySummaryTitle,
                       style: theme.textTheme.titleLarge?.copyWith(
-                        color: Colors.white,
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      isLoading ? '正在校验本地加密记录' : '$itemCount 条记录仅保存在本机',
+                      isLoading
+                          ? strings.securitySummaryLoading
+                          : strings.vaultLocalRecordCount(itemCount),
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.86),
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -407,16 +399,16 @@ class _SecuritySummary extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: const [
+            children: [
               SecureStatusPill(
                 icon: Icons.lock_rounded,
-                label: '已加密',
-                color: Colors.white,
+                label: strings.encryptedStatus,
+                color: SecureVisualColors.blue,
               ),
               SecureStatusPill(
                 icon: Icons.offline_bolt_outlined,
-                label: '本地优先',
-                color: Color(0xFFB9FFD0),
+                label: strings.localFirstStatus,
+                color: SecureVisualColors.success,
               ),
             ],
           ),

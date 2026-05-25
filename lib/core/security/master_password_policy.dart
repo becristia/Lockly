@@ -142,13 +142,14 @@ class MasterPasswordPolicy {
         (hasAllCharacterClasses &&
             trimmed.length >= 14 &&
             !hasDictionaryWeakness);
+    final displayScore = isStrong ? adjustedScore.clamp(4, 5) : adjustedScore;
     if (isPassphrase) {
       return MasterPasswordPolicyResult(
         isAcceptable: true,
         label: isStrong
             ? MasterPasswordStrengthLabel.strong
             : MasterPasswordStrengthLabel.fair,
-        score: adjustedScore,
+        score: displayScore,
         message: '强：密码短语更容易记忆且更难猜',
       );
     }
@@ -158,7 +159,7 @@ class MasterPasswordPolicy {
       label: isStrong
           ? MasterPasswordStrengthLabel.strong
           : MasterPasswordStrengthLabel.fair,
-      score: adjustedScore,
+      score: displayScore,
       message: isStrong ? '强：长度和字符组合较好' : '中：建议继续增强主密码',
     );
   }
@@ -285,5 +286,82 @@ class MasterPasswordPolicy {
         .where((part) => part.length >= 3)
         .length;
     return password.length >= 20 && words >= 3;
+  }
+}
+
+class EntryPasswordPolicy {
+  static const minLength = 8;
+
+  static MasterPasswordPolicyResult evaluate(String password) {
+    final trimmed = password.trim();
+    if (trimmed.isEmpty) {
+      return const MasterPasswordPolicyResult(
+        isAcceptable: false,
+        label: MasterPasswordStrengthLabel.weak,
+        score: 0,
+        message: '密码不能为空',
+      );
+    }
+    if (trimmed.length < minLength) {
+      return const MasterPasswordPolicyResult(
+        isAcceptable: false,
+        label: MasterPasswordStrengthLabel.weak,
+        score: 1,
+        message: '建议至少 8 个字符',
+      );
+    }
+
+    final forMatch = trimmed.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    if (MasterPasswordPolicy._commonPasswords.contains(forMatch) ||
+        MasterPasswordPolicy._isRepeated(trimmed) ||
+        MasterPasswordPolicy._isKeyboardWalk(trimmed)) {
+      return const MasterPasswordPolicyResult(
+        isAcceptable: false,
+        label: MasterPasswordStrengthLabel.weak,
+        score: 1,
+        message: '密码过于常见或容易猜测',
+      );
+    }
+
+    var score = 0;
+    if (trimmed.length >= minLength) {
+      score += 1;
+    }
+    if (trimmed.length >= 12) {
+      score += 1;
+    }
+    if (trimmed.length >= 16) {
+      score += 1;
+    }
+    final classCount = MasterPasswordPolicy._classCount(trimmed);
+    if (classCount >= 3) {
+      score += 1;
+    }
+    if (classCount == 4) {
+      score += 1;
+    }
+    if (MasterPasswordPolicy._isPassphrase(trimmed)) {
+      score += 2;
+    }
+    if (MasterPasswordPolicy._hasDictionaryPattern(trimmed)) {
+      score -= 1;
+    }
+
+    final adjustedScore = score.clamp(0, 5);
+    final label = switch (adjustedScore) {
+      >= 4 => MasterPasswordStrengthLabel.strong,
+      >= 3 => MasterPasswordStrengthLabel.fair,
+      _ => MasterPasswordStrengthLabel.weak,
+    };
+    return MasterPasswordPolicyResult(
+      isAcceptable: adjustedScore >= 3,
+      label: label,
+      score: adjustedScore,
+      message: switch (label) {
+        MasterPasswordStrengthLabel.strong => '强：适合作为保存的条目密码',
+        MasterPasswordStrengthLabel.fair => '中：可用，但建议继续增强',
+        MasterPasswordStrengthLabel.weak => '弱：建议生成更强密码',
+      },
+    );
   }
 }

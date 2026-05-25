@@ -45,6 +45,7 @@ dependencies:
   otp: ^3.1.4
   sqflite_common_ffi: ^2.4.0+3
   sqlite3_flutter_libs: ^0.6.0+eol
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

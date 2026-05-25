@@ -7,6 +7,7 @@ import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/core/sync/sync_models.dart';
 import 'package:secure_box/data/db/sync_state_dao.dart';
 import 'package:secure_box/features/emergency_access/emergency_access_page.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class SecurityCenterPage extends StatefulWidget {
@@ -118,7 +119,7 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Sync conflicts'),
+          title: Text(AppStrings.of(dialogContext).text('syncConflicts')),
           content: SizedBox(
             width: 520,
             child: ConstrainedBox(
@@ -141,7 +142,7 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Close'),
+              child: Text(AppStrings.of(dialogContext).text('close')),
             ),
             FilledButton.icon(
               onPressed: () {
@@ -149,7 +150,11 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
                 unawaited(_downloadLatestEncryptedVault());
               },
               icon: const Icon(Icons.cloud_download_outlined),
-              label: const Text('Download latest encrypted vault'),
+              label: Text(
+                AppStrings.of(
+                  dialogContext,
+                ).text('downloadLatestEncryptedVault'),
+              ),
             ),
           ],
         );
@@ -169,7 +174,11 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
     if (!confirmed) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Master password confirmation failed')),
+        SnackBar(
+          content: Text(
+            AppStrings.of(context).text('masterPasswordConfirmationFailed'),
+          ),
+        ),
       );
       return;
     }
@@ -183,9 +192,11 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
       await _refresh();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Cloud download failed')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('cloudDownloadFailed')),
+        ),
+      );
     }
   }
 
@@ -209,6 +220,7 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return SecureVisualBackground(
       key: const ValueKey('security-center-page'),
       bottomInset: 84,
@@ -223,10 +235,10 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
               children: [
                 SecureReplicaHeader(
-                  title: 'Security Center',
-                  subtitle: 'Vault security overview',
+                  title: strings.text('securityCenterTitle'),
+                  subtitle: strings.text('securityCenterSubtitle'),
                   trailing: IconButton(
-                    tooltip: 'Refresh',
+                    tooltip: strings.text('refresh'),
                     onPressed: snapshot.connectionState == ConnectionState.done
                         ? _refresh
                         : null,
@@ -307,22 +319,23 @@ class _MasterPasswordDialogState extends State<_MasterPasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     return AlertDialog(
-      title: const Text('Confirm master password'),
+      title: Text(strings.text('confirmMasterPasswordTitle')),
       content: TextField(
         key: const ValueKey('sync-conflict-master-password-field'),
         controller: _controller,
         autofocus: true,
         obscureText: true,
-        decoration: const InputDecoration(labelText: 'Master password'),
+        decoration: InputDecoration(labelText: strings.text('masterPassword')),
         onSubmitted: (_) => _submit(),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(strings.text('cancel')),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Download')),
+        FilledButton(onPressed: _submit, child: Text(strings.text('download'))),
       ],
     );
   }
@@ -357,16 +370,17 @@ class _LoadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SecureGlassCard(
+    final strings = AppStrings.of(context);
+    return SecureGlassCard(
       child: Row(
         children: [
-          SizedBox(
+          const SizedBox(
             width: 22,
             height: 22,
             child: CircularProgressIndicator(strokeWidth: 2.4),
           ),
-          SizedBox(width: 12),
-          Text('Loading security posture'),
+          const SizedBox(width: 12),
+          Text(strings.text('loadingSecurityPosture')),
         ],
       ),
     );
@@ -389,15 +403,16 @@ class _PasswordHealthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final report = this.report;
     if (isLoading) {
-      return const _StatusCard(
+      return _StatusCard(
         icon: Icons.health_and_safety_outlined,
-        title: 'Password health',
-        headline: 'Checking local vault',
-        detail: 'Decrypting happens locally for this explicit check only.',
+        title: strings.text('healthTitle'),
+        headline: strings.text('checkingLocalVault'),
+        detail: strings.text('checkingLocalVault'),
         tone: SecureVisualColors.blue,
-        action: SizedBox(
+        action: const SizedBox(
           width: 22,
           height: 22,
           child: CircularProgressIndicator(strokeWidth: 2.4),
@@ -408,18 +423,20 @@ class _PasswordHealthCard extends StatelessWidget {
     if (report == null) {
       return _StatusCard(
         icon: Icons.health_and_safety_outlined,
-        title: 'Password health',
-        headline: error == null ? 'Local check not run' : 'Local check failed',
+        title: strings.text('healthTitle'),
+        headline: error == null
+            ? strings.text('localCheckNotRun')
+            : strings.text('localCheckFailed'),
         detail: error == null
-            ? 'Run an explicit on-device check before decrypting saved items for analysis.'
-            : 'The vault stayed local; try again after confirming it is unlocked.',
+            ? strings.text('localCheckNotRunDetail')
+            : strings.text('localCheckFailedDetail'),
         tone: error == null
             ? SecureVisualColors.blue
             : SecureVisualColors.warning,
         action: OutlinedButton.icon(
           onPressed: onAnalyze,
           icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Run local check'),
+          label: Text(strings.text('runLocalCheck')),
         ),
       );
     }
@@ -427,14 +444,14 @@ class _PasswordHealthCard extends StatelessWidget {
     final weak = report.categoryCounts[HealthCategory.weak] ?? 0;
     final reused = report.categoryCounts[HealthCategory.reused] ?? 0;
     final stale = report.categoryCounts[HealthCategory.stale] ?? 0;
-    final headline = '${report.score}/100 health score';
+    final headline = '${report.score}/100 ${strings.text('healthScoreSuffix')}';
     final detail = report.findings.isEmpty
-        ? '${report.totalItems} saved items checked locally.'
-        : '$weak weak, $reused reused, $stale stale passwords found locally.';
+        ? '${report.totalItems} ${strings.text('savedItemsCheckedLocally')}'
+        : '$weak ${strings.text('weakCountLabel')}, $reused ${strings.text('reusedCountLabel')}, $stale ${strings.text('staleCountLabel')} ${strings.text('foundLocallySuffix')}';
 
     return _StatusCard(
       icon: Icons.health_and_safety_outlined,
-      title: 'Password health',
+      title: strings.text('healthTitle'),
       headline: headline,
       detail: detail,
       tone: report.score >= 80
@@ -443,7 +460,7 @@ class _PasswordHealthCard extends StatelessWidget {
       action: TextButton.icon(
         onPressed: onAnalyze,
         icon: const Icon(Icons.refresh_rounded),
-        label: const Text('Run again'),
+        label: Text(strings.text('runAgain')),
       ),
     );
   }
@@ -465,14 +482,15 @@ class _CloudSyncCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final conflicts = this.conflicts;
     final blobConflicts = this.blobConflicts;
     if (conflicts == null || blobConflicts == null) {
       return _StatusCard(
         icon: Icons.cloud_sync_outlined,
-        title: 'Cloud sync',
-        headline: 'Conflict state unavailable',
-        detail: 'Cloud sync is not connected or local sync state is missing.',
+        title: strings.text('cloudSyncTitle'),
+        headline: strings.text('conflictStateUnavailable'),
+        detail: strings.text('cloudSyncMissingDetail'),
         tone: SecureVisualColors.warning,
       );
     }
@@ -480,13 +498,13 @@ class _CloudSyncCard extends StatelessWidget {
     final count = conflicts.length + blobConflicts.length;
     return _StatusCard(
       icon: Icons.cloud_sync_outlined,
-      title: 'Cloud sync',
+      title: strings.text('cloudSyncTitle'),
       headline: count == 0
-          ? 'No unresolved conflicts'
-          : '$count unresolved ${count == 1 ? 'conflict' : 'conflicts'}',
+          ? strings.text('noUnresolvedConflicts')
+          : '$count ${strings.text('unresolvedConflict')}',
       detail: count == 0
-          ? 'Local encrypted sync state has no pending conflict records.'
-          : 'Review safe metadata and download the latest encrypted vault when ready.',
+          ? strings.text('syncNoPendingConflictsDetail')
+          : strings.text('syncReviewMetadataDetail'),
       tone: count == 0 ? SecureVisualColors.success : SecureVisualColors.danger,
       onTap: count == 0 ? null : onOpenConflicts,
       action: count == 0
@@ -494,7 +512,7 @@ class _CloudSyncCard extends StatelessWidget {
           : TextButton.icon(
               onPressed: onOpenConflicts,
               icon: const Icon(Icons.list_alt_rounded),
-              label: const Text('Review conflicts'),
+              label: Text(strings.text('reviewConflicts')),
             ),
     );
   }
@@ -508,6 +526,7 @@ class _SyncConflictListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -522,9 +541,21 @@ class _SyncConflictListItem extends StatelessWidget {
           spacing: 12,
           runSpacing: 6,
           children: [
-            Text('Local revision ${conflict.clientRevision}'),
-            Text('Cloud revision ${conflict.serverRevision}'),
-            Text('Local timestamp ${conflict.createdAt}'),
+            Text(
+              [
+                strings.text('localRevision'),
+                conflict.clientRevision,
+              ].join(' '),
+            ),
+            Text(
+              [
+                strings.text('cloudRevision'),
+                conflict.serverRevision,
+              ].join(' '),
+            ),
+            Text(
+              [strings.text('localTimestamp'), conflict.createdAt].join(' '),
+            ),
           ],
         ),
       ],
@@ -540,11 +571,12 @@ class _SyncBlobConflictListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Encrypted blob',
+          strings.text('encryptedBlob'),
           style: theme.textTheme.labelLarge?.copyWith(
             fontWeight: FontWeight.w800,
           ),
@@ -561,9 +593,21 @@ class _SyncBlobConflictListItem extends StatelessWidget {
           spacing: 12,
           runSpacing: 6,
           children: [
-            Text('Local revision ${conflict.clientRevision}'),
-            Text('Cloud revision ${conflict.serverRevision}'),
-            Text('Local timestamp ${conflict.createdAt}'),
+            Text(
+              [
+                strings.text('localRevision'),
+                conflict.clientRevision,
+              ].join(' '),
+            ),
+            Text(
+              [
+                strings.text('cloudRevision'),
+                conflict.serverRevision,
+              ].join(' '),
+            ),
+            Text(
+              [strings.text('localTimestamp'), conflict.createdAt].join(' '),
+            ),
           ],
         ),
       ],
@@ -579,13 +623,14 @@ class _DeviceTrustCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final devices = this.devices;
     if (devices == null) {
       return _StatusCard(
         icon: Icons.devices_other_outlined,
-        title: 'Device trust',
-        headline: 'Device list unavailable',
-        detail: 'Sign in to cloud sync to review trusted devices.',
+        title: strings.text('deviceTrust'),
+        headline: strings.text('deviceListUnavailable'),
+        detail: strings.text('deviceTrustSignInDetail'),
         tone: SecureVisualColors.warning,
       );
     }
@@ -614,14 +659,14 @@ class _DeviceTrustCard extends StatelessWidget {
     final riskCount = untrusted + missingMetadata + staleSync;
     return _StatusCard(
       icon: Icons.devices_other_outlined,
-      title: 'Device trust',
+      title: strings.text('deviceTrust'),
       headline: active == 0
-          ? 'No cloud devices connected'
-          : '$trusted of $active active devices trusted',
+          ? strings.text('noCloudDevicesConnected')
+          : '$trusted / $active ${strings.text('activeDevicesTrusted')}',
       detail: active == 0
-          ? 'Cloud sync can register this device when you sign in.'
-          : '$revoked revoked, $riskCount risk ${riskCount == 1 ? 'indicator' : 'indicators'}: '
-                '$untrusted untrusted, $missingMetadata missing metadata, $staleSync stale sync.',
+          ? strings.text('deviceCanRegisterAfterSignIn')
+          : '$revoked ${strings.text('revokedStatus')}, $riskCount ${strings.text('deviceRiskSummarySuffix')} '
+                '$untrusted ${strings.text('untrustedDevices')}, $missingMetadata ${strings.text('missingDeviceMetadata')}, $staleSync ${strings.text('staleDeviceSync')}.',
       tone: riskCount == 0
           ? SecureVisualColors.success
           : untrusted > 0
@@ -649,21 +694,21 @@ class _EmergencyAccessCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
     final contacts = this.contacts;
     final grants = this.grants;
     if (contacts == null || grants == null) {
       return _StatusCard(
         icon: Icons.contact_emergency_outlined,
-        title: 'Emergency access',
-        headline: 'Emergency access unavailable',
-        detail:
-            'Cloud sync is not connected or emergency metadata is unavailable.',
+        title: strings.text('emergencyAccess'),
+        headline: strings.text('emergencyAccessUnavailable'),
+        detail: strings.text('emergencyMetadataUnavailableDetail'),
         tone: SecureVisualColors.warning,
         action: TextButton.icon(
           key: const ValueKey('security-center-manage-emergency-access'),
           onPressed: onOpen,
           icon: const Icon(Icons.open_in_new_rounded),
-          label: const Text('Manage'),
+          label: Text(strings.text('manage')),
         ),
       );
     }
@@ -681,11 +726,9 @@ class _EmergencyAccessCard extends StatelessWidget {
         .length;
     return _StatusCard(
       icon: Icons.contact_emergency_outlined,
-      title: 'Emergency access',
-      headline:
-          '$activeContacts active ${activeContacts == 1 ? 'contact' : 'contacts'}',
-      detail:
-          '$pendingGrants ${pendingGrants == 1 ? 'grant' : 'grants'} configured for delayed recovery.',
+      title: strings.text('emergencyAccess'),
+      headline: '$activeContacts ${strings.text('activeContactCount')}',
+      detail: '$pendingGrants ${strings.text('configuredGrantCount')}',
       tone: activeContacts > 0
           ? SecureVisualColors.success
           : SecureVisualColors.blue,
@@ -694,7 +737,7 @@ class _EmergencyAccessCard extends StatelessWidget {
         key: const ValueKey('security-center-manage-emergency-access'),
         onPressed: onOpen,
         icon: const Icon(Icons.open_in_new_rounded),
-        label: const Text('Manage'),
+        label: Text(strings.text('manage')),
       ),
     );
   }
@@ -720,36 +763,31 @@ class _RoadmapGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
+    final strings = AppStrings.of(context);
+    final items = [
       _RoadmapItem(
         keyValue: 'security-center-migration',
         icon: Icons.move_up_rounded,
-        title: 'Migration',
-        detail: 'Guided importer and export checks.',
-      ),
-      _RoadmapItem(
-        keyValue: 'security-center-autofill',
-        icon: Icons.password_rounded,
-        title: 'Autofill',
-        detail: 'System autofill posture and setup status.',
+        title: strings.text('migration'),
+        detail: strings.text('roadmapMigrationDetail'),
       ),
       _RoadmapItem(
         keyValue: 'security-center-attachments',
         icon: Icons.attach_file_rounded,
-        title: 'Attachments',
-        detail: 'Encrypted file storage readiness.',
+        title: strings.text('attachments'),
+        detail: strings.text('roadmapAttachmentsDetail'),
       ),
       _RoadmapItem(
         keyValue: 'security-center-passkeys',
         icon: Icons.key_rounded,
-        title: 'Passkeys',
-        detail: 'Passkey vault support entry point.',
+        title: strings.text('passkeys'),
+        detail: strings.text('roadmapPasskeysDetail'),
       ),
       _RoadmapItem(
         keyValue: 'security-center-emergency-access',
         icon: Icons.contact_emergency_outlined,
-        title: 'Emergency',
-        detail: 'Recovery contacts and delayed access.',
+        title: strings.text('emergency'),
+        detail: strings.text('roadmapEmergencyDetail'),
       ),
     ];
 

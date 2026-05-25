@@ -72,7 +72,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('security-center-page')), findsOneWidget);
-    expect(find.text('Security Center'), findsOneWidget);
+    expect(find.text('安全中心'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('security-center-health-card')),
       findsOneWidget,
@@ -90,29 +90,22 @@ void main() {
       find.byKey(const ValueKey('security-center-emergency-card')),
       findsOneWidget,
     );
-    expect(find.text('Emergency access'), findsOneWidget);
-    expect(find.textContaining('1 active contact'), findsOneWidget);
-    expect(find.textContaining('1 grant'), findsOneWidget);
+    expect(find.text('紧急访问'), findsOneWidget);
+    expect(find.textContaining('1 个活动联系人'), findsOneWidget);
+    expect(find.textContaining('1 个授权'), findsOneWidget);
     expect(healthCalls, 0);
 
     await _dragPrimaryList(tester, 520);
-    await tester.tap(find.text('Run local check'));
+    await tester.tap(find.text('运行本地检查'));
     await tester.pumpAndSettle();
 
     await _dragPrimaryList(tester, 240);
     expect(healthCalls, 1);
-    expect(find.text('96/100 health score'), findsOneWidget);
+    expect(find.text('96/100 健康分'), findsOneWidget);
 
     expect(
       find.byKey(
         const ValueKey('security-center-migration'),
-        skipOffstage: false,
-      ),
-      findsWidgets,
-    );
-    expect(
-      find.byKey(
-        const ValueKey('security-center-autofill'),
         skipOffstage: false,
       ),
       findsWidgets,
@@ -195,7 +188,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('2 unresolved'), findsOneWidget);
+    expect(find.textContaining('2 个未解决冲突'), findsOneWidget);
     expect(find.textContaining('remote-secret-ciphertext'), findsNothing);
     expect(find.textContaining('another-remote-secret'), findsNothing);
   });
@@ -223,16 +216,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('1 unresolved'), findsOneWidget);
+    expect(find.textContaining('1 个未解决冲突'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey('security-center-conflicts-card')),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Encrypted blob'), findsOneWidget);
+    expect(find.text('加密数据块'), findsOneWidget);
     expect(find.text('blob-1'), findsOneWidget);
-    expect(find.text('Local revision 1'), findsOneWidget);
-    expect(find.text('Cloud revision 3'), findsOneWidget);
+    expect(find.text('本地版本 1'), findsOneWidget);
+    expect(find.text('云端版本 3'), findsOneWidget);
     expect(find.textContaining('blob-secret-ciphertext'), findsNothing);
     expect(find.textContaining('recovery.txt'), findsNothing);
     expect(find.textContaining('plaintext'), findsNothing);
@@ -266,11 +259,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Sync conflicts'), findsOneWidget);
+    expect(find.text('同步冲突'), findsOneWidget);
     expect(find.text('item-1'), findsOneWidget);
-    expect(find.text('Local revision 1'), findsOneWidget);
-    expect(find.text('Cloud revision 2'), findsOneWidget);
-    expect(find.text('Local timestamp 1770000000000'), findsOneWidget);
+    expect(find.text('本地版本 1'), findsOneWidget);
+    expect(find.text('云端版本 2'), findsOneWidget);
+    expect(find.text('本地时间戳 1770000000000'), findsOneWidget);
     expect(find.textContaining('remote-secret-ciphertext'), findsNothing);
     expect(find.textContaining('Bank'), findsNothing);
     expect(find.textContaining('alice'), findsNothing);
@@ -320,25 +313,25 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('1 unresolved'), findsOneWidget);
+      expect(find.textContaining('1 个未解决冲突'), findsOneWidget);
 
       await tester.tap(
         find.byKey(const ValueKey('security-center-conflicts-card')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Download latest encrypted vault'));
+      await tester.tap(find.text('下载最新加密密码库'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('sync-conflict-master-password-field')),
         'local-master-password',
       );
-      await tester.tap(find.text('Download'));
+      await tester.tap(find.text('下载'));
       await tester.pumpAndSettle();
 
       expect(unlockPassword, 'local-master-password');
       expect(downloadPassword, 'local-master-password');
       expect(find.textContaining('local-master-password'), findsNothing);
-      expect(find.textContaining('No unresolved conflicts'), findsOneWidget);
+      expect(find.textContaining('没有未解决冲突'), findsOneWidget);
     },
   );
 
@@ -386,9 +379,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('1 of 2 active devices trusted'), findsOneWidget);
-      expect(find.textContaining('1 revoked'), findsOneWidget);
-      expect(find.textContaining('3 risk'), findsOneWidget);
+      expect(find.text('1 / 2 台活动设备受信任'), findsOneWidget);
+      expect(find.textContaining('1 已撤销'), findsOneWidget);
+      expect(find.textContaining('3 个风险指标'), findsOneWidget);
       expect(
         find.textContaining('ciphertext-payload-should-not-render'),
         findsNothing,

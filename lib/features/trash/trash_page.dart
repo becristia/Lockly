@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class TrashPage extends StatefulWidget {
@@ -41,7 +42,7 @@ class _TrashPageState extends State<TrashPage> {
       setState(() {
         _items = const <VaultListItem>[];
         _isLoading = false;
-        _errorMessage = '暂时无法读取回收站，请重试。';
+        _errorMessage = AppStrings.of(context).text('trashLoadFailed');
       });
     }
   }
@@ -57,7 +58,9 @@ class _TrashPageState extends State<TrashPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('恢复失败，请重试。')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('restoreFailed'))),
+      );
     }
   }
 
@@ -65,19 +68,21 @@ class _TrashPageState extends State<TrashPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('永久删除'),
-        content: Text('确定要永久删除「${item.title}」吗？此操作不可撤销。'),
+        title: Text(AppStrings.of(ctx).text('permanentDelete')),
+        content: Text(
+          '${AppStrings.of(ctx).text('permanentDeleteMessagePrefix')}${item.title}${AppStrings.of(ctx).text('permanentDeleteMessageSuffix')}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
+            child: Text(AppStrings.of(ctx).text('cancel')),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: TextButton.styleFrom(
               foregroundColor: SecureVisualColors.danger,
             ),
-            child: const Text('永久删除'),
+            child: Text(AppStrings.of(ctx).text('permanentDelete')),
           ),
         ],
       ),
@@ -96,7 +101,9 @@ class _TrashPageState extends State<TrashPage> {
       if (!mounted) return false;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('删除失败，请重试。')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('deleteFailed'))),
+      );
       return false;
     }
   }
@@ -107,19 +114,21 @@ class _TrashPageState extends State<TrashPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('清空回收站'),
-        content: Text('确定要永久删除回收站中的 ${_items.length} 条记录吗？此操作不可撤销。'),
+        title: Text(AppStrings.of(ctx).text('emptyTrash')),
+        content: Text(
+          '${AppStrings.of(ctx).text('emptyTrashMessagePrefix')} ${_items.length} ${AppStrings.of(ctx).text('emptyTrashMessageSuffix')}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
+            child: Text(AppStrings.of(ctx).text('cancel')),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             style: TextButton.styleFrom(
               foregroundColor: SecureVisualColors.danger,
             ),
-            child: const Text('清空'),
+            child: Text(AppStrings.of(ctx).text('clearTrash')),
           ),
         ],
       ),
@@ -137,32 +146,35 @@ class _TrashPageState extends State<TrashPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('清空失败，请重试。')));
+      ).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('clearTrashFailed'))),
+      );
     }
   }
 
-  String _relativeTime(int timestamp) {
+  String _relativeTime(int timestamp, AppStrings strings) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final diff = now - timestamp;
-    if (diff < 0) return '刚刚';
+    if (diff < 0) return strings.text('justNow');
 
     final seconds = diff ~/ 1000;
-    if (seconds < 60) return '刚刚';
+    if (seconds < 60) return strings.text('justNow');
     final minutes = seconds ~/ 60;
-    if (minutes < 60) return '$minutes 分钟前';
+    if (minutes < 60) return '$minutes ${strings.text('minutesAgo')}';
     final hours = minutes ~/ 60;
-    if (hours < 24) return '$hours 小时前';
+    if (hours < 24) return '$hours ${strings.text('hoursAgo')}';
     final days = hours ~/ 24;
-    if (days < 30) return '$days 天前';
+    if (days < 30) return '$days ${strings.text('daysAgo')}';
     final months = days ~/ 30;
-    if (months < 12) return '$months 个月前';
+    if (months < 12) return '$months ${strings.text('monthsAgo')}';
     final years = days ~/ 365;
-    return '$years 年前';
+    return '$years ${strings.text('yearsAgo')}';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return SecureVisualBackground(
       bottomInset: _items.isNotEmpty ? 72 : 0,
@@ -171,7 +183,7 @@ class _TrashPageState extends State<TrashPage> {
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
-          title: const Text('回收站'),
+          title: Text(strings.trashTitleWithCount(_items.length)),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () => Navigator.of(context).pop(),
@@ -201,7 +213,7 @@ class _TrashPageState extends State<TrashPage> {
                         ),
                       ),
                       icon: const Icon(Icons.delete_sweep_rounded, size: 20),
-                      label: const Text('清空回收站'),
+                      label: Text(strings.text('emptyTrash')),
                     ),
                   ),
                 ),
@@ -212,6 +224,7 @@ class _TrashPageState extends State<TrashPage> {
   }
 
   Widget _buildErrorView(ThemeData theme) {
+    final strings = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -224,7 +237,7 @@ class _TrashPageState extends State<TrashPage> {
               color: SecureVisualColors.danger,
             ),
             const SizedBox(height: 16),
-            Text('读取失败', style: theme.textTheme.titleMedium),
+            Text(strings.vaultLoadFailedTitle, style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
               _errorMessage!,
@@ -232,7 +245,7 @@ class _TrashPageState extends State<TrashPage> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            OutlinedButton(onPressed: _loadItems, child: const Text('重试')),
+            OutlinedButton(onPressed: _loadItems, child: Text(strings.retry)),
           ],
         ),
       ),
@@ -240,6 +253,7 @@ class _TrashPageState extends State<TrashPage> {
   }
 
   Widget _buildEmptyView(ThemeData theme) {
+    final strings = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -252,10 +266,10 @@ class _TrashPageState extends State<TrashPage> {
               color: SecureVisualColors.muted,
             ),
             const SizedBox(height: 16),
-            Text('回收站为空', style: theme.textTheme.titleMedium),
+            Text(strings.text('trashEmpty'), style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              '删除的密码记录会出现在这里。',
+              strings.text('trashEmptyMessage'),
               style: theme.textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -266,6 +280,9 @@ class _TrashPageState extends State<TrashPage> {
   }
 
   Widget _buildItemList(ThemeData theme) {
+    final strings = AppStrings.of(context);
+    final deletedRecords =
+        '${_items.length} ${strings.text('deletedRecords')}';
     return RefreshIndicator(
       onRefresh: _loadItems,
       child: ListView(
@@ -274,7 +291,7 @@ class _TrashPageState extends State<TrashPage> {
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
-              '${_items.length} 条已删除记录',
+              deletedRecords,
               style: theme.textTheme.titleMedium,
             ),
           ),
@@ -288,7 +305,7 @@ class _TrashPageState extends State<TrashPage> {
                     onRestore: () => _restoreItem(_items[i]),
                     onPermanentlyDelete: () =>
                         _confirmPermanentlyDelete(_items[i]),
-                    relativeTime: _relativeTime(_items[i].deletedAt!),
+                    relativeTime: _relativeTime(_items[i].deletedAt!, strings),
                     showDivider: i < _items.length - 1,
                   ),
               ],
@@ -318,6 +335,7 @@ class _TrashItemTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final strings = AppStrings.of(context);
 
     return Dismissible(
       key: Key('trash_item_${item.id}'),
@@ -365,7 +383,7 @@ class _TrashItemTile extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         item.username.isEmpty
-                            ? '未填写用户名'
+                            ? strings.text('missingUsernameTrash')
                             : '${item.username}  ·  $relativeTime',
                         style: theme.textTheme.bodySmall,
                       ),
@@ -373,14 +391,14 @@ class _TrashItemTile extends StatelessWidget {
                   ),
                 ),
                 _ActionChip(
-                  label: '恢复',
+                  label: strings.text('restore'),
                   icon: Icons.restore_rounded,
                   color: SecureVisualColors.blue,
                   onTap: onRestore,
                 ),
                 const SizedBox(width: 8),
                 _ActionChip(
-                  label: '永久删除',
+                  label: strings.text('permanentDelete'),
                   icon: Icons.delete_forever_rounded,
                   color: SecureVisualColors.danger,
                   onTap: () => onPermanentlyDelete(),

@@ -163,8 +163,8 @@ void main() {
       'cleartext',
       '{"mac":"mac","schema":"lockly-item-v1","username":"alice"}',
       '{"mac":"password=plaintext-secret","schema":"lockly-item-v1"}',
-      '{"mac":"dek-clear","schema":"lockly-item-v1"}',
-      '{"mac":"note-clear","schema":"lockly-item-v1"}',
+      '{"mac":"masterPassword","schema":"lockly-item-v1"}',
+      '{"mac":"rawKey","schema":"lockly-item-v1"}',
       '[{"mac":"mac","schema":"lockly-item-v1"}]',
     ];
 
@@ -181,6 +181,20 @@ void main() {
         throwsFormatException,
       );
     }
+  });
+
+  test('sync item aad allows opaque mac values with incidental words', () {
+    final payload = SyncItemPayload.fromJson({
+      'ciphertext': 'ciphertext',
+      'nonce': 'nonce',
+      'aad':
+          '{"mac":"dek-note-password-key-passkey","schema":"lockly-item-v1"}',
+      'revision': 1,
+      'deleted': false,
+      'client_updated_at': '2026-05-13T10:00:00Z',
+    });
+
+    expect(payload.aad, contains('dek-note-password-key-passkey'));
   });
 
   test('sync item upload payload marks soft-deleted encrypted rows', () {
