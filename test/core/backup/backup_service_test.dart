@@ -24,6 +24,7 @@ import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -286,6 +287,188 @@ void main() {
     expect(jsonEncode(backup.toJson()), isNot(contains('secret-password')));
     expect(jsonEncode(backup.toJson()), isNot(contains('docs-password')));
   });
+
+  test(
+    'exportSelectedItemsBackup exports requested active items only',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final githubId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final docsId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'docs-password',
+          notes: 'not exported',
+          tags: const ['docs'],
+        ),
+      );
+      await source.vaultService.addBlob(
+        itemId: githubId,
+        displayName: 'github.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('github blob bytes')),
+      );
+      await source.vaultService.addBlob(
+        itemId: docsId,
+        displayName: 'docs.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('docs blob bytes')),
+      );
+
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [githubId],
+        includeBlobs: true,
+        includeHistory: false,
+      );
+      final jsonText = jsonEncode(backup.toJson());
+
+      expect(backup.scope, 'selected');
+      expect(backup.itemCount, 1);
+      expect(backup.items.map((item) => item.id), [githubId]);
+      expect(backup.items.map((item) => item.id), isNot(contains(docsId)));
+      expect(backup.blobs.map((blob) => blob.itemId), [githubId]);
+      expect(backup.historyItems, isEmpty);
+      expect(jsonText, isNot(contains('secret-password')));
+      expect(jsonText, isNot(contains('docs-password')));
+      expect(jsonText, isNot(contains('private note')));
+      expect(jsonText, isNot(contains('not exported')));
+    },
+  );
+
+  test('exportSelectedItemsBackup rejects empty selection', () async {
+    final source = await _buildHarness();
+    await source.vaultService.createVault(masterPassword: 'source-master');
+    await source.vaultService.unlock(masterPassword: 'source-master');
+
+    await expectLater(
+      source.backupService.exportSelectedItemsBackup(itemIds: const []),
+      throwsA(
+        isA<ArgumentError>().having((error) => error.name, 'name', 'itemIds'),
+      ),
+    );
+  });
+
+  test(
+    'exportSelectedItemsBackup deduplicates ids and preserves selected order',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final githubId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final docsId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'docs-password',
+          notes: 'docs note',
+          tags: const ['docs'],
+        ),
+      );
+
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [docsId, githubId, docsId],
+        includeBlobs: false,
+        includeHistory: false,
+      );
+
+      expect(backup.items.map((item) => item.id), [docsId, githubId]);
+      expect(backup.blobs, isEmpty);
+      expect(backup.historyItems, isEmpty);
+    },
+  );
+
+  test(
+    'exportSelectedItemsBackup includes selected history and excludes blobs when requested',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final docsId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'old-docs-password',
+          notes: 'docs note',
+          tags: const ['docs'],
+        ),
+      );
+      await source.vaultService.updateItem(
+        docsId,
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'new-docs-password',
+          notes: 'docs note',
+          tags: const ['docs'],
+        ),
+      );
+      final mailId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Mail',
+          website: 'https://mail.example',
+          username: 'mail@example.com',
+          password: 'old-mail-password',
+          notes: 'mail note',
+          tags: const ['mail'],
+        ),
+      );
+      await source.vaultService.updateItem(
+        mailId,
+        PasswordEntry(
+          title: 'Mail',
+          website: 'https://mail.example',
+          username: 'mail@example.com',
+          password: 'new-mail-password',
+          notes: 'mail note',
+          tags: const ['mail'],
+        ),
+      );
+      await source.vaultService.addBlob(
+        itemId: docsId,
+        displayName: 'docs.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('docs blob bytes')),
+      );
+
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [docsId],
+        includeBlobs: false,
+        includeHistory: true,
+      );
+
+      expect(backup.blobs, isEmpty);
+      expect(
+        backup.historyItems.map((item) => item.entryId),
+        everyElement(docsId),
+      );
+      expect(jsonEncode(backup.toJson()), isNot(contains('old-docs-password')));
+      expect(jsonEncode(backup.toJson()), isNot(contains('old-mail-password')));
+    },
+  );
 
   test('item backup cannot be imported with overwrite mode', () async {
     final source = await _buildHarness();
@@ -706,6 +889,276 @@ void main() {
       );
       expect(await target.repository.metaDao.get(), isNull);
       expect(await target.repository.itemsDao.rawRowsForTest(), isEmpty);
+    },
+  );
+
+  test(
+    'conflict-aware import rejects a wrong source master password without writing data',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: (await source.vaultService.listItems())
+            .map((item) => item.id)
+            .toList(),
+      );
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final localId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Local',
+          website: 'https://local.example',
+          username: 'local@example.com',
+          password: 'local-password',
+          notes: 'local note',
+          tags: const ['local'],
+        ),
+      );
+
+      await expectLater(
+        target.backupService.importBackupSkippingIdentityConflicts(
+          json: backup.toJson(),
+          masterPassword: 'wrong-master',
+        ),
+        throwsA(isA<VaultUnlockException>()),
+      );
+
+      expect(
+        (await target.vaultService.getItem(localId)).password,
+        'local-password',
+      );
+      expect(await target.vaultService.listItems(), hasLength(1));
+    },
+  );
+
+  test(
+    'conflict-aware import skips local identity conflicts and re-encrypts accepted items',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final conflictId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://www.github.com/',
+          username: 'User@Example.com',
+          password: 'source-conflict-password',
+          notes: 'source conflict',
+          tags: const ['dev'],
+        ),
+      );
+      final importId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'source-docs-password',
+          notes: 'source docs',
+          tags: const ['docs'],
+        ),
+      );
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [conflictId, importId],
+        includeBlobs: true,
+        includeHistory: false,
+      );
+      final sourceImportedRow = await source.repository.itemsDao.byId(importId);
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final localConflictId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: ' github ',
+          website: 'http://github.com',
+          username: 'user@example.com',
+          password: 'target-password',
+          notes: 'local wins',
+          tags: const ['local'],
+        ),
+      );
+
+      final result = await target.backupService
+          .importBackupSkippingIdentityConflicts(
+            json: backup.toJson(),
+            masterPassword: 'source-master',
+          );
+      final targetImportedRow = await target.repository.itemsDao.byId(importId);
+
+      expect(result.importedCount, 1);
+      expect(result.skippedCount, 1);
+      expect(result.conflicts.single.itemId, conflictId);
+      expect(result.conflicts.single.title, 'GitHub');
+      expect(
+        result.conflicts.single.reason,
+        BackupImportConflictReason.existingLocalEntry,
+      );
+      expect(
+        (await target.vaultService.getItem(localConflictId)).password,
+        'target-password',
+      );
+      expect(
+        (await target.vaultService.getItem(importId)).password,
+        'source-docs-password',
+      );
+      expect(
+        targetImportedRow!.ciphertext,
+        isNot(sourceImportedRow!.ciphertext),
+      );
+      expect(targetImportedRow.nonce, isNot(sourceImportedRow.nonce));
+
+      target.vaultService.lock();
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      expect(
+        (await target.vaultService.getItem(importId)).password,
+        'source-docs-password',
+      );
+    },
+  );
+
+  test(
+    'conflict-aware import skips duplicate incoming package identities after the first accepted item',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final firstId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com/',
+          username: 'User@Example.com',
+          password: 'first-password',
+          notes: 'first wins',
+          tags: const ['dev'],
+        ),
+      );
+      final duplicateId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: ' github ',
+          website: 'http://www.github.com',
+          username: 'user@example.com',
+          password: 'duplicate-password',
+          notes: 'duplicate loses',
+          tags: const ['dev'],
+        ),
+      );
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [firstId, duplicateId],
+        includeBlobs: false,
+        includeHistory: false,
+      );
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+
+      final result = await target.backupService
+          .importBackupSkippingIdentityConflicts(
+            json: backup.toJson(),
+            masterPassword: 'source-master',
+          );
+
+      expect(result.importedCount, 1);
+      expect(result.skippedCount, 1);
+      expect(result.conflicts.single.itemId, duplicateId);
+      expect(
+        result.conflicts.single.reason,
+        BackupImportConflictReason.duplicateIncomingEntry,
+      );
+      expect(
+        (await target.vaultService.getItem(firstId)).password,
+        'first-password',
+      );
+      await expectLater(
+        target.vaultService.getItem(duplicateId),
+        throwsA(isA<VaultItemNotFoundException>()),
+      );
+    },
+  );
+
+  test(
+    'conflict-aware import conflict results expose only safe fields',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final conflictId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'source-secret-password',
+          notes: 'source private notes',
+          tags: const ['dev'],
+          totpSecret: 'BASE32TOTPSECRET',
+          passkey: const PasskeyRecord(
+            relyingPartyId: 'github.com',
+            credentialId: 'credential-id-secret',
+            userHandle: 'user-handle-secret',
+            displayName: 'passkey display',
+            publicKeyAlgorithm: 'ES256',
+            platform: 'android',
+            platformReady: true,
+          ),
+        ),
+      );
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [conflictId],
+        includeBlobs: false,
+        includeHistory: false,
+      );
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'github',
+          website: 'http://www.github.com/',
+          username: 'USER@example.com',
+          password: 'target-secret-password',
+          notes: 'target private notes',
+          tags: const ['local'],
+        ),
+      );
+
+      final result = await target.backupService
+          .importBackupSkippingIdentityConflicts(
+            json: backup.toJson(),
+            masterPassword: 'source-master',
+          );
+      final conflict = result.conflicts.single;
+      final exposed = jsonEncode({
+        'itemId': conflict.itemId,
+        'title': conflict.title,
+        'website': conflict.website,
+        'username': conflict.username,
+        'reason': conflict.reason.name,
+        'string': conflict.toString(),
+      });
+
+      expect(conflict.itemId, conflictId);
+      expect(conflict.title, 'GitHub');
+      expect(conflict.website, 'https://github.com');
+      expect(conflict.username, 'user@example.com');
+      expect(exposed, isNot(contains('source-secret-password')));
+      expect(exposed, isNot(contains('source private notes')));
+      expect(exposed, isNot(contains('BASE32TOTPSECRET')));
+      expect(exposed, isNot(contains('credential-id-secret')));
+      expect(exposed, isNot(contains('user-handle-secret')));
     },
   );
 
@@ -1342,6 +1795,109 @@ void main() {
       );
     },
   );
+
+  test(
+    'AppServices LAN transfer export and import use selected conflict-aware backups',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final githubId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'github-password',
+          notes: 'github note',
+          tags: const ['dev'],
+        ),
+      );
+      final docsId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Docs',
+          website: 'https://docs.example',
+          username: 'docs@example.com',
+          password: 'docs-password',
+          notes: 'docs note',
+          tags: const ['docs'],
+        ),
+      );
+      final sourceServices = AppServices(
+        hasVault: true,
+        initialShellState: AppShellState.unlocked,
+        trackActivity: false,
+        vaultService: source.vaultService,
+        backupService: source.backupService,
+      );
+      addTearDown(sourceServices.dispose);
+
+      final backupJson = await sourceServices.exportLanTransferBackupJson(
+        itemIds: [githubId],
+        includeBlobs: false,
+        includeHistory: false,
+      );
+      final decoded = jsonDecode(backupJson) as Map<String, Object?>;
+
+      expect(decoded['scope'], 'selected');
+      expect(
+        (decoded['items']! as List<Object?>).single,
+        isA<Map<Object?, Object?>>().having(
+          (item) => item['id'],
+          'id',
+          githubId,
+        ),
+      );
+      expect(jsonEncode(decoded), isNot(contains('github-password')));
+      expect(jsonEncode(decoded), isNot(contains('docs-password')));
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final targetServices = AppServices(
+        hasVault: true,
+        initialShellState: AppShellState.unlocked,
+        trackActivity: false,
+        vaultService: target.vaultService,
+        backupService: target.backupService,
+      );
+      addTearDown(targetServices.dispose);
+
+      final result = await targetServices.importLanTransferBackupJson(
+        backupJson: backupJson,
+        sourceMasterPassword: 'source-master',
+      );
+
+      expect(result.importedCount, 1);
+      expect(result.skippedCount, 0);
+      expect(
+        (await target.vaultService.getItem(githubId)).password,
+        'github-password',
+      );
+      await expectLater(
+        target.vaultService.getItem(docsId),
+        throwsA(isA<VaultItemNotFoundException>()),
+      );
+    },
+  );
+
+  test('AppServices LAN transfer import rejects oversized JSON', () async {
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      trackActivity: false,
+    );
+    addTearDown(services.dispose);
+
+    final oversizedBackup = ' ' * (AppServices.maxImportedBackupJsonBytes + 1);
+
+    await expectLater(
+      services.importLanTransferBackupJson(
+        backupJson: oversizedBackup,
+        sourceMasterPassword: 'source-master',
+      ),
+      throwsA(isA<FormatException>()),
+    );
+  });
 
   test(
     'AppServices import into an empty app restores history and locks shell',

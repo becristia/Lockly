@@ -1185,6 +1185,21 @@ class AppServices {
     return const JsonEncoder.withIndent('  ').convert(backup.toJson());
   }
 
+  Future<String> exportLanTransferBackupJson({
+    required List<String> itemIds,
+    required bool includeBlobs,
+    required bool includeHistory,
+  }) async {
+    final backup = await _lockShellOnIntegrity(
+      () => backupService.exportSelectedItemsBackup(
+        itemIds: itemIds,
+        includeBlobs: includeBlobs,
+        includeHistory: includeHistory,
+      ),
+    );
+    return const JsonEncoder.withIndent('  ').convert(backup.toJson());
+  }
+
   PlaintextCsvImportReport previewPlaintextCsvImport(String csvText) {
     return PlaintextCsvImporter.preview(csvText);
   }
@@ -1227,6 +1242,31 @@ class AppServices {
         ? AppShellState.unlocked
         : AppShellState.locked;
     return importedCount;
+  }
+
+  Future<ConflictAwareBackupImportResult> importLanTransferBackupJson({
+    required String backupJson,
+    required String sourceMasterPassword,
+  }) async {
+    if (backupJson.length > maxImportedBackupJsonBytes) {
+      throw const FormatException('Backup JSON is too large to import safely');
+    }
+
+    final decoded = jsonDecode(backupJson);
+    if (decoded is! Map) {
+      throw const FormatException('Backup JSON root must be an object');
+    }
+    final result = await _lockShellOnIntegrity(
+      () => backupService.importBackupSkippingIdentityConflicts(
+        json: Map<String, Object?>.from(decoded),
+        masterPassword: sourceMasterPassword,
+      ),
+    );
+    _hasVault = true;
+    shellState.value = vaultService.isUnlocked
+        ? AppShellState.unlocked
+        : AppShellState.locked;
+    return result;
   }
 
   Future<void> loginCloudSync({

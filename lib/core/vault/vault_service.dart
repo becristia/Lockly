@@ -63,6 +63,20 @@ class VaultListItem {
   final int? deletedAt;
 }
 
+class VaultItemImportIdentity {
+  const VaultItemImportIdentity({
+    required this.id,
+    required this.title,
+    required this.website,
+    required this.username,
+  });
+
+  final String id;
+  final String title;
+  final String website;
+  final String username;
+}
+
 class TotpListItem {
   TotpListItem({
     required this.id,
@@ -840,6 +854,36 @@ class VaultService {
       }
 
       return List.unmodifiable(reencryptedItems);
+    } finally {
+      _zeroBytes(sourceDek);
+    }
+  }
+
+  Future<List<VaultItemImportIdentity>>
+  decryptImportedItemIdentitiesForBackupImport({
+    required List<EncryptedVaultItem> items,
+    required VaultMeta sourceMeta,
+    required String sourcePassword,
+  }) async {
+    Uint8List? sourceDek;
+    try {
+      sourceDek = await _decryptDekWithUnlockError(
+        meta: sourceMeta,
+        password: sourcePassword,
+      );
+      final identities = <VaultItemImportIdentity>[];
+      for (final item in items) {
+        final entry = await _decryptEntryWithDek(item, sourceDek);
+        identities.add(
+          VaultItemImportIdentity(
+            id: item.id,
+            title: entry.title,
+            website: entry.website,
+            username: entry.username,
+          ),
+        );
+      }
+      return List.unmodifiable(identities);
     } finally {
       _zeroBytes(sourceDek);
     }

@@ -15,6 +15,7 @@ const int _currentBackupVersion = 2;
 const String _backupMagic = 'secure-box-backup';
 const String _backupScopeFull = 'full';
 const String _backupScopeItem = 'item';
+const String _backupScopeSelected = 'selected';
 const int _maximumImportedItems = 10000;
 const int _maximumImportedFieldLength = 1048576;
 const int _maximumImportedPbkdf2Iterations = 2000000;
@@ -289,7 +290,9 @@ class VaultBackup {
     if (version == _currentBackupVersion) {
       if (magic != _backupMagic ||
           createdAt == null ||
-          (scope != _backupScopeFull && scope != _backupScopeItem) ||
+          (scope != _backupScopeFull &&
+              scope != _backupScopeItem &&
+              scope != _backupScopeSelected) ||
           itemCount != this.items.length ||
           historyCount != this.historyItems.length ||
           (blobCount ?? this.blobs.length) != this.blobs.length ||
@@ -571,6 +574,68 @@ void _validateImportedStringField(String field, String value) {
 
 enum BackupImportMode { overwrite, skip, merge }
 
+enum BackupImportConflictReason { existingLocalEntry, duplicateIncomingEntry }
+
+class BackupImportConflict {
+  const BackupImportConflict({
+    required this.itemId,
+    required this.title,
+    required this.website,
+    required this.username,
+    required this.reason,
+  });
+
+  final String itemId;
+  final String title;
+  final String website;
+  final String username;
+  final BackupImportConflictReason reason;
+}
+
+class ConflictAwareBackupImportResult {
+  const ConflictAwareBackupImportResult({
+    required this.importedCount,
+    required this.skippedCount,
+    required this.conflicts,
+  });
+
+  final int importedCount;
+  final int skippedCount;
+  final List<BackupImportConflict> conflicts;
+}
+
+String backupIdentityConflictKey({
+  required String title,
+  required String website,
+  required String username,
+}) {
+  return [
+    _normalizeIdentityField(title),
+    _normalizeWebsiteIdentityField(website),
+    _normalizeIdentityField(username),
+  ].join('\u001f');
+}
+
+String _normalizeIdentityField(String value) {
+  return value.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+}
+
+String _normalizeWebsiteIdentityField(String value) {
+  var normalized = _normalizeIdentityField(value);
+  if (normalized.startsWith('http://')) {
+    normalized = normalized.substring('http://'.length);
+  } else if (normalized.startsWith('https://')) {
+    normalized = normalized.substring('https://'.length);
+  }
+  if (normalized.startsWith('www.')) {
+    normalized = normalized.substring('www.'.length);
+  }
+  while (normalized.endsWith('/')) {
+    normalized = normalized.substring(0, normalized.length - 1);
+  }
+  return normalized;
+}
+
 class BackupService {
   BackupService({
     required this.repository,
@@ -634,6 +699,59 @@ class BackupService {
       blobs: blobs,
       historyItems: historyItems,
       scope: _backupScopeItem,
+    );
+  }
+
+  Future<VaultBackup> exportSelectedItemsBackup({
+    required List<String> itemIds,
+    bool includeBlobs = true,
+    bool includeHistory = false,
+  }) async {
+    if (itemIds.isEmpty) {
+      throw ArgumentError.value(
+        itemIds,
+        'itemIds',
+        'At least one item must be selected',
+      );
+    }
+    final meta = await repository.metaDao.get();
+    if (meta == null) {
+      throw StateError('Vault has not been created');
+    }
+
+    final selectedIds = LinkedHashSet<String>.from(itemIds).toList();
+    final items = <EncryptedVaultItem>[];
+    for (final itemId in selectedIds) {
+      final item = await repository.itemsDao.byId(itemId);
+      if (item == null || item.deletedAt != null) {
+        throw VaultItemNotFoundException(itemId);
+      }
+      items.add(item);
+    }
+    final selectedIdSet = selectedIds.toSet();
+    final blobs = includeBlobs
+        ? (await repository.blobsDao.allForManifest())
+              .where(
+                (blob) =>
+                    blob.deletedAt == null &&
+                    selectedIdSet.contains(blob.itemId),
+              )
+              .toList(growable: false)
+        : const <EncryptedVaultBlob>[];
+    final historyItems = includeHistory
+        ? (await repository.historyDao?.allRowsForManifest())
+                  ?.where((row) => selectedIdSet.contains(row['entry_id']))
+                  .map((row) => BackupHistoryItem.fromRow(row))
+                  .toList(growable: false) ??
+              const <BackupHistoryItem>[]
+        : const <BackupHistoryItem>[];
+
+    return _buildBackup(
+      meta: meta,
+      items: items,
+      blobs: blobs,
+      historyItems: historyItems,
+      scope: _backupScopeSelected,
     );
   }
 
@@ -721,9 +839,10 @@ class BackupService {
     }
     if (mode == BackupImportMode.overwrite &&
         backup.version == _currentBackupVersion &&
-        backup.scope == _backupScopeItem) {
+        (backup.scope == _backupScopeItem ||
+            backup.scope == _backupScopeSelected)) {
       throw const BackupFormatException(
-        'Item backups cannot be imported with overwrite mode.',
+        'Item and selected backups cannot be imported with overwrite mode.',
       );
     }
     final backupMeta = _backupMetaForVerification(backup);
@@ -1066,6 +1185,259 @@ class BackupService {
     return result.importedCount;
   }
 
+  Future<ConflictAwareBackupImportResult>
+  importBackupSkippingIdentityConflicts({
+    required Map<String, Object?> json,
+    required String masterPassword,
+  }) async {
+    final backup = VaultBackup.fromJson(json);
+    if (backup.version != _currentBackupVersion) {
+      throw const BackupFormatException(
+        'Conflict-aware imports require a version 2 backup manifest.',
+      );
+    }
+
+    final backupMeta = _backupMetaForVerification(backup);
+    await vaultService.verifyMasterPassword(
+      masterPassword: masterPassword,
+      meta: backupMeta,
+    );
+    await vaultService.verifyBackupManifest(
+      masterPassword: masterPassword,
+      meta: backupMeta,
+      items: _manifestItemsFromBackup(backup.items),
+      blobs: _manifestBlobsFromBackup(backup.blobs),
+      historyRecords: _manifestHistoryFromBackup(backup.historyItems),
+      manifest: backup.manifest!.toVaultManifest(),
+    );
+
+    final existingMetaBeforeImport = await repository.metaDao.get();
+    final hasExistingVault = existingMetaBeforeImport != null;
+    if (hasExistingVault && !vaultService.isUnlocked) {
+      throw StateError(
+        'Conflict-aware imports into an existing vault require an unlocked target vault so local identities can be checked safely.',
+      );
+    }
+
+    final localKeys = <String>{};
+    if (hasExistingVault) {
+      final localItems = await vaultService.listItems();
+      for (final item in localItems) {
+        localKeys.add(
+          backupIdentityConflictKey(
+            title: item.title,
+            website: item.website,
+            username: item.username,
+          ),
+        );
+      }
+    }
+
+    final incomingIdentities = await vaultService
+        .decryptImportedItemIdentitiesForBackupImport(
+          items: _manifestItemsFromBackup(backup.items),
+          sourceMeta: backupMeta,
+          sourcePassword: masterPassword,
+        );
+
+    final acceptedItemIds = <String>{};
+    final duplicateKeys = <String>{};
+    final seenItemIds = <String>{};
+    final conflicts = <BackupImportConflict>[];
+    for (final identity in incomingIdentities) {
+      final key = backupIdentityConflictKey(
+        title: identity.title,
+        website: identity.website,
+        username: identity.username,
+      );
+      BackupImportConflictReason? reason;
+      if (localKeys.contains(key)) {
+        reason = BackupImportConflictReason.existingLocalEntry;
+      } else if (duplicateKeys.contains(key) ||
+          seenItemIds.contains(identity.id)) {
+        reason = BackupImportConflictReason.duplicateIncomingEntry;
+      }
+
+      if (reason != null) {
+        conflicts.add(
+          BackupImportConflict(
+            itemId: identity.id,
+            title: identity.title,
+            website: identity.website,
+            username: identity.username,
+            reason: reason,
+          ),
+        );
+        continue;
+      }
+
+      acceptedItemIds.add(identity.id);
+      duplicateKeys.add(key);
+      seenItemIds.add(identity.id);
+    }
+
+    final transactionResult = await repository
+        .transaction<_ConflictAwareImportTransactionResult>((txn) async {
+          final existingMeta = await txn.metaDao.get();
+          final existingManifest = await txn.manifestDao.get();
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final preserveExistingMeta = existingMeta != null;
+          final needsReencryption =
+              preserveExistingMeta &&
+              !_hasSameEncryptionEnvelope(existingMeta, backupMeta);
+          if (needsReencryption && !vaultService.isUnlocked) {
+            throw StateError(
+              'Conflict-aware imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+            );
+          }
+
+          final importedMeta = _buildImportedMeta(
+            backup: backup,
+            existingMeta: existingMeta,
+            preserveExistingId: preserveExistingMeta,
+            now: now,
+          );
+          if (!preserveExistingMeta) {
+            await txn.metaDao.save(importedMeta);
+          } else {
+            await _verifyExistingManifestBeforeImportMutation(
+              txn: txn,
+              masterPassword: masterPassword,
+              meta: existingMeta,
+              manifest: existingManifest,
+            );
+          }
+
+          final existingIds = <String>{};
+          if (preserveExistingMeta) {
+            for (final item in backup.items) {
+              final existingItem = await txn.itemsDao.byId(item.id);
+              if (existingItem != null && acceptedItemIds.remove(item.id)) {
+                existingIds.add(item.id);
+                final identity = incomingIdentities.firstWhere(
+                  (identity) => identity.id == item.id,
+                );
+                conflicts.add(
+                  BackupImportConflict(
+                    itemId: identity.id,
+                    title: identity.title,
+                    website: identity.website,
+                    username: identity.username,
+                    reason: BackupImportConflictReason.existingLocalEntry,
+                  ),
+                );
+              }
+            }
+          }
+
+          final pendingItems = backup.items
+              .where((item) => acceptedItemIds.contains(item.id))
+              .map(
+                (item) => _buildImportedItem(
+                  item,
+                  createdAt: item.createdAt ?? now,
+                  updatedAt: item.updatedAt ?? now,
+                ),
+              )
+              .toList(growable: false);
+          final pendingItemIds = pendingItems.map((item) => item.id).toSet();
+          final pendingBlobs = backup.blobs
+              .where((blob) => pendingItemIds.contains(blob.itemId))
+              .map(
+                (blob) => _buildImportedBlob(
+                  blob,
+                  createdAt: blob.createdAt,
+                  updatedAt: blob.updatedAt,
+                ),
+              )
+              .toList(growable: false);
+          final pendingBlobIds = <String>{};
+          final uniquePendingBlobs = <EncryptedVaultBlob>[];
+          for (final blob in pendingBlobs) {
+            if (!pendingBlobIds.add(blob.blobId)) {
+              continue;
+            }
+            if (preserveExistingMeta &&
+                (await txn.blobsDao.byBlobId(blob.blobId)) != null) {
+              continue;
+            }
+            uniquePendingBlobs.add(blob);
+          }
+
+          final needsPendingReencryption =
+              needsReencryption &&
+              (pendingItems.isNotEmpty || uniquePendingBlobs.isNotEmpty);
+          final itemsToInsert = await _prepareImportedItems(
+            items: pendingItems,
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsPendingReencryption,
+          );
+          final blobsToInsert = await _prepareImportedBlobs(
+            blobs: uniquePendingBlobs,
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsPendingReencryption,
+          );
+          final historyToInsert = await _prepareImportedHistoryRows(
+            historyItems: backup.historyItems,
+            entryIds: pendingItemIds.difference(existingIds),
+            backupMeta: backupMeta,
+            masterPassword: masterPassword,
+            needsReencryption: needsPendingReencryption,
+          );
+
+          for (final item in itemsToInsert) {
+            await txn.itemsDao.upsert(item);
+          }
+          for (final blob in blobsToInsert) {
+            await txn.blobsDao.upsert(blob);
+          }
+          for (final historyItem in historyToInsert) {
+            await txn.historyDao?.insertRaw(
+              historyItem,
+              preserveId: !preserveExistingMeta,
+            );
+          }
+
+          final manifest = await _rewriteManifestAfterImport(
+            txn: txn,
+            backup: backup,
+            masterPassword: masterPassword,
+            preserveExistingMeta: preserveExistingMeta,
+            dataChanged:
+                itemsToInsert.isNotEmpty ||
+                blobsToInsert.isNotEmpty ||
+                historyToInsert.isNotEmpty,
+            previous: existingManifest,
+            updatedAt: now,
+          );
+          final targetMeta = await txn.metaDao.get();
+          return _ConflictAwareImportTransactionResult(
+            result: ConflictAwareBackupImportResult(
+              importedCount: itemsToInsert.length,
+              skippedCount: conflicts.length,
+              conflicts: List.unmodifiable(conflicts),
+            ),
+            dataChanged: manifest != null,
+            meta: targetMeta,
+            manifest: manifest,
+          );
+        });
+
+    final targetMeta = transactionResult.meta;
+    final targetManifest = transactionResult.manifest;
+    if (transactionResult.dataChanged &&
+        targetMeta != null &&
+        targetManifest != null) {
+      await vaultService.acceptManifestForCurrentState(
+        meta: targetMeta,
+        manifest: targetManifest,
+      );
+    }
+    return transactionResult.result;
+  }
+
   VaultMeta _backupMetaForVerification(VaultBackup backup) {
     return VaultMeta(
       id: backup.vaultId ?? 'backup-verification',
@@ -1386,6 +1758,20 @@ class _BackupImportResult {
   });
 
   final int importedCount;
+  final bool dataChanged;
+  final VaultMeta? meta;
+  final VaultManifest? manifest;
+}
+
+class _ConflictAwareImportTransactionResult {
+  const _ConflictAwareImportTransactionResult({
+    required this.result,
+    required this.dataChanged,
+    required this.meta,
+    required this.manifest,
+  });
+
+  final ConflictAwareBackupImportResult result;
   final bool dataChanged;
   final VaultMeta? meta;
   final VaultManifest? manifest;
