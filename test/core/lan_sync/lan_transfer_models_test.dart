@@ -7,14 +7,16 @@ import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 void main() {
   const packageHash =
       'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const validToken = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8';
+  const validTransferKey = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 
   LanTransferQrPayload validPayload({
     DateTime? expiresAt,
     String host = '192.168.1.20',
     int port = 48721,
     String sessionId = 'session-123',
-    String token = 'token-secret',
-    String transferKey = 'transfer-key-secret',
+    String token = validToken,
+    String transferKey = validTransferKey,
     String senderName = 'Alice Laptop',
     int selectedCount = 3,
     String packageSha256 = packageHash,
@@ -125,6 +127,60 @@ void main() {
       }
     });
 
+    test('rejects QR tokens that are not 32-byte unpadded base64url', () {
+      final cases = <String>[
+        '$validToken=',
+        '${validToken.substring(0, 42)}/',
+        '${validToken.substring(0, 42)}+',
+        validToken.substring(0, 42),
+      ];
+
+      for (final token in cases) {
+        expect(
+          () => validPayload(
+            token: token,
+          ).validate(now: DateTime.utc(2026, 5, 25, 12)),
+          throwsA(isA<LanTransferFormatException>()),
+        );
+      }
+    });
+
+    test(
+      'rejects QR transfer keys with invalid wire format or byte length',
+      () {
+        final cases = <String>[
+          '$validTransferKey=',
+          '${validTransferKey.substring(0, 42)}/',
+          '${validTransferKey.substring(0, 42)}+',
+          base64UrlEncode(List<int>.filled(31, 1)).replaceAll('=', ''),
+        ];
+
+        for (final transferKey in cases) {
+          expect(
+            () => validPayload(
+              transferKey: transferKey,
+            ).validate(now: DateTime.utc(2026, 5, 25, 12)),
+            throwsA(isA<LanTransferFormatException>()),
+          );
+        }
+      },
+    );
+
+    test('rejects QR payload JSON with unknown fields', () {
+      final unsafeFields = ['unexpected', 'plaintext', 'password', 'notes'];
+
+      for (final field in unsafeFields) {
+        final json =
+            jsonDecode(validPayload().encode()) as Map<String, Object?>;
+        json[field] = 'must not be ignored';
+
+        expect(
+          () => LanTransferQrPayload.decode(jsonEncode(json)),
+          throwsA(isA<LanTransferFormatException>()),
+        );
+      }
+    });
+
     test('builds a transfer URI without embedding token or transfer key', () {
       final payload = validPayload();
 
@@ -176,6 +232,66 @@ void main() {
         }),
         throwsA(isA<LanTransferFormatException>()),
       );
+    });
+
+    test('rejects invalid AES-GCM envelope field lengths', () {
+      expect(
+        () => LanTransferEnvelope.fromJson({
+          'nonce': base64Encode(List<int>.filled(11, 1)),
+          'ciphertext': base64Encode([1, 2, 3]),
+          'mac': base64Encode(List<int>.filled(16, 2)),
+          'contentLength': 3,
+          'packageSha256': packageHash,
+        }),
+        throwsA(isA<LanTransferFormatException>()),
+      );
+      expect(
+        () => LanTransferEnvelope.fromJson({
+          'nonce': base64Encode(List<int>.filled(12, 1)),
+          'ciphertext': base64Encode([1, 2, 3]),
+          'mac': base64Encode(List<int>.filled(15, 2)),
+          'contentLength': 3,
+          'packageSha256': packageHash,
+        }),
+        throwsA(isA<LanTransferFormatException>()),
+      );
+    });
+
+    test(
+      'rejects envelopes when ciphertext length differs from contentLength',
+      () {
+        expect(
+          () => LanTransferEnvelope.fromJson({
+            'nonce': base64Encode(List<int>.filled(12, 1)),
+            'ciphertext': base64Encode([1, 2, 3]),
+            'mac': base64Encode(List<int>.filled(16, 2)),
+            'contentLength': 4,
+            'packageSha256': packageHash,
+          }),
+          throwsA(isA<LanTransferFormatException>()),
+        );
+      },
+    );
+
+    test('rejects envelope JSON with unknown fields', () {
+      final envelope = LanTransferEnvelope(
+        nonce: Uint8List.fromList(List<int>.filled(12, 1)),
+        ciphertext: Uint8List.fromList([1, 2, 3, 4]),
+        mac: Uint8List.fromList(List<int>.filled(16, 2)),
+        contentLength: 4,
+        packageSha256: packageHash,
+      );
+      final unsafeFields = ['unexpected', 'plaintext', 'password', 'notes'];
+
+      for (final field in unsafeFields) {
+        final json = Map<String, Object?>.from(envelope.toJson());
+        json[field] = 'must not be ignored';
+
+        expect(
+          () => LanTransferEnvelope.fromJson(json),
+          throwsA(isA<LanTransferFormatException>()),
+        );
+      }
     });
   });
 

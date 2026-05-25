@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:secure_box/core/crypto/encoding.dart';
 
 const lanTransferSchema = 'lockly-lan-transfer-v1';
+const lanTransferSecretByteLength = 32;
+const lanTransferSecretEncodedLength = 43;
 
 class LanTransferFormatException extends FormatException {
   const LanTransferFormatException(super.message, [super.source, super.offset]);
@@ -70,6 +72,7 @@ class LanTransferQrPayload {
     if (decoded['schema'] != lanTransferSchema) {
       throw const LanTransferFormatException('Unsupported LAN transfer schema');
     }
+    _rejectUnknownKeys(decoded, _qrPayloadKeys, 'QR payload');
 
     final payload = LanTransferQrPayload(
       host: _requiredString(decoded, 'host'),
@@ -101,9 +104,21 @@ class LanTransferQrPayload {
     if (token.trim().isEmpty) {
       throw const LanTransferFormatException('Token must not be blank');
     }
+    decodeLanTransferBase64UrlNoPadding(
+      token,
+      fieldName: 'Token',
+      expectedEncodedLength: lanTransferSecretEncodedLength,
+      expectedByteLength: lanTransferSecretByteLength,
+    );
     if (transferKey.trim().isEmpty) {
       throw const LanTransferFormatException('Transfer key must not be blank');
     }
+    decodeLanTransferBase64UrlNoPadding(
+      transferKey,
+      fieldName: 'Transfer key',
+      expectedEncodedLength: lanTransferSecretEncodedLength,
+      expectedByteLength: lanTransferSecretByteLength,
+    );
     if (!_sha256HexPattern.hasMatch(packageSha256)) {
       throw const LanTransferFormatException(
         'Package SHA-256 must be 64 lowercase hex characters',
@@ -163,6 +178,7 @@ class LanTransferEnvelope {
   }
 
   static LanTransferEnvelope fromJson(Map<String, Object?> json) {
+    _rejectUnknownKeys(json, _envelopeKeys, 'Envelope');
     final envelope = LanTransferEnvelope(
       nonce: _requiredBase64(json, 'nonce'),
       ciphertext: _requiredBase64(json, 'ciphertext'),
@@ -214,6 +230,79 @@ class LanTransferImportResult {
 }
 
 final _sha256HexPattern = RegExp(r'^[0-9a-f]{64}$');
+final _base64UrlNoPaddingPattern = RegExp(r'^[A-Za-z0-9_-]+$');
+
+const _qrPayloadKeys = <String>{
+  'schema',
+  'host',
+  'port',
+  'sessionId',
+  'token',
+  'transferKey',
+  'packageSha256',
+  'selectedCount',
+  'expiresAt',
+  'senderName',
+};
+
+const _envelopeKeys = <String>{
+  'nonce',
+  'ciphertext',
+  'mac',
+  'contentLength',
+  'packageSha256',
+};
+
+String encodeLanTransferBase64UrlNoPadding(Uint8List bytes) {
+  return base64UrlEncode(bytes).replaceAll('=', '');
+}
+
+Uint8List decodeLanTransferBase64UrlNoPadding(
+  String value, {
+  required String fieldName,
+  int? expectedEncodedLength,
+  int? expectedByteLength,
+}) {
+  if (expectedEncodedLength != null && value.length != expectedEncodedLength) {
+    throw LanTransferFormatException(
+      '$fieldName must be unpadded base64url encoded'
+      '${expectedByteLength == null ? '' : ' $expectedByteLength bytes'}',
+    );
+  }
+  if (value.isEmpty || !_base64UrlNoPaddingPattern.hasMatch(value)) {
+    throw LanTransferFormatException(
+      '$fieldName must be unpadded base64url encoded',
+    );
+  }
+
+  final padding = (4 - value.length % 4) % 4;
+  final Uint8List decoded;
+  try {
+    decoded = Uint8List.fromList(base64Url.decode(value + ('=' * padding)));
+  } on FormatException {
+    throw LanTransferFormatException(
+      '$fieldName must be unpadded base64url encoded',
+    );
+  }
+  if (expectedByteLength != null && decoded.length != expectedByteLength) {
+    throw LanTransferFormatException(
+      '$fieldName must decode to $expectedByteLength bytes',
+    );
+  }
+  return decoded;
+}
+
+void _rejectUnknownKeys(
+  Map<String, Object?> json,
+  Set<String> allowedKeys,
+  String objectName,
+) {
+  for (final key in json.keys) {
+    if (!allowedKeys.contains(key)) {
+      throw LanTransferFormatException('$objectName contains unknown field');
+    }
+  }
+}
 
 String _requiredString(Map<String, Object?> json, String key) {
   final value = json[key];
@@ -256,18 +345,20 @@ void _validateEnvelopeValues({
   required int contentLength,
   required String packageSha256,
 }) {
-  if (nonce.isEmpty) {
-    throw const LanTransferFormatException('Nonce must not be empty');
+  if (nonce.length != 12) {
+    throw const LanTransferFormatException('Nonce must be 12 bytes');
   }
-  if (ciphertext.isEmpty && contentLength > 0) {
-    throw const LanTransferFormatException('Ciphertext must not be empty');
-  }
-  if (mac.isEmpty) {
-    throw const LanTransferFormatException('MAC must not be empty');
+  if (mac.length != 16) {
+    throw const LanTransferFormatException('MAC must be 16 bytes');
   }
   if (contentLength < 0) {
     throw const LanTransferFormatException(
       'Content length must not be negative',
+    );
+  }
+  if (ciphertext.length != contentLength) {
+    throw const LanTransferFormatException(
+      'Ciphertext length must match content length',
     );
   }
   if (!_sha256HexPattern.hasMatch(packageSha256)) {

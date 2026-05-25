@@ -16,17 +16,24 @@ class LanTransferCrypto {
   final CryptoService _crypto;
   final SecureRandom _random;
 
-  String randomToken() => _base64UrlNoPadding(_random.bytes(32));
+  String randomToken() => encodeLanTransferBase64UrlNoPadding(
+    _random.bytes(lanTransferSecretByteLength),
+  );
 
-  Uint8List randomTransferKey() => _random.bytes(32);
+  Uint8List randomTransferKey() => _random.bytes(lanTransferSecretByteLength);
 
   String encodeTransferKey(Uint8List key) {
     _validateTransferKey(key);
-    return _base64UrlNoPadding(key);
+    return encodeLanTransferBase64UrlNoPadding(key);
   }
 
   Uint8List decodeTransferKey(String value) {
-    final decoded = _base64UrlDecodeNoPadding(value);
+    final decoded = decodeLanTransferBase64UrlNoPadding(
+      value,
+      fieldName: 'Transfer key',
+      expectedEncodedLength: lanTransferSecretEncodedLength,
+      expectedByteLength: lanTransferSecretByteLength,
+    );
     _validateTransferKey(decoded);
     return decoded;
   }
@@ -82,24 +89,8 @@ class LanTransferCrypto {
     return plaintext;
   }
 
-  String _base64UrlNoPadding(Uint8List bytes) {
-    return base64UrlEncode(bytes).replaceAll('=', '');
-  }
-
-  Uint8List _base64UrlDecodeNoPadding(String value) {
-    if (value.isEmpty || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(value)) {
-      throw const LanTransferFormatException('Invalid base64url value');
-    }
-    final padding = (4 - value.length % 4) % 4;
-    try {
-      return Uint8List.fromList(base64Url.decode(value + ('=' * padding)));
-    } on FormatException {
-      throw const LanTransferFormatException('Invalid base64url value');
-    }
-  }
-
   void _validateTransferKey(Uint8List key) {
-    if (key.length != 32) {
+    if (key.length != lanTransferSecretByteLength) {
       throw const CryptoException('Transfer key must be 32 bytes');
     }
   }
