@@ -1240,11 +1240,12 @@ class BackupService {
           sourcePassword: masterPassword,
         );
 
-    final acceptedItemIds = <String>{};
+    final acceptedItemIndexes = <int>{};
     final duplicateKeys = <String>{};
     final seenItemIds = <String>{};
     final conflicts = <BackupImportConflict>[];
-    for (final identity in incomingIdentities) {
+    for (final entry in incomingIdentities.asMap().entries) {
+      final identity = entry.value;
       final key = backupIdentityConflictKey(
         title: identity.title,
         website: identity.website,
@@ -1271,7 +1272,7 @@ class BackupService {
         continue;
       }
 
-      acceptedItemIds.add(identity.id);
+      acceptedItemIndexes.add(entry.key);
       duplicateKeys.add(key);
       seenItemIds.add(identity.id);
     }
@@ -1310,13 +1311,17 @@ class BackupService {
 
           final existingIds = <String>{};
           if (preserveExistingMeta) {
-            for (final item in backup.items) {
+            for (final entry in backup.items.asMap().entries) {
+              final index = entry.key;
+              final item = entry.value;
+              if (!acceptedItemIndexes.contains(index)) {
+                continue;
+              }
               final existingItem = await txn.itemsDao.byId(item.id);
-              if (existingItem != null && acceptedItemIds.remove(item.id)) {
+              if (existingItem != null) {
+                acceptedItemIndexes.remove(index);
                 existingIds.add(item.id);
-                final identity = incomingIdentities.firstWhere(
-                  (identity) => identity.id == item.id,
-                );
+                final identity = incomingIdentities[index];
                 conflicts.add(
                   BackupImportConflict(
                     itemId: identity.id,
@@ -1330,16 +1335,20 @@ class BackupService {
             }
           }
 
-          final pendingItems = backup.items
-              .where((item) => acceptedItemIds.contains(item.id))
-              .map(
-                (item) => _buildImportedItem(
-                  item,
-                  createdAt: item.createdAt ?? now,
-                  updatedAt: item.updatedAt ?? now,
-                ),
-              )
-              .toList(growable: false);
+          final pendingItems = <EncryptedVaultItem>[];
+          for (final entry in backup.items.asMap().entries) {
+            if (!acceptedItemIndexes.contains(entry.key)) {
+              continue;
+            }
+            final item = entry.value;
+            pendingItems.add(
+              _buildImportedItem(
+                item,
+                createdAt: item.createdAt ?? now,
+                updatedAt: item.updatedAt ?? now,
+              ),
+            );
+          }
           final pendingItemIds = pendingItems.map((item) => item.id).toSet();
           final pendingBlobs = backup.blobs
               .where((blob) => pendingItemIds.contains(blob.itemId))

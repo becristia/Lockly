@@ -24,6 +24,7 @@ import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_meta.dart';
@@ -1086,6 +1087,118 @@ void main() {
         target.vaultService.getItem(duplicateId),
         throwsA(isA<VaultItemNotFoundException>()),
       );
+    },
+  );
+
+  test(
+    'conflict-aware import skips a duplicate incoming row with the same item id',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final firstId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Accepted row',
+          website: 'https://accepted.example',
+          username: 'accepted@example.com',
+          password: 'first-password',
+          notes: 'first wins',
+          tags: const ['accepted'],
+        ),
+      );
+      final secondId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Duplicate row',
+          website: 'https://duplicate.example',
+          username: 'duplicate@example.com',
+          password: 'second-password',
+          notes: 'second loses',
+          tags: const ['duplicate'],
+        ),
+      );
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [firstId, secondId],
+        includeBlobs: false,
+        includeHistory: false,
+      );
+      final duplicateItems = [
+        backup.items[0],
+        BackupItem(
+          id: firstId,
+          nonce: backup.items[1].nonce,
+          ciphertext: backup.items[1].ciphertext,
+          mac: backup.items[1].mac,
+          createdAt: backup.items[1].createdAt,
+          updatedAt: backup.items[1].updatedAt,
+          deletedAt: backup.items[1].deletedAt,
+        ),
+      ];
+      final sourceMeta = (await source.repository.metaDao.get())!;
+      final duplicateManifest = await source.vaultService
+          .createManifestForImportedVault(
+            masterPassword: 'source-master',
+            meta: sourceMeta,
+            items: duplicateItems
+                .map(
+                  (item) => EncryptedVaultItem(
+                    id: item.id,
+                    nonce: item.nonce,
+                    ciphertext: item.ciphertext,
+                    mac: item.mac,
+                    createdAt: item.createdAt!,
+                    updatedAt: item.updatedAt!,
+                    deletedAt: item.deletedAt,
+                  ),
+                )
+                .toList(growable: false),
+            previous: null,
+            updatedAt: backup.createdAt!,
+          );
+      final duplicateBackup = VaultBackup(
+        version: backup.version,
+        magic: backup.magic,
+        createdAt: backup.createdAt,
+        scope: backup.scope,
+        itemCount: duplicateItems.length,
+        historyCount: 0,
+        blobCount: 0,
+        vaultId: backup.vaultId,
+        vaultCreatedAt: backup.vaultCreatedAt,
+        vaultUpdatedAt: backup.vaultUpdatedAt,
+        biometricEnabled: backup.biometricEnabled,
+        encryptedDekByBiometric: backup.encryptedDekByBiometric,
+        encryptedDekByBiometricNonce: backup.encryptedDekByBiometricNonce,
+        encryptedDekByBiometricMac: backup.encryptedDekByBiometricMac,
+        manifest: BackupManifest.fromVaultManifest(duplicateManifest),
+        kdf: backup.kdf,
+        kdfParams: backup.kdfParams,
+        salt: backup.salt,
+        encryptedDekByMaster: backup.encryptedDekByMaster,
+        encryptedDekByMasterNonce: backup.encryptedDekByMasterNonce,
+        encryptedDekByMasterMac: backup.encryptedDekByMasterMac,
+        items: duplicateItems,
+      );
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+
+      final result = await target.backupService
+          .importBackupSkippingIdentityConflicts(
+            json: duplicateBackup.toJson(),
+            masterPassword: 'source-master',
+          );
+
+      expect(result.importedCount, 1);
+      expect(result.skippedCount, 1);
+      expect(result.conflicts.single.itemId, firstId);
+      expect(
+        result.conflicts.single.reason,
+        BackupImportConflictReason.duplicateIncomingEntry,
+      );
+      final imported = await target.vaultService.getItem(firstId);
+      expect(imported.title, 'Accepted row');
+      expect(imported.password, 'first-password');
     },
   );
 
