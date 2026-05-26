@@ -4,13 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('Android integration hardening', () {
-    test('manifest declares biometric and sync network permissions', () {
+    test('manifest declares biometric and LAN QR sync permissions', () {
       final manifest = File(
         'android/app/src/main/AndroidManifest.xml',
       ).readAsStringSync();
 
       expect(manifest, contains('android.permission.USE_BIOMETRIC'));
       expect(manifest, contains('android.permission.INTERNET'));
+      expect(manifest, contains('android.permission.CAMERA'));
     });
 
     test('manifest disables Android cloud backup for local vault data', () {
@@ -109,6 +110,7 @@ void main() {
 
         expect(manifest, contains('android.permission.USE_BIOMETRIC'));
         expect(manifest, contains('android.permission.INTERNET'));
+        expect(manifest, contains('android.permission.CAMERA'));
         expect(manifest, contains('android:allowBackup="false"'));
         expect(manifest, contains('android:fullBackupContent="false"'));
         expect(manifest, isNot(contains('android:debuggable="true"')));
@@ -219,6 +221,7 @@ void main() {
           contains('android.permission.USE_BIOMETRIC'),
         );
         expect(permissions.stdout, contains('android.permission.INTERNET'));
+        expect(permissions.stdout, contains('android.permission.CAMERA'));
 
         final manifest = await Process.run(_aaptPath(), [
           'dump',
