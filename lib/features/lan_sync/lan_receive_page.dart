@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:secure_box/app/app_services.dart';
@@ -47,13 +50,14 @@ class _LanReceivePageState extends State<LanReceivePage> {
       payload = LanTransferQrPayload.decode(rawValue.trim());
     } on Object {
       setState(() => _errorKey = 'lanSessionUnavailable');
+      _resumeScanner();
       return;
     }
     setState(() {
       _payload = payload;
       _errorKey = null;
-      _scannerPaused = true;
     });
+    _pauseScanner();
     await _promptForSourcePassword(payload, strings);
   }
 
@@ -90,7 +94,7 @@ class _LanReceivePageState extends State<LanReceivePage> {
         _errorKey = null;
       });
     } else {
-      setState(() => _scannerPaused = false);
+      _resumeScanner();
     }
   }
 
@@ -103,8 +107,7 @@ class _LanReceivePageState extends State<LanReceivePage> {
       if (rawValue == null || rawValue.trim().isEmpty) {
         continue;
       }
-      _scannerPaused = true;
-      _scannerController.stop();
+      _pauseScanner();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _handlePayloadText(rawValue);
@@ -240,8 +243,42 @@ class _LanReceivePageState extends State<LanReceivePage> {
 
   bool _shouldBuildScanner() {
     final bindingName = WidgetsBinding.instance.runtimeType.toString();
-    return !bindingName.toLowerCase().contains('test');
+    if (bindingName.toLowerCase().contains('test')) {
+      return false;
+    }
+    return kIsWeb || isLanScannerPlatformSupported(defaultTargetPlatform);
   }
+
+  void _pauseScanner() {
+    if (_scannerPaused) {
+      return;
+    }
+    _scannerPaused = true;
+    if (_shouldBuildScanner()) {
+      unawaited(_scannerController.stop());
+    }
+  }
+
+  void _resumeScanner() {
+    if (!_scannerPaused) {
+      return;
+    }
+    setState(() => _scannerPaused = false);
+    if (_shouldBuildScanner()) {
+      unawaited(_scannerController.start());
+    }
+  }
+}
+
+bool isLanScannerPlatformSupported(TargetPlatform platform) {
+  return switch (platform) {
+    TargetPlatform.android ||
+    TargetPlatform.iOS ||
+    TargetPlatform.macOS => true,
+    TargetPlatform.fuchsia ||
+    TargetPlatform.linux ||
+    TargetPlatform.windows => false,
+  };
 }
 
 class _SourceMasterPasswordDialog extends StatefulWidget {

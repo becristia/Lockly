@@ -40,12 +40,8 @@ class _LanSendPageState extends State<LanSendPage> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
-    if (_session != null) {
-      try {
-        unawaited(widget.services.cancelLanSendSession());
-      } catch (_) {
-        // Best-effort cleanup; fakes may not provide a LAN service.
-      }
+    if (_session != null || _creating) {
+      _cancelLanSendSessionBestEffort();
     }
     _searchController.dispose();
     super.dispose();
@@ -93,6 +89,7 @@ class _LanSendPageState extends State<LanSendPage> {
         senderName: AppStrings.of(context).appName,
       );
       if (!mounted) {
+        _cancelLanSendSessionBestEffort();
         return;
       }
       _countdownTimer?.cancel();
@@ -142,6 +139,14 @@ class _LanSendPageState extends State<LanSendPage> {
       _session = null;
       _creating = false;
     });
+  }
+
+  void _cancelLanSendSessionBestEffort() {
+    try {
+      unawaited(widget.services.cancelLanSendSession());
+    } catch (_) {
+      // Best-effort cleanup; fakes may not provide a LAN service.
+    }
   }
 
   List<VaultListItem> get _filteredItems {
@@ -330,22 +335,27 @@ class _LanSendPageState extends State<LanSendPage> {
         const SizedBox(height: 16),
         Text(strings.text('lanScanQr'), style: theme.textTheme.bodyMedium),
         const SizedBox(height: 16),
-        Center(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: QrImageView(
-                key: const ValueKey('lan-send-qr'),
-                data: payload.encode(),
-                size: 260,
-                backgroundColor: Colors.white,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final qrSize = (constraints.maxWidth - 24).clamp(120.0, 260.0);
+            return Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: QrImageView(
+                    key: const ValueKey('lan-send-qr'),
+                    data: payload.encode(),
+                    size: qrSize,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
         const SizedBox(height: 18),
         SecurePanel(

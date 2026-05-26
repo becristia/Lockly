@@ -110,6 +110,7 @@ class AppServices {
       required String senderName,
     })?
     createLanSendSessionOverride,
+    Future<void> Function()? cancelLanSendSessionOverride,
     Future<LanTransferImportResult> Function({
       required LanTransferQrPayload payload,
       required String sourceMasterPassword,
@@ -200,6 +201,7 @@ class AppServices {
        _exportBackupOverride = exportBackupOverride,
        _importBackupOverride = importBackupOverride,
        _createLanSendSessionOverride = createLanSendSessionOverride,
+       _cancelLanSendSessionOverride = cancelLanSendSessionOverride,
        _receiveLanTransferOverride = receiveLanTransferOverride,
        _cloudRegisterOverride = cloudRegisterOverride,
        _cloudLoginOverride = cloudLoginOverride,
@@ -348,6 +350,7 @@ class AppServices {
     required String senderName,
   })?
   _createLanSendSessionOverride;
+  final Future<void> Function()? _cancelLanSendSessionOverride;
   final Future<LanTransferImportResult> Function({
     required LanTransferQrPayload payload,
     required String sourceMasterPassword,
@@ -446,6 +449,7 @@ class AppServices {
       required String senderName,
     })?
     createLanSendSessionOverride,
+    Future<void> Function()? cancelLanSendSessionOverride,
     Future<LanTransferImportResult> Function({
       required LanTransferQrPayload payload,
       required String sourceMasterPassword,
@@ -655,6 +659,7 @@ class AppServices {
           jsonEncode({'version': 1, 'items': fakeItems.length}),
       importBackupOverride: (backupJson, masterPassword) async => 0,
       createLanSendSessionOverride: createLanSendSessionOverride,
+      cancelLanSendSessionOverride: cancelLanSendSessionOverride,
       receiveLanTransferOverride: receiveLanTransferOverride,
       cloudRegisterOverride: (email, password) async {
         final override = cloudRegisterOverride;
@@ -1365,6 +1370,10 @@ class AppServices {
   }
 
   Future<void> cancelLanSendSession() {
+    final override = _cancelLanSendSessionOverride;
+    if (override != null) {
+      return override();
+    }
     return lanTransferService.cancelSendSession();
   }
 
