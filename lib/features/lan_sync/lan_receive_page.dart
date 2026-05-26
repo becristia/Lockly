@@ -267,8 +267,14 @@ class _SourceMasterPasswordDialogState
 
   @override
   void dispose() {
+    _passwordController.clear();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void _cancel() {
+    _passwordController.clear();
+    Navigator.of(context).pop();
   }
 
   Future<void> _import() async {
@@ -340,7 +346,7 @@ class _SourceMasterPasswordDialogState
       ),
       actions: [
         TextButton(
-          onPressed: _importing ? null : () => Navigator.of(context).pop(),
+          onPressed: _importing ? null : _cancel,
           child: Text(strings.text('cancel')),
         ),
         FilledButton(

@@ -7,6 +7,7 @@ import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
 import 'package:secure_box/data/models/password_entry.dart';
+import 'package:secure_box/shared/i18n/app_strings_zh.dart';
 
 void main() {
   testWidgets('settings opens LAN send flow and creates QR session', (
@@ -127,6 +128,42 @@ void main() {
       expect(find.text('GitHub'), findsOneWidget);
     },
   );
+
+  testWidgets('receive password prompt clears source password on cancel', (
+    tester,
+  ) async {
+    final payload = _validPayload(senderName: 'Source device');
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeLanReceive);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-receive-paste-field')),
+      payload.encode(),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('lan-receive-use-pasted-payload')),
+    );
+    await tester.pumpAndSettle();
+
+    final passwordField = find.byKey(
+      const ValueKey('lan-source-master-password-field'),
+    );
+    await tester.enterText(passwordField, 'source-master');
+    final controller = tester.widget<TextFormField>(passwordField).controller;
+    expect(controller?.text, 'source-master');
+
+    await tester.tap(
+      find.widgetWithText(TextButton, const AppStringsZh().text('cancel')),
+    );
+
+    expect(controller?.text, isEmpty);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('source-master'), findsNothing);
+  });
 }
 
 LanTransferQrPayload _validPayload({required String senderName}) {
