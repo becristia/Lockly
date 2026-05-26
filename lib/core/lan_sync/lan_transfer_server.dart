@@ -28,6 +28,14 @@ class LanTransferServer {
   }) async {
     await close();
     _closing = false;
+    _validateStartInput(
+      packageBytes: packageBytes,
+      selectedCount: selectedCount,
+      senderName: senderName,
+      ttl: ttl,
+      bindHost: bindHost,
+      advertisedHost: advertisedHost,
+    );
 
     final sessionId = _crypto.randomToken();
     final token = _crypto.randomToken();
@@ -40,31 +48,39 @@ class LanTransferServer {
 
     final server = await HttpServer.bind(bindHost, 0);
     _server = server;
+    try {
+      final payload = LanTransferQrPayload(
+        host: advertisedHost ?? server.address.address,
+        port: server.port,
+        sessionId: sessionId,
+        token: token,
+        transferKey: _crypto.encodeTransferKey(transferKey),
+        packageSha256: envelope.packageSha256,
+        selectedCount: selectedCount,
+        expiresAt: expiresAt,
+        senderName: senderName,
+      );
+      payload.validate(now: DateTime.now().toUtc());
 
-    final payload = LanTransferQrPayload(
-      host: advertisedHost ?? server.address.address,
-      port: server.port,
-      sessionId: sessionId,
-      token: token,
-      transferKey: _crypto.encodeTransferKey(transferKey),
-      packageSha256: envelope.packageSha256,
-      selectedCount: selectedCount,
-      expiresAt: expiresAt,
-      senderName: senderName,
-    );
-    payload.validate(now: DateTime.now().toUtc());
+      _session = _LanTransferServerSession(
+        payload: payload,
+        envelope: envelope,
+        expiresAt: expiresAt,
+      );
+      _expiryTimer = Timer(ttl + _expiredSessionGrace, () {
+        unawaited(close());
+      });
+      unawaited(server.forEach((request) => _handleRequest(request)));
 
-    _session = _LanTransferServerSession(
-      payload: payload,
-      envelope: envelope,
-      expiresAt: expiresAt,
-    );
-    _expiryTimer = Timer(ttl + _expiredSessionGrace, () {
-      unawaited(close());
-    });
-    unawaited(server.forEach((request) => _handleRequest(request)));
-
-    return LanTransferSession(qrPayload: payload, expiresAt: expiresAt);
+      return LanTransferSession(qrPayload: payload, expiresAt: expiresAt);
+    } catch (_) {
+      _expiryTimer?.cancel();
+      _expiryTimer = null;
+      _session = null;
+      _server = null;
+      await server.close(force: true);
+      rethrow;
+    }
   }
 
   Future<void> close() async {
@@ -127,6 +143,36 @@ class LanTransferServer {
   Future<void> _sendEmpty(HttpRequest request, int statusCode) async {
     request.response.statusCode = statusCode;
     await request.response.close();
+  }
+
+  void _validateStartInput({
+    required Uint8List packageBytes,
+    required int selectedCount,
+    required String senderName,
+    required Duration ttl,
+    required String bindHost,
+    required String? advertisedHost,
+  }) {
+    if (packageBytes.isEmpty) {
+      throw const LanTransferFormatException('Package bytes must not be empty');
+    }
+    if (selectedCount <= 0) {
+      throw const LanTransferFormatException('Selected count must be positive');
+    }
+    if (senderName.trim().isEmpty) {
+      throw const LanTransferFormatException('Sender name must not be blank');
+    }
+    if (ttl <= Duration.zero) {
+      throw const LanTransferFormatException('TTL must be positive');
+    }
+    if (bindHost.trim().isEmpty) {
+      throw const LanTransferFormatException('Bind host must not be blank');
+    }
+    if (advertisedHost != null && advertisedHost.trim().isEmpty) {
+      throw const LanTransferFormatException(
+        'Advertised host must not be blank',
+      );
+    }
   }
 }
 

@@ -6,6 +6,12 @@ import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_crypto.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 
+/// Maximum LAN transfer HTTP envelope size accepted from a peer.
+///
+/// This caps the JSON response body and the declared encrypted package size so
+/// a malformed LAN peer cannot force unbounded client memory growth.
+const maxLanTransferEnvelopeBytes = 128 * 1024 * 1024;
+
 class LanTransferException implements Exception {
   const LanTransferException(this.message, [this.cause]);
 
@@ -37,10 +43,15 @@ class LanTransferIntegrityException extends LanTransferException {
 }
 
 class LanTransferClient {
-  const LanTransferClient({required LanTransferCrypto crypto})
-    : _crypto = crypto;
+  const LanTransferClient({
+    required LanTransferCrypto crypto,
+    int maxEnvelopeBytes = maxLanTransferEnvelopeBytes,
+  }) : assert(maxEnvelopeBytes > 0),
+       _crypto = crypto,
+       _maxEnvelopeBytes = maxEnvelopeBytes;
 
   final LanTransferCrypto _crypto;
+  final int _maxEnvelopeBytes;
 
   Future<Uint8List> download(LanTransferQrPayload payload) async {
     _validatePayload(payload);
@@ -95,7 +106,7 @@ class LanTransferClient {
     HttpClientResponse response,
     LanTransferQrPayload payload,
   ) async {
-    final body = await utf8.decodeStream(response);
+    final body = await _readBoundedUtf8(response);
     final Object? decoded;
     try {
       decoded = jsonDecode(body);
@@ -120,6 +131,12 @@ class LanTransferClient {
         error,
       );
     }
+    if (envelope.contentLength > _maxEnvelopeBytes ||
+        envelope.ciphertext.length > _maxEnvelopeBytes) {
+      throw const LanTransferMalformedException(
+        'LAN transfer response envelope exceeded size limit',
+      );
+    }
 
     if (envelope.packageSha256 != payload.packageSha256) {
       throw const LanTransferIntegrityException(
@@ -134,6 +151,36 @@ class LanTransferClient {
       );
     }
     return plaintext;
+  }
+
+  Future<String> _readBoundedUtf8(HttpClientResponse response) async {
+    final contentLength = response.contentLength;
+    if (contentLength > _maxEnvelopeBytes) {
+      throw const LanTransferMalformedException(
+        'LAN transfer response exceeded size limit',
+      );
+    }
+
+    final builder = BytesBuilder(copy: false);
+    var receivedBytes = 0;
+    await for (final chunk in response) {
+      receivedBytes += chunk.length;
+      if (receivedBytes > _maxEnvelopeBytes) {
+        throw const LanTransferMalformedException(
+          'LAN transfer response exceeded size limit',
+        );
+      }
+      builder.add(chunk);
+    }
+
+    try {
+      return utf8.decode(builder.takeBytes());
+    } on FormatException catch (error) {
+      throw LanTransferMalformedException(
+        'LAN transfer response was not valid UTF-8',
+        error,
+      );
+    }
   }
 
   Future<Uint8List> _decryptEnvelope(

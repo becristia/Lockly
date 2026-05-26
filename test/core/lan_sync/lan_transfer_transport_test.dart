@@ -166,8 +166,9 @@ void main() {
     });
 
     test('package integrity mismatch fails before decrypting', () async {
-      final crypto = transferCrypto();
-      final server = LanTransferServer(crypto: crypto);
+      final serverCrypto = transferCrypto();
+      final clientCrypto = _DecryptSpyLanTransferCrypto();
+      final server = LanTransferServer(crypto: serverCrypto);
       final session = await server.start(
         packageBytes: packageBytes('{"items":["one"]}'),
         selectedCount: 1,
@@ -191,9 +192,10 @@ void main() {
       );
 
       await expectLater(
-        LanTransferClient(crypto: crypto).download(mismatchPayload),
+        LanTransferClient(crypto: clientCrypto).download(mismatchPayload),
         throwsA(isA<LanTransferIntegrityException>()),
       );
+      expect(clientCrypto.decryptPackageCalls, isZero);
     });
 
     test('client rejects malformed envelope responses', () async {
@@ -230,7 +232,170 @@ void main() {
         throwsA(isA<LanTransferMalformedException>()),
       );
     });
+
+    test('huge Content-Length response is rejected before body read', () async {
+      final crypto = transferCrypto();
+      final server = await ServerSocket.bind('127.0.0.1', 0);
+      addTearDown(() => server.close());
+      unawaited(
+        server.forEach((socket) async {
+          socket.write(
+            'HTTP/1.1 200 OK\r\n'
+            'Content-Type: application/json\r\n'
+            'Content-Length: 65\r\n'
+            'Connection: keep-alive\r\n'
+            '\r\n',
+          );
+          await socket.flush();
+        }),
+      );
+
+      await expectLater(
+        LanTransferClient(
+          crypto: crypto,
+          maxEnvelopeBytes: 64,
+        ).download(_validPayloadForServer(crypto, server.port)),
+        throwsA(isA<LanTransferMalformedException>()),
+      ).timeout(const Duration(seconds: 2));
+    });
+
+    test(
+      'streaming response exceeding cap is rejected while reading',
+      () async {
+        final crypto = transferCrypto();
+        final server = await HttpServer.bind('127.0.0.1', 0);
+        addTearDown(() => server.close(force: true));
+        unawaited(
+          server.forEach((request) async {
+            request.response
+              ..statusCode = HttpStatus.ok
+              ..headers.contentType = ContentType.json
+              ..write('x' * 65);
+            await request.response.close();
+          }),
+        );
+
+        await expectLater(
+          LanTransferClient(
+            crypto: crypto,
+            maxEnvelopeBytes: 64,
+          ).download(_validPayloadForServer(crypto, server.port)),
+          throwsA(isA<LanTransferMalformedException>()),
+        );
+      },
+    );
+
+    test('invalid UTF-8 response throws malformed exception', () async {
+      final crypto = transferCrypto();
+      final server = await HttpServer.bind('127.0.0.1', 0);
+      addTearDown(() => server.close(force: true));
+      unawaited(
+        server.forEach((request) async {
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.json
+            ..add(<int>[0xff]);
+          await request.response.close();
+        }),
+      );
+
+      await expectLater(
+        LanTransferClient(
+          crypto: crypto,
+        ).download(_validPayloadForServer(crypto, server.port)),
+        throwsA(isA<LanTransferMalformedException>()),
+      );
+    });
+
+    test('server validates start input before preparing listener', () async {
+      final crypto = _EncryptSpyLanTransferCrypto();
+      final server = LanTransferServer(crypto: crypto);
+      addTearDown(() => server.close());
+
+      await expectLater(
+        server.start(
+          packageBytes: packageBytes('{"items":["one"]}'),
+          selectedCount: 0,
+          senderName: 'Sender',
+          bindHost: '127.0.0.1',
+          advertisedHost: '127.0.0.1',
+        ),
+        throwsA(isA<LanTransferFormatException>()),
+      );
+      expect(crypto.encryptPackageCalls, isZero);
+
+      final validSession = await server.start(
+        packageBytes: packageBytes('{"items":["two"]}'),
+        selectedCount: 1,
+        senderName: 'Sender',
+        bindHost: '127.0.0.1',
+        advertisedHost: '127.0.0.1',
+      );
+
+      final statusCode = await _authorizedGetStatus(
+        validSession.qrPayload.transferUri(),
+        validSession.qrPayload.token,
+      );
+      expect(statusCode, HttpStatus.ok);
+    });
   });
+}
+
+LanTransferQrPayload _validPayloadForServer(
+  LanTransferCrypto crypto,
+  int port,
+) {
+  final key = crypto.randomTransferKey();
+  return LanTransferQrPayload(
+    host: '127.0.0.1',
+    port: port,
+    sessionId: 'session-1',
+    token: crypto.randomToken(),
+    transferKey: crypto.encodeTransferKey(key),
+    packageSha256:
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    selectedCount: 1,
+    expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+    senderName: 'Sender',
+  );
+}
+
+class _DecryptSpyLanTransferCrypto extends LanTransferCrypto {
+  _DecryptSpyLanTransferCrypto()
+    : super(
+        crypto: CryptoService(random: SecureRandom()),
+        random: SecureRandom(),
+      );
+
+  int decryptPackageCalls = 0;
+
+  @override
+  Future<Uint8List> decryptPackage({
+    required LanTransferEnvelope envelope,
+    required Uint8List key,
+  }) {
+    decryptPackageCalls++;
+    return super.decryptPackage(envelope: envelope, key: key);
+  }
+}
+
+class _EncryptSpyLanTransferCrypto extends LanTransferCrypto {
+  _EncryptSpyLanTransferCrypto()
+    : super(
+        crypto: CryptoService(random: SecureRandom()),
+        random: SecureRandom(),
+      );
+
+  int encryptPackageCalls = 0;
+
+  @override
+  Future<LanTransferEnvelope> encryptPackage({
+    required Uint8List plaintext,
+    required Uint8List key,
+  }) {
+    encryptPackageCalls++;
+    return super.encryptPackage(plaintext: plaintext, key: key);
+  }
 }
 
 Future<void> _waitUntil(
