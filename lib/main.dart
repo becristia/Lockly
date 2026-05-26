@@ -1,6 +1,8 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'
+    show AndroidOptions;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:secure_box/app/app.dart';
@@ -25,6 +27,10 @@ import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/shared/i18n/app_language.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/i18n/app_strings_en.dart';
+import 'package:secure_box/shared/i18n/app_strings_zh.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<void> main() async {
@@ -76,7 +82,8 @@ Future<void> main() async {
     server: LanTransferServer(crypto: lanTransferCrypto),
     client: LanTransferClient(crypto: lanTransferCrypto),
   );
-  final services = AppServices(
+  late final AppServices services;
+  services = AppServices(
     hasVault: hasVault,
     autoLockTimeout: autoLockTimeout,
     persistLanguagePreference: true,
@@ -85,9 +92,13 @@ Future<void> main() async {
     lanTransferService: lanTransferService,
     biometricService: BiometricService(
       authenticator: LocalAuthBiometricAuthenticator(
-        localizedReason: '验证身份以解锁 Lockly',
+        localizedReasonProvider: () =>
+            _biometricAuthReasonForLanguage(services.language),
       ),
-      store: SecureStorageDekStore(),
+      store: SecureStorageDekStore(
+        androidOptionsProvider: () =>
+            _biometricAndroidOptionsForLanguage(services.language),
+      ),
     ),
     clipboardService: ClipboardService(
       clearPasswordAfter: clipboardCleanupTimeout,
@@ -96,6 +107,25 @@ Future<void> main() async {
 
   bindings.addObserver(services.appLifecycleGuard);
   runApp(SecureBoxApp(services: services));
+}
+
+String _biometricAuthReasonForLanguage(AppLanguage language) {
+  return _stringsForLanguage(language).text('biometricAuthReason');
+}
+
+AndroidOptions _biometricAndroidOptionsForLanguage(AppLanguage language) {
+  final strings = _stringsForLanguage(language);
+  return SecureStorageDekStore.biometricAndroidOptions(
+    promptTitle: strings.text('biometricAuthTitle'),
+    promptSubtitle: strings.text('biometricAuthSubtitle'),
+  );
+}
+
+AppStrings _stringsForLanguage(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.zh => const AppStringsZh(),
+    AppLanguage.en => const AppStringsEn(),
+  };
 }
 
 Future<Duration> _readDurationSetting(

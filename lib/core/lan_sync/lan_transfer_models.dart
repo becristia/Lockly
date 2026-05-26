@@ -6,6 +6,10 @@ import 'package:secure_box/core/crypto/encoding.dart';
 const lanTransferSchema = 'lockly-lan-transfer-v1';
 const lanTransferSecretByteLength = 32;
 const lanTransferSecretEncodedLength = 43;
+const maxLanTransferQrPayloadChars = 4096;
+const maxLanTransferHostLength = 64;
+const maxLanTransferSessionIdLength = 128;
+const maxLanTransferSenderNameLength = 64;
 
 class LanTransferFormatException extends FormatException {
   const LanTransferFormatException(super.message, [super.source, super.offset]);
@@ -53,6 +57,10 @@ class LanTransferQrPayload {
   }
 
   static LanTransferQrPayload decode(String value) {
+    if (value.length > maxLanTransferQrPayloadChars) {
+      throw const LanTransferFormatException('QR payload is too large');
+    }
+
     final Object? decoded;
     try {
       decoded = jsonDecode(value);
@@ -93,6 +101,7 @@ class LanTransferQrPayload {
     if (host.trim().isEmpty) {
       throw const LanTransferFormatException('Host must not be blank');
     }
+    _validateStringLength(host, 'Host', maxLanTransferHostLength);
     if (!isLanTransferAllowedHost(host)) {
       throw const LanTransferFormatException(
         'Host must be a local or private network address',
@@ -106,6 +115,11 @@ class LanTransferQrPayload {
     if (sessionId.trim().isEmpty) {
       throw const LanTransferFormatException('Session id must not be blank');
     }
+    _validateStringLength(
+      sessionId,
+      'Session id',
+      maxLanTransferSessionIdLength,
+    );
     if (token.trim().isEmpty) {
       throw const LanTransferFormatException('Token must not be blank');
     }
@@ -138,6 +152,11 @@ class LanTransferQrPayload {
     if (senderName.trim().isEmpty) {
       throw const LanTransferFormatException('Sender name must not be blank');
     }
+    _validateStringLength(
+      senderName,
+      'Sender name',
+      maxLanTransferSenderNameLength,
+    );
   }
 
   Uri transferUri() {
@@ -146,6 +165,14 @@ class LanTransferQrPayload {
       host: host,
       port: port,
       pathSegments: ['v1', 'transfer', sessionId],
+    );
+  }
+}
+
+void _validateStringLength(String value, String fieldName, int maxLength) {
+  if (value.trim().length > maxLength) {
+    throw LanTransferFormatException(
+      '$fieldName must be at most $maxLength characters',
     );
   }
 }

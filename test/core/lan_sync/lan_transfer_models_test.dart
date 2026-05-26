@@ -185,6 +185,31 @@ void main() {
       }
     });
 
+    test('rejects oversized QR payload JSON before decoding', () {
+      final oversized =
+          '{"schema":"$lanTransferSchema","padding":"'
+          '${'x' * maxLanTransferQrPayloadChars}" }';
+
+      expect(
+        () => LanTransferQrPayload.decode(oversized),
+        throwsA(isA<LanTransferFormatException>()),
+      );
+    });
+
+    test('rejects excessive QR string field lengths', () {
+      final cases = <LanTransferQrPayload>[
+        validPayload(sessionId: 's' * (maxLanTransferSessionIdLength + 1)),
+        validPayload(senderName: 'S' * (maxLanTransferSenderNameLength + 1)),
+      ];
+
+      for (final payload in cases) {
+        expect(
+          () => payload.validate(now: DateTime.utc(2026, 5, 25, 12)),
+          throwsA(isA<LanTransferFormatException>()),
+        );
+      }
+    });
+
     test('builds a transfer URI without embedding token or transfer key', () {
       final payload = validPayload();
 

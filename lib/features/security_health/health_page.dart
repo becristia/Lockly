@@ -524,7 +524,10 @@ class _FindingItem extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 10),
-            Text(finding.detail, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              _localizedFindingDetail(AppStrings.of(context), finding),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 12),
             SizedBox(
               height: 38,
@@ -548,6 +551,30 @@ class _FindingItem extends StatelessWidget {
       ),
     );
   }
+}
+
+String _localizedFindingDetail(AppStrings strings, HealthFinding finding) {
+  final labels = <String>[];
+  for (final category in HealthCategory.values) {
+    if (!finding.categories.contains(category)) {
+      continue;
+    }
+    labels.add(_localizedHealthCategoryDetail(strings, category));
+  }
+  return labels.join(strings.text('listSeparator'));
+}
+
+String _localizedHealthCategoryDetail(
+  AppStrings strings,
+  HealthCategory category,
+) {
+  return switch (category) {
+    HealthCategory.weak => strings.text('healthDetailWeak'),
+    HealthCategory.reused => strings.text('healthDetailReused'),
+    HealthCategory.stale => strings.text('healthDetailStale'),
+    HealthCategory.similar => strings.text('healthDetailSimilar'),
+    HealthCategory.neverEdited => strings.text('healthDetailNeverEdited'),
+  };
 }
 
 class _HealthyState extends StatelessWidget {

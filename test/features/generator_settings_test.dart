@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
@@ -92,6 +93,27 @@ void main() {
 
     expect(clipboardText, isNotNull);
     expect(clipboardText, isNotEmpty);
+  });
+
+  testWidgets('generator validation message is localized', (tester) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeGenerator);
+    await tester.pumpAndSettle();
+
+    for (final index in [0, 1, 2, 3]) {
+      await tester.tap(find.byType(SwitchListTile).at(index));
+      await tester.pump();
+    }
+
+    await tester.tap(find.byKey(const ValueKey('generator-generate-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('请至少选择一种字符类型'), findsOneWidget);
+    expect(find.textContaining('At least one character'), findsNothing);
   });
 
   testWidgets('settings exposes required local vault controls', (tester) async {
@@ -380,6 +402,33 @@ void main() {
     expect(importedJson, '{"version":2,"items":[]}');
     expect(importedPassword, 'backup-master');
     expect(find.textContaining('backup-master'), findsNothing);
+  });
+
+  testWidgets('migration wizard imports Lockly JSON in non-overwrite mode', (
+    tester,
+  ) async {
+    final services = _RecordingImportServices();
+    addTearDown(services.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: MigrationWizardPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-json-input')),
+      '{"version":2,"items":[]}',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-backup-password-input')),
+      'source-master',
+    );
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+
+    expect(services.importedJson, '{"version":2,"items":[]}');
+    expect(services.importedPassword, 'source-master');
+    expect(services.importedMode, BackupImportMode.skip);
   });
 
   testWidgets('backup export dialog can copy encrypted backup json', (
@@ -781,6 +830,32 @@ Future<_BiometricHarness> _buildBiometricHarness() async {
     biometricService: biometricService,
     store: store,
   );
+}
+
+class _RecordingImportServices extends AppServices {
+  _RecordingImportServices()
+    : super(
+        hasVault: true,
+        initialShellState: AppShellState.unlocked,
+        clipboardService: ClipboardService(),
+        trackActivity: false,
+      );
+
+  String? importedJson;
+  String? importedPassword;
+  BackupImportMode? importedMode;
+
+  @override
+  Future<int> importEncryptedBackupJson({
+    required String backupJson,
+    required String masterPassword,
+    BackupImportMode mode = BackupImportMode.skip,
+  }) async {
+    importedJson = backupJson;
+    importedPassword = masterPassword;
+    importedMode = mode;
+    return 0;
+  }
 }
 
 class _BiometricHarness {

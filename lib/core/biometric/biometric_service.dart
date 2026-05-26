@@ -149,10 +149,12 @@ class LocalAuthBiometricAuthenticator implements BiometricAuthenticator {
   LocalAuthBiometricAuthenticator({
     LocalAuthentication? localAuth,
     this.localizedReason = 'Authenticate to unlock Lockly',
+    this.localizedReasonProvider,
   }) : _localAuth = localAuth ?? LocalAuthentication();
 
   final LocalAuthentication _localAuth;
   final String localizedReason;
+  final String Function()? localizedReasonProvider;
 
   @override
   Future<bool> canAuthenticate() async {
@@ -168,7 +170,7 @@ class LocalAuthBiometricAuthenticator implements BiometricAuthenticator {
   @override
   Future<bool> authenticate() {
     return _localAuth.authenticate(
-      localizedReason: localizedReason,
+      localizedReason: localizedReasonProvider?.call() ?? localizedReason,
       biometricOnly: true,
       persistAcrossBackgrounding: true,
     );
@@ -179,10 +181,16 @@ class SecureStorageDekStore implements SecureDekStore {
   SecureStorageDekStore({
     FlutterSecureStorage? storage,
     AndroidOptions androidOptions = _defaultAndroidOptions,
+    AndroidOptions Function()? androidOptionsProvider,
     WindowsOptions windowsOptions = WindowsOptions.defaultOptions,
     String key = _defaultDekKey,
-  }) : _storage = storage ?? FlutterSecureStorage(aOptions: androidOptions),
+  }) : _storage =
+           storage ??
+           FlutterSecureStorage(
+             aOptions: androidOptionsProvider?.call() ?? androidOptions,
+           ),
        _options = androidOptions,
+       _androidOptionsProvider = androidOptionsProvider,
        _windowsOptions = windowsOptions,
        _key = key;
 
@@ -197,10 +205,27 @@ class SecureStorageDekStore implements SecureDekStore {
   @visibleForTesting
   static const defaultAndroidOptionsForTest = _defaultAndroidOptions;
 
+  static AndroidOptions biometricAndroidOptions({
+    required String promptTitle,
+    required String promptSubtitle,
+  }) {
+    return AndroidOptions.biometric(
+      storageNamespace: 'secure_box_biometric',
+      enforceBiometrics: true,
+      biometricPromptTitle: promptTitle,
+      biometricPromptSubtitle: promptSubtitle,
+      migrateWithBackup: false,
+    );
+  }
+
   final FlutterSecureStorage _storage;
   final AndroidOptions _options;
+  final AndroidOptions Function()? _androidOptionsProvider;
   final WindowsOptions _windowsOptions;
   final String _key;
+
+  AndroidOptions get _currentOptions =>
+      _androidOptionsProvider?.call() ?? _options;
 
   @override
   SecureDekReadRequirement get readRequirement =>
@@ -217,7 +242,7 @@ class SecureStorageDekStore implements SecureDekStore {
     try {
       await _storage.containsKey(
         key: _key,
-        aOptions: _options,
+        aOptions: _currentOptions,
         wOptions: _windowsOptions,
       );
       return true;
@@ -231,7 +256,7 @@ class SecureStorageDekStore implements SecureDekStore {
     return _storage.write(
       key: _key,
       value: b64(Uint8List.fromList(dek)),
-      aOptions: _options,
+      aOptions: _currentOptions,
       wOptions: _windowsOptions,
     );
   }
@@ -240,7 +265,7 @@ class SecureStorageDekStore implements SecureDekStore {
   Future<Uint8List?> readDek() async {
     final storedValue = await _storage.read(
       key: _key,
-      aOptions: _options,
+      aOptions: _currentOptions,
       wOptions: _windowsOptions,
     );
     if (storedValue == null) {
@@ -254,7 +279,7 @@ class SecureStorageDekStore implements SecureDekStore {
   Future<void> deleteDek() {
     return _storage.delete(
       key: _key,
-      aOptions: _options,
+      aOptions: _currentOptions,
       wOptions: _windowsOptions,
     );
   }

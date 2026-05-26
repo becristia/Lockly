@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/features/security_health/health_page.dart';
+import 'package:secure_box/shared/i18n/app_strings_en.dart';
+import 'package:secure_box/shared/i18n/app_strings_scope.dart';
 
 HealthReport _fakeReport({
   int totalItems = 3,
@@ -52,6 +54,37 @@ void main() {
       expect(find.text('Test'), findsOneWidget);
       expect(find.text('Foo'), findsOneWidget);
       expect(find.text('共 3 条记录'), findsOneWidget);
+    });
+
+    testWidgets('renders finding detail with the selected language', (
+      tester,
+    ) async {
+      final services = AppServices.fake(
+        hasVault: true,
+        unlocked: true,
+        analyzePasswordHealthOverride: () async => _fakeReport(
+          findings: const [
+            HealthFinding(
+              itemId: '1',
+              title: 'Test',
+              username: 'u',
+              categories: {HealthCategory.weak},
+              detail: 'legacy detail',
+            ),
+          ],
+        ),
+      );
+
+      await tester.pumpWidget(
+        AppStringsScope(
+          strings: const AppStringsEn(),
+          child: MaterialApp(home: HealthPage(services: services)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Password strength is too low'), findsOneWidget);
+      expect(find.textContaining('legacy detail'), findsNothing);
     });
 
     testWidgets('空状态显示健康提示', (tester) async {

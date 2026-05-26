@@ -5,15 +5,38 @@ String localizedMasterPasswordPolicyMessage(
   MasterPasswordPolicyResult result,
   AppStrings strings,
 ) {
-  return switch (result.message) {
-    '主密码至少需要 12 个字符' => strings.text('policyMinLength'),
-    '主密码不能是常见弱密码' => strings.text('policyCommonWeak'),
-    '主密码不能由重复字符组成' => strings.text('policyRepeated'),
-    '主密码不能是键盘序列' => strings.text('policyKeyboardWalk'),
-    '请使用更长的密码短语，或混合大小写、数字和符号' => strings.text('policyUseLongerPassphrase'),
-    '强：密码短语更容易记忆且更难猜' => strings.text('policyStrongPassphrase'),
-    '强：长度和字符组合较好' => strings.text('policyStrongMixed'),
-    '中：建议继续增强主密码' => strings.text('policyFairImprove'),
-    _ => result.message,
+  return switch (result.messageCode) {
+    PasswordPolicyMessageCode.masterMinLength => strings.text(
+      'policyMinLength',
+    ),
+    PasswordPolicyMessageCode.masterCommonWeak => strings.text(
+      'policyCommonWeak',
+    ),
+    PasswordPolicyMessageCode.masterRepeated => strings.text('policyRepeated'),
+    PasswordPolicyMessageCode.masterKeyboardWalk => strings.text(
+      'policyKeyboardWalk',
+    ),
+    PasswordPolicyMessageCode.masterUseLongerPassphrase => strings.text(
+      'policyUseLongerPassphrase',
+    ),
+    PasswordPolicyMessageCode.masterStrongPassphrase => strings.text(
+      'policyStrongPassphrase',
+    ),
+    PasswordPolicyMessageCode.masterStrongMixed => strings.text(
+      'policyStrongMixed',
+    ),
+    PasswordPolicyMessageCode.masterFairImprove => strings.text(
+      'policyFairImprove',
+    ),
+    PasswordPolicyMessageCode.entryEmpty => strings.text('policyEntryEmpty'),
+    PasswordPolicyMessageCode.entryMinLength => strings.text(
+      'policyEntryMinLength',
+    ),
+    PasswordPolicyMessageCode.entryCommonWeak => strings.text(
+      'policyEntryCommonWeak',
+    ),
+    PasswordPolicyMessageCode.entryStrong => strings.text('policyEntryStrong'),
+    PasswordPolicyMessageCode.entryFair => strings.text('policyEntryFair'),
+    PasswordPolicyMessageCode.entryWeak => strings.text('policyEntryWeak'),
   };
 }

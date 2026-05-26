@@ -69,7 +69,7 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
           await widget.services.importEncryptedBackupJson(
             backupJson: _sourceController.text,
             masterPassword: _passwordController.text,
-            mode: BackupImportMode.merge,
+            mode: BackupImportMode.skip,
           ),
         _MigrationSource.csv => await widget.services.importPlaintextCsv(
           _preparedCsvText ?? _sourceController.text,

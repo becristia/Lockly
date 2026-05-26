@@ -1,17 +1,57 @@
 enum MasterPasswordStrengthLabel { weak, fair, strong }
 
+enum PasswordPolicyMessageCode {
+  masterMinLength,
+  masterCommonWeak,
+  masterRepeated,
+  masterKeyboardWalk,
+  masterUseLongerPassphrase,
+  masterStrongPassphrase,
+  masterStrongMixed,
+  masterFairImprove,
+  entryEmpty,
+  entryMinLength,
+  entryCommonWeak,
+  entryStrong,
+  entryFair,
+  entryWeak,
+}
+
 class MasterPasswordPolicyResult {
   const MasterPasswordPolicyResult({
     required this.isAcceptable,
     required this.label,
     required this.score,
-    required this.message,
+    required this.messageCode,
   });
 
   final bool isAcceptable;
   final MasterPasswordStrengthLabel label;
   final int score;
-  final String message;
+  final PasswordPolicyMessageCode messageCode;
+
+  String get message => _messageForCode(messageCode);
+}
+
+String _messageForCode(PasswordPolicyMessageCode code) {
+  return switch (code) {
+    PasswordPolicyMessageCode.masterMinLength => 'masterMinLength',
+    PasswordPolicyMessageCode.masterCommonWeak => 'masterCommonWeak',
+    PasswordPolicyMessageCode.masterRepeated => 'masterRepeated',
+    PasswordPolicyMessageCode.masterKeyboardWalk => 'masterKeyboardWalk',
+    PasswordPolicyMessageCode.masterUseLongerPassphrase =>
+      'masterUseLongerPassphrase',
+    PasswordPolicyMessageCode.masterStrongPassphrase =>
+      'masterStrongPassphrase',
+    PasswordPolicyMessageCode.masterStrongMixed => 'masterStrongMixed',
+    PasswordPolicyMessageCode.masterFairImprove => 'masterFairImprove',
+    PasswordPolicyMessageCode.entryEmpty => 'entryEmpty',
+    PasswordPolicyMessageCode.entryMinLength => 'entryMinLength',
+    PasswordPolicyMessageCode.entryCommonWeak => 'entryCommonWeak',
+    PasswordPolicyMessageCode.entryStrong => 'entryStrong',
+    PasswordPolicyMessageCode.entryFair => 'entryFair',
+    PasswordPolicyMessageCode.entryWeak => 'entryWeak',
+  };
 }
 
 class MasterPasswordPolicy {
@@ -86,7 +126,7 @@ class MasterPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: 0,
-        message: '主密码至少需要 12 个字符',
+        messageCode: PasswordPolicyMessageCode.masterMinLength,
       );
     }
 
@@ -96,7 +136,7 @@ class MasterPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: 1,
-        message: '主密码不能是常见弱密码',
+        messageCode: PasswordPolicyMessageCode.masterCommonWeak,
       );
     }
 
@@ -105,7 +145,7 @@ class MasterPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: 1,
-        message: '主密码不能由重复字符组成',
+        messageCode: PasswordPolicyMessageCode.masterRepeated,
       );
     }
 
@@ -114,7 +154,7 @@ class MasterPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: 1,
-        message: '主密码不能是键盘序列',
+        messageCode: PasswordPolicyMessageCode.masterKeyboardWalk,
       );
     }
 
@@ -132,7 +172,7 @@ class MasterPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: adjustedScore,
-        message: '请使用更长的密码短语，或混合大小写、数字和符号',
+        messageCode: PasswordPolicyMessageCode.masterUseLongerPassphrase,
       );
     }
 
@@ -150,7 +190,7 @@ class MasterPasswordPolicy {
             ? MasterPasswordStrengthLabel.strong
             : MasterPasswordStrengthLabel.fair,
         score: displayScore,
-        message: '强：密码短语更容易记忆且更难猜',
+        messageCode: PasswordPolicyMessageCode.masterStrongPassphrase,
       );
     }
 
@@ -160,7 +200,9 @@ class MasterPasswordPolicy {
           ? MasterPasswordStrengthLabel.strong
           : MasterPasswordStrengthLabel.fair,
       score: displayScore,
-      message: isStrong ? '强：长度和字符组合较好' : '中：建议继续增强主密码',
+      messageCode: isStrong
+          ? PasswordPolicyMessageCode.masterStrongMixed
+          : PasswordPolicyMessageCode.masterFairImprove,
     );
   }
 
@@ -299,7 +341,7 @@ class EntryPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: 0,
-        message: '密码不能为空',
+        messageCode: PasswordPolicyMessageCode.entryEmpty,
       );
     }
     if (trimmed.length < minLength) {
@@ -307,7 +349,7 @@ class EntryPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: 1,
-        message: '建议至少 8 个字符',
+        messageCode: PasswordPolicyMessageCode.entryMinLength,
       );
     }
 
@@ -319,7 +361,7 @@ class EntryPasswordPolicy {
         isAcceptable: false,
         label: MasterPasswordStrengthLabel.weak,
         score: 1,
-        message: '密码过于常见或容易猜测',
+        messageCode: PasswordPolicyMessageCode.entryCommonWeak,
       );
     }
 
@@ -357,10 +399,11 @@ class EntryPasswordPolicy {
       isAcceptable: adjustedScore >= 3,
       label: label,
       score: adjustedScore,
-      message: switch (label) {
-        MasterPasswordStrengthLabel.strong => '强：适合作为保存的条目密码',
-        MasterPasswordStrengthLabel.fair => '中：可用，但建议继续增强',
-        MasterPasswordStrengthLabel.weak => '弱：建议生成更强密码',
+      messageCode: switch (label) {
+        MasterPasswordStrengthLabel.strong =>
+          PasswordPolicyMessageCode.entryStrong,
+        MasterPasswordStrengthLabel.fair => PasswordPolicyMessageCode.entryFair,
+        MasterPasswordStrengthLabel.weak => PasswordPolicyMessageCode.entryWeak,
       },
     );
   }

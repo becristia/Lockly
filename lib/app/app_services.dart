@@ -994,7 +994,7 @@ class AppServices {
 
     final decoded = jsonDecode(backupJson);
     if (decoded is! Map) {
-      throw const FormatException('备份内容格式不正确');
+      throw const FormatException('Backup JSON root must be an object');
     }
     final importedCount = await _lockShellOnIntegrity(
       () => backupService.importBackup(

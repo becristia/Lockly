@@ -275,6 +275,38 @@ void main() {
   });
 
   test(
+    'secure storage store resolves biometric Android options per call',
+    () async {
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      var promptTitle = 'First prompt';
+      final storage = _RecordingFlutterSecureStorage(containsKeyResult: true);
+      final store = SecureStorageDekStore(
+        storage: storage,
+        androidOptionsProvider: () =>
+            SecureStorageDekStore.biometricAndroidOptions(
+              promptTitle: promptTitle,
+              promptSubtitle: 'Authenticate locally',
+            ),
+      );
+
+      expect(await store.canUseBiometricProtection(), isTrue);
+      expect(
+        storage.lastAndroidOptions?.toMap()['biometricPromptTitle'],
+        'First prompt',
+      );
+
+      promptTitle = 'Second prompt';
+      expect(await store.canUseBiometricProtection(), isTrue);
+      expect(
+        storage.lastAndroidOptions?.toMap()['biometricPromptTitle'],
+        'Second prompt',
+      );
+    },
+  );
+
+  test(
     'secure storage capability gate is conservative off supported desktop/mobile targets',
     () async {
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -490,6 +522,7 @@ class _RecordingFlutterSecureStorage extends FlutterSecureStorage {
   final Object? containsKeyError;
 
   int containsKeyCalls = 0;
+  AndroidOptions? lastAndroidOptions;
 
   @override
   Future<bool> containsKey({
@@ -502,6 +535,7 @@ class _RecordingFlutterSecureStorage extends FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     containsKeyCalls += 1;
+    lastAndroidOptions = aOptions;
     if (containsKeyError != null) {
       throw containsKeyError!;
     }

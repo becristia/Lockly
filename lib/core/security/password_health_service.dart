@@ -177,11 +177,13 @@ class PasswordHealthService {
 
   static String _buildDetail(Set<HealthCategory> categories) {
     final parts = <String>[];
-    if (categories.contains(HealthCategory.weak)) parts.add('密码强度不足');
-    if (categories.contains(HealthCategory.reused)) parts.add('与其他条目重复');
-    if (categories.contains(HealthCategory.stale)) parts.add('超过365天未更新');
-    if (categories.contains(HealthCategory.similar)) parts.add('包含标题或网站名');
-    if (categories.contains(HealthCategory.neverEdited)) parts.add('从未修改');
-    return parts.join('；');
+    if (categories.contains(HealthCategory.weak)) parts.add('weak');
+    if (categories.contains(HealthCategory.reused)) parts.add('reused');
+    if (categories.contains(HealthCategory.stale)) parts.add('stale');
+    if (categories.contains(HealthCategory.similar)) parts.add('similar');
+    if (categories.contains(HealthCategory.neverEdited)) {
+      parts.add('neverEdited');
+    }
+    return parts.join('|');
   }
 }

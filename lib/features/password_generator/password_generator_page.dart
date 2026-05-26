@@ -37,7 +37,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
   bool _excludeConfusing = true;
   bool _requireEverySelectedClass = true;
   String _generatedPassword = '';
-  String? _errorText;
+  String? _errorKey;
 
   void _generatePassword() {
     widget.services.recordActivity();
@@ -55,12 +55,12 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
       );
       setState(() {
         _generatedPassword = password;
-        _errorText = null;
+        _errorKey = null;
       });
     } on PasswordGeneratorException catch (error) {
       setState(() {
         _generatedPassword = '';
-        _errorText = error.message;
+        _errorKey = _generatorErrorKey(error);
       });
     }
   }
@@ -133,7 +133,7 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
             children: [
               _ResultPanel(
                 password: _generatedPassword,
-                errorText: _errorText,
+                errorKey: _errorKey,
                 onGenerate: _generatePassword,
                 onCopy: _copyGeneratedPassword,
                 onSave: _savePassword,
@@ -245,10 +245,21 @@ class _PasswordGeneratorPageState extends State<PasswordGeneratorPage> {
   }
 }
 
+String _generatorErrorKey(PasswordGeneratorException error) {
+  return switch (error.message) {
+    'Password length must be positive' => 'generatorInvalidLength',
+    'At least one character class must be selected' =>
+      'generatorNoCharacterClass',
+    'Length is too short for the selected character classes' =>
+      'generatorLengthTooShort',
+    _ => 'generatorFailed',
+  };
+}
+
 class _ResultPanel extends StatelessWidget {
   const _ResultPanel({
     required this.password,
-    required this.errorText,
+    required this.errorKey,
     required this.onGenerate,
     required this.onCopy,
     required this.onSave,
@@ -257,7 +268,7 @@ class _ResultPanel extends StatelessWidget {
   });
 
   final String password;
-  final String? errorText;
+  final String? errorKey;
   final VoidCallback onGenerate;
   final VoidCallback onCopy;
   final VoidCallback onSave;
@@ -320,7 +331,9 @@ class _ResultPanel extends StatelessWidget {
             )
           else
             Text(
-              errorText ?? strings.generatorEmptyHint,
+              errorKey == null
+                  ? strings.generatorEmptyHint
+                  : strings.text(errorKey!),
               style: theme.textTheme.bodyMedium,
             ),
           const SizedBox(height: 12),
