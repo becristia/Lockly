@@ -56,9 +56,7 @@ class _TrashPageState extends State<TrashPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppStrings.of(context).text('restoreFailed'))),
       );
     }
@@ -99,9 +97,7 @@ class _TrashPageState extends State<TrashPage> {
       return true;
     } catch (_) {
       if (!mounted) return false;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppStrings.of(context).text('deleteFailed'))),
       );
       return false;
@@ -144,10 +140,10 @@ class _TrashPageState extends State<TrashPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('clearTrashFailed'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('clearTrashFailed')),
+        ),
       );
     }
   }
@@ -237,7 +233,10 @@ class _TrashPageState extends State<TrashPage> {
               color: SecureVisualColors.danger,
             ),
             const SizedBox(height: 16),
-            Text(strings.vaultLoadFailedTitle, style: theme.textTheme.titleMedium),
+            Text(
+              strings.vaultLoadFailedTitle,
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Text(
               _errorMessage!,
@@ -266,7 +265,10 @@ class _TrashPageState extends State<TrashPage> {
               color: SecureVisualColors.muted,
             ),
             const SizedBox(height: 16),
-            Text(strings.text('trashEmpty'), style: theme.textTheme.titleMedium),
+            Text(
+              strings.text('trashEmpty'),
+              style: theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Text(
               strings.text('trashEmptyMessage'),
@@ -281,8 +283,7 @@ class _TrashPageState extends State<TrashPage> {
 
   Widget _buildItemList(ThemeData theme) {
     final strings = AppStrings.of(context);
-    final deletedRecords =
-        '${_items.length} ${strings.text('deletedRecords')}';
+    final deletedRecords = '${_items.length} ${strings.text('deletedRecords')}';
     return RefreshIndicator(
       onRefresh: _loadItems,
       child: ListView(
@@ -290,10 +291,7 @@ class _TrashPageState extends State<TrashPage> {
         children: [
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              deletedRecords,
-              style: theme.textTheme.titleMedium,
-            ),
+            child: Text(deletedRecords, style: theme.textTheme.titleMedium),
           ),
           SecureGlassCard(
             padding: EdgeInsets.zero,

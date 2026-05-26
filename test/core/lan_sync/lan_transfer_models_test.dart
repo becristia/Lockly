@@ -108,6 +108,10 @@ void main() {
     test('validates required boundaries and value formats', () {
       final cases = <LanTransferQrPayload>[
         validPayload(host: ''),
+        validPayload(host: '0.0.0.0'),
+        validPayload(host: '8.8.8.8'),
+        validPayload(host: '100.64.0.1'),
+        validPayload(host: 'example.com'),
         validPayload(port: 0),
         validPayload(port: 65536),
         validPayload(sessionId: ''),

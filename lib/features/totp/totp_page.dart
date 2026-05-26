@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/password_generator/totp_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class TotpPage extends StatefulWidget {
@@ -138,8 +139,8 @@ class _TotpCard extends StatelessWidget {
           SnackBar(
             content: Text(
               copied
-                  ? 'Code copied. Clipboard clears on expiry.'
-                  : 'Copy failed.',
+                  ? AppStrings.of(context).text('totpCodeCopied')
+                  : AppStrings.of(context).copyFailed,
             ),
             duration: const Duration(seconds: 1),
           ),

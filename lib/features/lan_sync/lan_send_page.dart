@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
+import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
+import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
@@ -61,6 +63,24 @@ class _LanSendPageState extends State<LanSendPage> {
         _items = items;
         _loading = false;
       });
+    } on VaultLockedException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _items = const <VaultListItem>[];
+        _loading = false;
+        _errorKey = 'lanLocalVaultLocked';
+      });
+    } on VaultIntegrityException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _items = const <VaultListItem>[];
+        _loading = false;
+        _errorKey = 'lanPackageIntegrityFailed';
+      });
     } catch (_) {
       if (!mounted) {
         return;
@@ -77,6 +97,10 @@ class _LanSendPageState extends State<LanSendPage> {
     if (_selectedIds.isEmpty || _creating) {
       return;
     }
+    final sourceMasterPassword = await _promptSourceMasterPassword();
+    if (sourceMasterPassword == null || !mounted) {
+      return;
+    }
     setState(() {
       _creating = true;
       _errorKey = null;
@@ -86,6 +110,7 @@ class _LanSendPageState extends State<LanSendPage> {
         itemIds: _selectedIds.toList(growable: false),
         includeBlobs: _includeBlobs,
         includeHistory: _includeHistory,
+        sourceMasterPassword: sourceMasterPassword,
         senderName: AppStrings.of(context).appName,
       );
       if (!mounted) {
@@ -102,6 +127,30 @@ class _LanSendPageState extends State<LanSendPage> {
         _session = session;
         _creating = false;
       });
+    } on VaultUnlockException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _creating = false;
+        _errorKey = 'lanSourcePasswordWrong';
+      });
+    } on VaultLockedException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _creating = false;
+        _errorKey = 'lanLocalVaultLocked';
+      });
+    } on VaultIntegrityException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _creating = false;
+        _errorKey = 'lanPackageIntegrityFailed';
+      });
     } catch (_) {
       if (!mounted) {
         return;
@@ -111,6 +160,14 @@ class _LanSendPageState extends State<LanSendPage> {
         _errorKey = 'lanSessionUnavailable';
       });
     }
+  }
+
+  Future<String?> _promptSourceMasterPassword() {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const _LanSendSourcePasswordDialog(),
+    );
   }
 
   Future<void> _cancelSession() async {
@@ -197,6 +254,8 @@ class _LanSendPageState extends State<LanSendPage> {
               TextField(
                 key: const ValueKey('lan-send-search-field'),
                 controller: _searchController,
+                enableSuggestions: false,
+                autocorrect: false,
                 decoration: InputDecoration(
                   labelText: strings.text('lanSearchRecords'),
                   prefixIcon: const Icon(Icons.search_rounded),
@@ -299,7 +358,8 @@ class _LanSendPageState extends State<LanSendPage> {
     final subtitle = [
       if (item.website.trim().isNotEmpty) item.website,
       if (item.username.trim().isNotEmpty) item.username,
-      if (item.tags.isNotEmpty) item.tags.join(', '),
+      if (item.tags.isNotEmpty)
+        item.tags.join(AppStrings.of(context).text('listSeparator')),
     ].join(' - ');
 
     return CheckboxListTile(
@@ -387,7 +447,11 @@ class _LanSendPageState extends State<LanSendPage> {
         OutlinedButton.icon(
           onPressed: _creating ? null : _cancelSession,
           icon: const Icon(Icons.close_rounded),
-          label: Text(strings.text('lanCancelSession')),
+          label: Text(
+            strings.text(
+              _creating ? 'lanCancellingSession' : 'lanCancelSession',
+            ),
+          ),
         ),
       ],
     );
@@ -404,6 +468,80 @@ class _LanSendPageState extends State<LanSendPage> {
         .toString()
         .padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+}
+
+class _LanSendSourcePasswordDialog extends StatefulWidget {
+  const _LanSendSourcePasswordDialog();
+
+  @override
+  State<_LanSendSourcePasswordDialog> createState() =>
+      _LanSendSourcePasswordDialogState();
+}
+
+class _LanSendSourcePasswordDialogState
+    extends State<_LanSendSourcePasswordDialog> {
+  final TextEditingController _controller = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _controller.clear();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _cancel() {
+    _controller.clear();
+    Navigator.of(context).pop();
+  }
+
+  void _confirm() {
+    final password = _controller.text;
+    _controller.clear();
+    Navigator.of(context).pop(password);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+
+    return AlertDialog(
+      title: Text(strings.text('lanSourceMasterPassword')),
+      content: TextFormField(
+        key: const ValueKey('lan-send-source-master-password-field'),
+        controller: _controller,
+        obscureText: _obscure,
+        enableSuggestions: false,
+        autocorrect: false,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: strings.text('lanSourceMasterPassword'),
+          suffixIcon: IconButton(
+            onPressed: () => setState(() => _obscure = !_obscure),
+            icon: Icon(
+              _obscure
+                  ? Icons.visibility_rounded
+                  : Icons.visibility_off_rounded,
+            ),
+          ),
+        ),
+        onChanged: (_) => setState(() {}),
+        onFieldSubmitted: (_) {
+          if (_controller.text.isNotEmpty) {
+            _confirm();
+          }
+        },
+      ),
+      actions: [
+        TextButton(onPressed: _cancel, child: Text(strings.text('cancel'))),
+        FilledButton(
+          key: const ValueKey('lan-send-confirm-password'),
+          onPressed: _controller.text.isEmpty ? null : _confirm,
+          child: Text(strings.text('lanCreateQr')),
+        ),
+      ],
+    );
   }
 }
 

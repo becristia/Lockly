@@ -86,6 +86,8 @@ class _TagManagementPageState extends State<TagManagementPage> {
         content: TextField(
           controller: controller,
           autofocus: true,
+          enableSuggestions: false,
+          autocorrect: false,
           decoration: InputDecoration(
             labelText: AppStrings.of(ctx).text('newTagName'),
           ),

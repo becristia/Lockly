@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_crypto.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
@@ -11,6 +13,8 @@ import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 /// This caps the JSON response body and the declared encrypted package size so
 /// a malformed LAN peer cannot force unbounded client memory growth.
 const maxLanTransferEnvelopeBytes = 128 * 1024 * 1024;
+const defaultLanTransferRequestTimeout = Duration(seconds: 8);
+const defaultLanTransferOverallTimeout = Duration(minutes: 2);
 
 class LanTransferException implements Exception {
   const LanTransferException(this.message, [this.cause]);
@@ -46,28 +50,64 @@ class LanTransferClient {
   const LanTransferClient({
     required LanTransferCrypto crypto,
     int maxEnvelopeBytes = maxLanTransferEnvelopeBytes,
+    Duration requestTimeout = defaultLanTransferRequestTimeout,
+    Duration overallTimeout = defaultLanTransferOverallTimeout,
   }) : assert(maxEnvelopeBytes > 0),
+       assert(requestTimeout > Duration.zero),
+       assert(overallTimeout > Duration.zero),
        _crypto = crypto,
-       _maxEnvelopeBytes = maxEnvelopeBytes;
+       _maxEnvelopeBytes = maxEnvelopeBytes,
+       _requestTimeout = requestTimeout,
+       _overallTimeout = overallTimeout;
 
   final LanTransferCrypto _crypto;
   final int _maxEnvelopeBytes;
+  final Duration _requestTimeout;
+  final Duration _overallTimeout;
 
-  Future<Uint8List> download(LanTransferQrPayload payload) async {
+  Future<Uint8List> download(
+    LanTransferQrPayload payload, {
+    CancellationToken? cancellationToken,
+  }) async {
     _validatePayload(payload);
+    cancellationToken?.throwIfCancelled();
+    return _download(payload, cancellationToken: cancellationToken);
+  }
 
-    final client = HttpClient();
+  Future<Uint8List> _download(
+    LanTransferQrPayload payload, {
+    CancellationToken? cancellationToken,
+  }) async {
+    Socket? socket;
+    var didOverallTimeout = false;
+    void abortSocket() {
+      socket?.destroy();
+    }
+
+    final overallTimer = Timer(_overallTimeout, () {
+      didOverallTimeout = true;
+      abortSocket();
+    });
+    cancellationToken?.addListener(abortSocket);
     try {
-      final request = await client.getUrl(payload.transferUri());
-      request.headers.set(
-        HttpHeaders.authorizationHeader,
-        'Bearer ${payload.token}',
+      socket = await Socket.connect(
+        payload.host,
+        payload.port,
+        timeout: _requestTimeout,
       );
-      final response = await request.close();
+      cancellationToken?.throwIfCancelled();
+      _writeHttpRequest(socket, payload);
+      await socket.flush().timeout(_requestTimeout);
+      cancellationToken?.throwIfCancelled();
+      final response = await _readHttpResponse(
+        socket,
+        cancellationToken: cancellationToken,
+        didOverallTimeout: () => didOverallTimeout,
+      );
 
       switch (response.statusCode) {
         case HttpStatus.ok:
-          return await _readEnvelope(response, payload);
+          return await _readEnvelope(response.body, payload);
         case HttpStatus.gone:
           throw const LanTransferExpiredException(
             'LAN transfer session has expired',
@@ -87,7 +127,18 @@ class LanTransferClient {
       }
     } on LanTransferException {
       rethrow;
+    } on OperationCancelledException {
+      rethrow;
     } on SocketException catch (error) {
+      if (cancellationToken?.isCancelled == true) {
+        throw const OperationCancelledException();
+      }
+      if (didOverallTimeout) {
+        throw LanTransferUnavailableException(
+          'LAN transfer request timed out',
+          error,
+        );
+      }
       throw LanTransferUnavailableException(
         'LAN transfer server is unavailable',
         error,
@@ -97,16 +148,33 @@ class LanTransferClient {
         'LAN transfer request failed',
         error,
       );
+    } on TimeoutException catch (error) {
+      throw LanTransferUnavailableException(
+        'LAN transfer request timed out',
+        error,
+      );
     } finally {
-      client.close(force: true);
+      overallTimer.cancel();
+      cancellationToken?.removeListener(abortSocket);
+      socket?.destroy();
     }
   }
 
+  void _writeHttpRequest(Socket socket, LanTransferQrPayload payload) {
+    final requestPath = payload.transferUri().path;
+    socket
+      ..write('GET $requestPath HTTP/1.1\r\n')
+      ..write('Host: ${payload.host}:${payload.port}\r\n')
+      ..write('Authorization: Bearer ${payload.token}\r\n')
+      ..write('Accept: application/json\r\n')
+      ..write('Connection: close\r\n')
+      ..write('\r\n');
+  }
+
   Future<Uint8List> _readEnvelope(
-    HttpClientResponse response,
+    String body,
     LanTransferQrPayload payload,
   ) async {
-    final body = await _readBoundedUtf8(response);
     final Object? decoded;
     try {
       decoded = jsonDecode(body);
@@ -153,28 +221,166 @@ class LanTransferClient {
     return plaintext;
   }
 
-  Future<String> _readBoundedUtf8(HttpClientResponse response) async {
-    final contentLength = response.contentLength;
-    if (contentLength > _maxEnvelopeBytes) {
+  Future<_LanHttpResponse> _readHttpResponse(
+    Socket socket, {
+    CancellationToken? cancellationToken,
+    required bool Function() didOverallTimeout,
+  }) async {
+    const maxHeaderBytes = 64 * 1024;
+    final headerBuffer = <int>[];
+    final bodyBuilder = BytesBuilder(copy: false);
+    var headerEnd = -1;
+    int? contentLength;
+    int? statusCode;
+    var bodyLength = 0;
+
+    await for (final chunk in socket.timeout(_requestTimeout)) {
+      cancellationToken?.throwIfCancelled();
+      if (didOverallTimeout()) {
+        throw TimeoutException('LAN transfer request timed out');
+      }
+      if (headerEnd < 0) {
+        headerBuffer.addAll(chunk);
+        headerEnd = _findHeaderEnd(headerBuffer);
+        if (headerEnd < 0 && headerBuffer.length > maxHeaderBytes) {
+          throw const LanTransferMalformedException(
+            'LAN transfer response headers exceeded size limit',
+          );
+        }
+        if (headerEnd >= 0) {
+          final headers = latin1.decode(headerBuffer.sublist(0, headerEnd));
+          contentLength = _parseContentLength(headers);
+          if (contentLength != null && contentLength > _maxEnvelopeBytes) {
+            throw const LanTransferMalformedException(
+              'LAN transfer response exceeded size limit',
+            );
+          }
+          statusCode = _parseStatusCode(headers);
+          final bodyStart = headerEnd + 4;
+          if (headerBuffer.length > bodyStart) {
+            bodyLength = _appendBodyChunk(
+              bodyBuilder: bodyBuilder,
+              chunk: headerBuffer.sublist(bodyStart),
+              currentLength: bodyLength,
+              contentLength: contentLength,
+            );
+          }
+          headerBuffer.clear();
+        }
+      } else {
+        bodyLength = _appendBodyChunk(
+          bodyBuilder: bodyBuilder,
+          chunk: chunk,
+          currentLength: bodyLength,
+          contentLength: contentLength,
+        );
+      }
+
+      if (headerEnd >= 0) {
+        if (bodyLength > _maxEnvelopeBytes) {
+          throw const LanTransferMalformedException(
+            'LAN transfer response exceeded size limit',
+          );
+        }
+        if (contentLength != null && bodyLength >= contentLength) {
+          return _LanHttpResponse(
+            statusCode: statusCode!,
+            body: _decodeUtf8Body(bodyBuilder.takeBytes()),
+          );
+        }
+      }
+    }
+
+    cancellationToken?.throwIfCancelled();
+    if (didOverallTimeout()) {
+      throw TimeoutException('LAN transfer request timed out');
+    }
+    if (headerEnd < 0) {
+      throw const LanTransferMalformedException(
+        'LAN transfer response headers were incomplete',
+      );
+    }
+    return _LanHttpResponse(
+      statusCode: statusCode!,
+      body: _decodeUtf8Body(bodyBuilder.takeBytes()),
+    );
+  }
+
+  int _findHeaderEnd(List<int> bytes) {
+    for (var i = 3; i < bytes.length; i++) {
+      if (bytes[i - 3] == 13 &&
+          bytes[i - 2] == 10 &&
+          bytes[i - 1] == 13 &&
+          bytes[i] == 10) {
+        return i - 3;
+      }
+    }
+    return -1;
+  }
+
+  int? _parseContentLength(String headers) {
+    for (final line in headers.split('\r\n').skip(1)) {
+      final separator = line.indexOf(':');
+      if (separator < 0) {
+        continue;
+      }
+      final name = line.substring(0, separator).trim().toLowerCase();
+      if (name != 'content-length') {
+        continue;
+      }
+      final length = int.tryParse(line.substring(separator + 1).trim());
+      if (length == null || length < 0) {
+        throw const LanTransferMalformedException(
+          'LAN transfer response Content-Length was malformed',
+        );
+      }
+      return length;
+    }
+    return null;
+  }
+
+  int _parseStatusCode(String headers) {
+    final statusLine = headers.split('\r\n').first;
+    final statusMatch = RegExp(
+      r'^HTTP/1\.[01] (\d{3})(?: |$)',
+    ).firstMatch(statusLine);
+    if (statusMatch == null) {
+      throw const LanTransferMalformedException(
+        'LAN transfer response status was malformed',
+      );
+    }
+    return int.parse(statusMatch.group(1)!);
+  }
+
+  int _appendBodyChunk({
+    required BytesBuilder bodyBuilder,
+    required List<int> chunk,
+    required int currentLength,
+    required int? contentLength,
+  }) {
+    final remaining = contentLength == null
+        ? chunk.length
+        : contentLength - currentLength;
+    if (remaining <= 0) {
+      return currentLength;
+    }
+    final bytesToAdd = remaining < chunk.length ? remaining : chunk.length;
+    if (currentLength + bytesToAdd > _maxEnvelopeBytes) {
       throw const LanTransferMalformedException(
         'LAN transfer response exceeded size limit',
       );
     }
+    bodyBuilder.add(
+      bytesToAdd == chunk.length
+          ? chunk
+          : chunk.take(bytesToAdd).toList(growable: false),
+    );
+    return currentLength + bytesToAdd;
+  }
 
-    final builder = BytesBuilder(copy: false);
-    var receivedBytes = 0;
-    await for (final chunk in response) {
-      receivedBytes += chunk.length;
-      if (receivedBytes > _maxEnvelopeBytes) {
-        throw const LanTransferMalformedException(
-          'LAN transfer response exceeded size limit',
-        );
-      }
-      builder.add(chunk);
-    }
-
+  String _decodeUtf8Body(List<int> bytes) {
     try {
-      return utf8.decode(builder.takeBytes());
+      return utf8.decode(bytes);
     } on FormatException catch (error) {
       throw LanTransferMalformedException(
         'LAN transfer response was not valid UTF-8',
@@ -223,4 +429,11 @@ class LanTransferClient {
       );
     }
   }
+}
+
+class _LanHttpResponse {
+  const _LanHttpResponse({required this.statusCode, required this.body});
+
+  final int statusCode;
+  final String body;
 }

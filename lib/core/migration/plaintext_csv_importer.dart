@@ -53,52 +53,52 @@ class PlaintextCsvImporter {
 }
 
 _PlaintextCsvParse _parseImport(String csvText) {
-    if (utf8.encode(csvText).length > maxPlaintextCsvImportBytes) {
-      throw const FormatException('CSV import is too large');
+  if (utf8.encode(csvText).length > maxPlaintextCsvImportBytes) {
+    throw const FormatException('CSV import is too large');
+  }
+
+  final rows = _parseCsv(csvText);
+  if (rows.isEmpty) {
+    throw const FormatException('CSV import is empty');
+  }
+
+  final headers = rows.first.map(_normalizeHeader).toList(growable: false);
+  if (headers.every((header) => header.isEmpty)) {
+    throw const FormatException('CSV headers are missing');
+  }
+
+  final entries = <PasswordEntry>[];
+  final previews = <PlaintextCsvPreviewRow>[];
+  var skipped = 0;
+  for (final row in rows.skip(1)) {
+    if (row.every((value) => value.trim().isEmpty)) {
+      continue;
     }
 
-    final rows = _parseCsv(csvText);
-    if (rows.isEmpty) {
-      throw const FormatException('CSV import is empty');
+    final entry = _entryFromRow(headers, row);
+    if (entry == null) {
+      skipped += 1;
+      continue;
     }
 
-    final headers = rows.first.map(_normalizeHeader).toList(growable: false);
-    if (headers.every((header) => header.isEmpty)) {
-      throw const FormatException('CSV headers are missing');
+    entries.add(entry);
+    if (previews.length < 5) {
+      previews.add(
+        PlaintextCsvPreviewRow(
+          title: entry.title,
+          website: entry.website,
+          username: entry.username,
+        ),
+      );
     }
+  }
 
-    final entries = <PasswordEntry>[];
-    final previews = <PlaintextCsvPreviewRow>[];
-    var skipped = 0;
-    for (final row in rows.skip(1)) {
-      if (row.every((value) => value.trim().isEmpty)) {
-        continue;
-      }
-
-      final entry = _entryFromRow(headers, row);
-      if (entry == null) {
-        skipped += 1;
-        continue;
-      }
-
-      entries.add(entry);
-      if (previews.length < 5) {
-        previews.add(
-          PlaintextCsvPreviewRow(
-            title: entry.title,
-            website: entry.website,
-            username: entry.username,
-          ),
-        );
-      }
-    }
-
-    return _PlaintextCsvParse(
-      totalRows: rows.length - 1,
-      skippedRows: skipped,
-      previewRows: List.unmodifiable(previews),
-      entries: List.unmodifiable(entries),
-    );
+  return _PlaintextCsvParse(
+    totalRows: rows.length - 1,
+    skippedRows: skipped,
+    previewRows: List.unmodifiable(previews),
+    entries: List.unmodifiable(entries),
+  );
 }
 
 class _PlaintextCsvParse {

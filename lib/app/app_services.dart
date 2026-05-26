@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/core/autofill/android_autofill_service.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
@@ -73,6 +74,7 @@ class AppServices {
     Future<void> Function(String blobId)? deleteVaultBlobOverride,
     Future<void> Function(String oldPassword, String newPassword)?
     changeMasterPasswordOverride,
+    Future<void> Function(String masterPassword)? verifyMasterPasswordOverride,
     Future<void> Function(String masterPassword)? enableBiometricOverride,
     Future<void> Function()? disableBiometricOverride,
     Future<Duration> Function()? autoLockTimeoutOverride,
@@ -86,6 +88,7 @@ class AppServices {
       required List<String> itemIds,
       required bool includeBlobs,
       required bool includeHistory,
+      required String sourceMasterPassword,
       required String senderName,
     })?
     createLanSendSessionOverride,
@@ -93,6 +96,7 @@ class AppServices {
     Future<LanTransferImportResult> Function({
       required LanTransferQrPayload payload,
       required String sourceMasterPassword,
+      required CancellationToken? cancellationToken,
     })?
     receiveLanTransferOverride,
     Future<void> Function()? clearLocalVaultOverride,
@@ -127,6 +131,7 @@ class AppServices {
        _openVaultBlobOverride = openVaultBlobOverride,
        _deleteVaultBlobOverride = deleteVaultBlobOverride,
        _changeMasterPasswordOverride = changeMasterPasswordOverride,
+       _verifyMasterPasswordOverride = verifyMasterPasswordOverride,
        _enableBiometricOverride = enableBiometricOverride,
        _disableBiometricOverride = disableBiometricOverride,
        _autoLockTimeoutOverride = autoLockTimeoutOverride,
@@ -244,6 +249,8 @@ class AppServices {
   final Future<void> Function(String blobId)? _deleteVaultBlobOverride;
   final Future<void> Function(String oldPassword, String newPassword)?
   _changeMasterPasswordOverride;
+  final Future<void> Function(String masterPassword)?
+  _verifyMasterPasswordOverride;
   final Future<void> Function(String masterPassword)? _enableBiometricOverride;
   final Future<void> Function()? _disableBiometricOverride;
   final Future<Duration> Function()? _autoLockTimeoutOverride;
@@ -258,6 +265,7 @@ class AppServices {
     required List<String> itemIds,
     required bool includeBlobs,
     required bool includeHistory,
+    required String sourceMasterPassword,
     required String senderName,
   })?
   _createLanSendSessionOverride;
@@ -265,6 +273,7 @@ class AppServices {
   final Future<LanTransferImportResult> Function({
     required LanTransferQrPayload payload,
     required String sourceMasterPassword,
+    required CancellationToken? cancellationToken,
   })?
   _receiveLanTransferOverride;
   final Future<void> Function()? _clearLocalVaultOverride;
@@ -306,6 +315,7 @@ class AppServices {
       required List<String> itemIds,
       required bool includeBlobs,
       required bool includeHistory,
+      required String sourceMasterPassword,
       required String senderName,
     })?
     createLanSendSessionOverride,
@@ -313,6 +323,7 @@ class AppServices {
     Future<LanTransferImportResult> Function({
       required LanTransferQrPayload payload,
       required String sourceMasterPassword,
+      required CancellationToken? cancellationToken,
     })?
     receiveLanTransferOverride,
     bool autofillSupported = false,
@@ -483,6 +494,7 @@ class AppServices {
       ),
       openAutofillSettingsOverride: openAutofillSettingsOverride ?? () async {},
       changeMasterPasswordOverride: (oldPassword, newPassword) async {},
+      verifyMasterPasswordOverride: (masterPassword) async {},
       enableBiometricOverride: (masterPassword) async {
         fakeBiometricEnabled = true;
       },
@@ -805,6 +817,17 @@ class AppServices {
     );
   }
 
+  Future<void> verifyMasterPassword(String masterPassword) async {
+    final override = _verifyMasterPasswordOverride;
+    if (override != null) {
+      return override(masterPassword);
+    }
+
+    return _lockShellOnIntegrity(
+      () => vaultService.verifyMasterPassword(masterPassword: masterPassword),
+    );
+  }
+
   Future<void> enableBiometricUnlock(String masterPassword) async {
     final override = _enableBiometricOverride;
     if (override != null) {
@@ -917,12 +940,14 @@ class AppServices {
     required List<String> itemIds,
     required bool includeBlobs,
     required bool includeHistory,
+    required String sourceMasterPassword,
   }) async {
     final backup = await _lockShellOnIntegrity(
-      () => backupService.exportSelectedItemsBackup(
+      () => backupService.exportLanTransferBackup(
         itemIds: itemIds,
         includeBlobs: includeBlobs,
         includeHistory: includeHistory,
+        sourceMasterPassword: sourceMasterPassword,
       ),
     );
     return const JsonEncoder.withIndent('  ').convert(backup.toJson());
@@ -934,8 +959,21 @@ class AppServices {
 
   Future<int> importPlaintextCsv(String csvText) async {
     final entries = PlaintextCsvImporter.parseEntries(csvText);
-    for (final entry in entries) {
-      await createVaultItem(entry);
+    final createdIds = <String>[];
+    try {
+      for (final entry in entries) {
+        createdIds.add(await createVaultItem(entry));
+      }
+    } catch (_) {
+      for (final id in createdIds.reversed) {
+        try {
+          await deleteVaultItem(id);
+          await permanentlyDeleteItem(id);
+        } catch (_) {
+          // Best-effort cleanup keeps the import UI from masking the original failure.
+        }
+      }
+      rethrow;
     }
     return entries.length;
   }
@@ -1001,6 +1039,7 @@ class AppServices {
     required List<String> itemIds,
     required bool includeBlobs,
     required bool includeHistory,
+    required String sourceMasterPassword,
     required String senderName,
   }) async {
     final override = _createLanSendSessionOverride;
@@ -1009,6 +1048,7 @@ class AppServices {
         itemIds: itemIds,
         includeBlobs: includeBlobs,
         includeHistory: includeHistory,
+        sourceMasterPassword: sourceMasterPassword,
         senderName: senderName,
       );
     }
@@ -1018,6 +1058,7 @@ class AppServices {
         itemIds: itemIds,
         includeBlobs: includeBlobs,
         includeHistory: includeHistory,
+        sourceMasterPassword: sourceMasterPassword,
         senderName: senderName,
       ),
     );
@@ -1026,12 +1067,14 @@ class AppServices {
   Future<LanTransferImportResult> receiveLanTransfer({
     required LanTransferQrPayload payload,
     required String sourceMasterPassword,
+    CancellationToken? cancellationToken,
   }) async {
     final override = _receiveLanTransferOverride;
     if (override != null) {
       return override(
         payload: payload,
         sourceMasterPassword: sourceMasterPassword,
+        cancellationToken: cancellationToken,
       );
     }
 
@@ -1039,6 +1082,7 @@ class AppServices {
       () => lanTransferService.receiveFromPayload(
         payload: payload,
         sourceMasterPassword: sourceMasterPassword,
+        cancellationToken: cancellationToken,
       ),
     );
   }
@@ -1081,6 +1125,10 @@ class AppServices {
       value,
       clearAfter: clearAfter,
     );
+  }
+
+  Future<bool> clearSensitiveClipboardNow() {
+    return clipboardService.clearPendingPasswordNow();
   }
 
   bool get hasVault => _hasVault;

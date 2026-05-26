@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
@@ -34,6 +35,71 @@ void main() {
   });
 
   group('LanTransferService', () {
+    test(
+      'LAN transfer backup uses an independent password-wrapped envelope',
+      () async {
+        final source = await _buildHarness();
+        await source.vaultService.createVault(masterPassword: 'source-master');
+        await source.vaultService.unlock(masterPassword: 'source-master');
+        final sourceId = await source.vaultService.createItem(
+          PasswordEntry(
+            title: 'GitHub',
+            website: 'https://github.com',
+            username: 'user@example.com',
+            password: 'source-password',
+            notes: 'source notes',
+            tags: const ['dev'],
+          ),
+        );
+        final sourceMeta = await source.repository.metaDao.get();
+        expect(sourceMeta, isNotNull);
+
+        final backup = await source.backupService.exportLanTransferBackup(
+          itemIds: [sourceId],
+          includeBlobs: false,
+          includeHistory: false,
+          sourceMasterPassword: 'source-master',
+        );
+        final json = backup.toJson();
+        final encoded = jsonEncode(json);
+
+        expect(json['scope'], 'selected');
+        expect(json['vault_id'], isNot(sourceMeta!.id));
+        expect(json['salt'], isNot(sourceMeta.salt));
+        expect(
+          json['encrypted_dek_by_master'],
+          isNot(sourceMeta.encryptedDekByMaster),
+        );
+        expect(
+          json['encrypted_dek_by_master_nonce'],
+          isNot(sourceMeta.encryptedDekByMasterNonce),
+        );
+        expect(
+          json['encrypted_dek_by_master_mac'],
+          isNot(sourceMeta.encryptedDekByMasterMac),
+        );
+        expect(encoded, isNot(contains(sourceMeta.encryptedDekByMaster)));
+        expect(encoded, isNot(contains(sourceMeta.encryptedDekByMasterNonce)));
+        expect(encoded, isNot(contains(sourceMeta.encryptedDekByMasterMac)));
+        expect(encoded, isNot(contains(sourceMeta.salt)));
+        expect(json['encrypted_dek_by_biometric'], isNull);
+
+        final target = await _buildHarness();
+        await target.vaultService.createVault(masterPassword: 'target-master');
+        await target.vaultService.unlock(masterPassword: 'target-master');
+        await target.backupService.importBackupSkippingIdentityConflicts(
+          json: json,
+          masterPassword: 'source-master',
+        );
+        target.vaultService.lock();
+        await target.vaultService.unlock(masterPassword: 'target-master');
+        expect(
+          (await target.vaultService.getItem(sourceId)).password,
+          'source-password',
+        );
+      },
+    );
+
     test(
       'receiveFromPayload skips conflicts and hides secrets in result',
       () async {
@@ -95,6 +161,7 @@ void main() {
           itemIds: [conflictId, importId],
           includeBlobs: true,
           includeHistory: false,
+          sourceMasterPassword: 'source-master',
           senderName: 'Source',
           bindHost: '127.0.0.1',
           advertisedHost: '127.0.0.1',
@@ -186,6 +253,7 @@ void main() {
           itemIds: [sourceId],
           includeBlobs: true,
           includeHistory: false,
+          sourceMasterPassword: 'source-master',
           senderName: 'Source',
           bindHost: '127.0.0.1',
           advertisedHost: '127.0.0.1',
@@ -206,6 +274,47 @@ void main() {
         );
       },
     );
+
+    test('cancelled receive imports nothing into target vault', () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'source-password',
+          notes: 'source notes',
+          tags: const ['dev'],
+        ),
+      );
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+
+      final session = await source.lanTransferService.createSendSession(
+        itemIds: [sourceId],
+        includeBlobs: false,
+        includeHistory: false,
+        sourceMasterPassword: 'source-master',
+        senderName: 'Source',
+        bindHost: '127.0.0.1',
+        advertisedHost: '127.0.0.1',
+      );
+      addTearDown(source.lanTransferService.cancelSendSession);
+      final token = CancellationToken()..cancel();
+
+      await expectLater(
+        target.lanTransferService.receiveFromPayload(
+          payload: session.qrPayload,
+          sourceMasterPassword: 'source-master',
+          cancellationToken: token,
+        ),
+        throwsA(isA<OperationCancelledException>()),
+      );
+      expect(await target.vaultService.listItems(), isEmpty);
+    });
 
     test('cancelSendSession makes payload unavailable', () async {
       final source = await _buildHarness();
@@ -229,6 +338,7 @@ void main() {
         itemIds: [sourceId],
         includeBlobs: false,
         includeHistory: false,
+        sourceMasterPassword: 'source-master',
         senderName: 'Source',
         bindHost: '127.0.0.1',
         advertisedHost: '127.0.0.1',
@@ -276,6 +386,7 @@ void main() {
         itemIds: [firstId, duplicateId],
         includeBlobs: false,
         includeHistory: false,
+        sourceMasterPassword: 'source-master',
         senderName: 'Source',
         bindHost: '127.0.0.1',
         advertisedHost: '127.0.0.1',
@@ -369,17 +480,23 @@ void main() {
               required itemIds,
               required includeBlobs,
               required includeHistory,
+              required sourceMasterPassword,
               required senderName,
             }) async {
               createCalled = true;
               expect(itemIds, ['item-1']);
               expect(includeBlobs, isTrue);
               expect(includeHistory, isFalse);
+              expect(sourceMasterPassword, 'source-master');
               expect(senderName, 'Sender');
               return session;
             },
         receiveLanTransferOverride:
-            ({required payload, required sourceMasterPassword}) async {
+            ({
+              required payload,
+              required sourceMasterPassword,
+              required cancellationToken,
+            }) async {
               receiveCalled = true;
               expect(payload, session.qrPayload);
               expect(sourceMasterPassword, 'source-master');
@@ -396,6 +513,7 @@ void main() {
         itemIds: const ['item-1'],
         includeBlobs: true,
         includeHistory: false,
+        sourceMasterPassword: 'source-master',
         senderName: 'Sender',
       );
       final result = await services.receiveLanTransfer(
@@ -425,6 +543,7 @@ void main() {
           itemIds: const ['item-1'],
           includeBlobs: false,
           includeHistory: true,
+          sourceMasterPassword: 'source-master',
           senderName: 'Sender',
         );
         final result = await services.receiveLanTransfer(
@@ -450,6 +569,7 @@ void main() {
             itemIds: const ['item-1'],
             includeBlobs: false,
             includeHistory: false,
+            sourceMasterPassword: 'source-master',
             senderName: 'Sender',
           ),
           throwsA(isA<StateError>()),
@@ -581,6 +701,7 @@ _buildAppServicesLanSessionHarness() async {
     itemIds: [sourceId],
     includeBlobs: false,
     includeHistory: false,
+    sourceMasterPassword: 'source-master',
     senderName: 'Source',
   );
 
@@ -678,6 +799,7 @@ class _LocalhostLanTransferService extends LanTransferService {
     required List<String> itemIds,
     required bool includeBlobs,
     required bool includeHistory,
+    required String sourceMasterPassword,
     required String senderName,
     Duration ttl = const Duration(minutes: 5),
     String bindHost = '0.0.0.0',
@@ -687,6 +809,7 @@ class _LocalhostLanTransferService extends LanTransferService {
       itemIds: itemIds,
       includeBlobs: includeBlobs,
       includeHistory: includeHistory,
+      sourceMasterPassword: sourceMasterPassword,
       senderName: senderName,
       ttl: ttl,
       bindHost: '127.0.0.1',
@@ -720,6 +843,7 @@ class _RecordingLanTransferService extends LanTransferService {
     required List<String> itemIds,
     required bool includeBlobs,
     required bool includeHistory,
+    required String sourceMasterPassword,
     required String senderName,
     Duration ttl = const Duration(minutes: 5),
     String bindHost = '0.0.0.0',
@@ -729,6 +853,7 @@ class _RecordingLanTransferService extends LanTransferService {
     expect(itemIds, ['item-1']);
     expect(includeBlobs, isFalse);
     expect(includeHistory, isTrue);
+    expect(sourceMasterPassword, 'source-master');
     expect(senderName, 'Sender');
     return LanTransferSession(
       qrPayload: LanTransferQrPayload(
@@ -751,6 +876,7 @@ class _RecordingLanTransferService extends LanTransferService {
   Future<LanTransferImportResult> receiveFromPayload({
     required LanTransferQrPayload payload,
     required String sourceMasterPassword,
+    CancellationToken? cancellationToken,
   }) async {
     receiveCalled = true;
     expect(sourceMasterPassword, 'source-master');

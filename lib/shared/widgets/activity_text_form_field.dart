@@ -17,6 +17,8 @@ class ActivityTextFormField extends StatelessWidget {
     this.autofillHints,
     this.minLines,
     this.maxLines = 1,
+    this.enableSuggestions,
+    this.autocorrect,
   });
 
   final VoidCallback onActivity;
@@ -33,6 +35,8 @@ class ActivityTextFormField extends StatelessWidget {
   final Iterable<String>? autofillHints;
   final int? minLines;
   final int? maxLines;
+  final bool? enableSuggestions;
+  final bool? autocorrect;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +51,8 @@ class ActivityTextFormField extends StatelessWidget {
       onFieldSubmitted: onFieldSubmitted,
       keyboardType: keyboardType,
       autofillHints: autofillHints,
+      enableSuggestions: enableSuggestions ?? false,
+      autocorrect: autocorrect ?? false,
       minLines: minLines,
       maxLines: maxLines,
       onTap: onActivity,

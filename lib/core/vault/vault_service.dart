@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart' show Hkdf, Hmac, SecretKey;
 import 'package:secure_box/core/biometric/biometric_service.dart';
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
@@ -22,6 +23,7 @@ import 'package:uuid/uuid.dart';
 
 const _blobKeyLength = 32;
 const _blobKeyInfoPrefix = 'lockly:vault-blob:v1:';
+const maxVaultBlobBytes = 1024 * 1024;
 
 class VaultUnlockException implements Exception {
   const VaultUnlockException(this.message);
@@ -39,6 +41,15 @@ class VaultItemNotFoundException implements Exception {
 
   @override
   String toString() => 'VaultItemNotFoundException: $id';
+}
+
+class VaultBlobTooLargeException implements Exception {
+  const VaultBlobTooLargeException(this.sizeBytes);
+
+  final int sizeBytes;
+
+  @override
+  String toString() => 'VaultBlobTooLargeException: $sizeBytes';
 }
 
 class VaultListItem {
@@ -143,6 +154,26 @@ class VerifiedEncryptedVaultSyncSnapshot {
   final VaultManifest manifest;
   final List<EncryptedVaultItem> items;
   final List<EncryptedVaultBlob> blobs;
+}
+
+class PasswordWrappedVaultExport {
+  PasswordWrappedVaultExport({
+    required this.meta,
+    required this.manifest,
+    required List<EncryptedVaultItem> items,
+    required List<EncryptedVaultBlob> blobs,
+    required List<Map<String, Object?>> historyRecords,
+  }) : items = List.unmodifiable(items),
+       blobs = List.unmodifiable(blobs),
+       historyRecords = List.unmodifiable(
+         historyRecords.map(Map<String, Object?>.from),
+       );
+
+  final VaultMeta meta;
+  final VaultManifest manifest;
+  final List<EncryptedVaultItem> items;
+  final List<EncryptedVaultBlob> blobs;
+  final List<Map<String, Object?>> historyRecords;
 }
 
 class VaultService {
@@ -588,6 +619,116 @@ class VaultService {
     }
   }
 
+  Future<PasswordWrappedVaultExport> createPasswordWrappedExport({
+    required String exportPassword,
+    required List<EncryptedVaultItem> items,
+    List<EncryptedVaultBlob> blobs = const [],
+    List<Map<String, Object?>> historyRecords = const [],
+    required String exportVaultId,
+    required int createdAt,
+    required int updatedAt,
+  }) async {
+    final currentMeta = await _requireVaultMeta();
+    await verifyMasterPassword(
+      masterPassword: exportPassword,
+      meta: currentMeta,
+    );
+    _ensureUnlocked();
+
+    Uint8List? kek;
+    Uint8List? packageDek;
+    try {
+      return await _session.withDekCopy((sourceDek) async {
+        final manifest = await _readManifestForIntegrity(repository);
+        if (manifest == null) {
+          throw const VaultIntegrityException();
+        }
+        final currentItems = await _readItemsForManifest(repository);
+        final currentBlobs = await _readBlobsForManifest(repository);
+        final currentHistoryRecords = await _readHistoryForManifest(repository);
+        await _manifestService.verifyManifest(
+          dek: sourceDek,
+          meta: currentMeta,
+          items: currentItems,
+          blobs: currentBlobs,
+          historyRecords: currentHistoryRecords,
+          manifest: manifest,
+        );
+        await _verifyAnchorForManifest(
+          meta: currentMeta,
+          manifest: manifest,
+          allowMissingAnchor: false,
+        );
+
+        final salt = _random.bytes(16);
+        final kdfParams = KdfParams.argon2id();
+        kek = await _kdf.deriveKey(
+          password: exportPassword,
+          salt: salt,
+          params: kdfParams,
+        );
+        packageDek = _random.bytes(32);
+        final wrappedDek = await _crypto.encryptBytes(
+          key: kek!,
+          plaintext: packageDek!,
+        );
+        final exportMeta = VaultMeta(
+          id: exportVaultId,
+          version: 1,
+          kdf: kdfParams.name,
+          kdfParams: kdfParams,
+          salt: b64(salt),
+          encryptedDekByMaster: b64(wrappedDek.ciphertext),
+          encryptedDekByMasterNonce: b64(wrappedDek.nonce),
+          encryptedDekByMasterMac: b64(wrappedDek.mac),
+          biometricEnabled: false,
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+          encryptedDekByBiometric: null,
+          encryptedDekByBiometricNonce: null,
+          encryptedDekByBiometricMac: null,
+        );
+        final exportItems = await _reencryptItemsBetweenDeks(
+          items: items,
+          sourceDek: sourceDek,
+          targetDek: packageDek!,
+        );
+        final exportBlobs = await _reencryptBlobsBetweenDeks(
+          blobs: blobs,
+          sourceDek: sourceDek,
+          targetDek: packageDek!,
+        );
+        final exportHistoryRecords = await _reencryptHistoryBetweenDeks(
+          records: historyRecords,
+          sourceDek: sourceDek,
+          targetDek: packageDek!,
+        );
+        final exportManifest = await _manifestService.createManifest(
+          dek: packageDek!,
+          meta: exportMeta,
+          items: exportItems,
+          blobs: exportBlobs,
+          historyRecords: exportHistoryRecords,
+          previous: null,
+          updatedAt: updatedAt,
+        );
+        return PasswordWrappedVaultExport(
+          meta: exportMeta,
+          manifest: exportManifest,
+          items: exportItems,
+          blobs: exportBlobs,
+          historyRecords: exportHistoryRecords,
+        );
+      });
+    } on VaultIntegrityException {
+      _session.lock();
+      rethrow;
+    } finally {
+      _zeroBytes(kek);
+      _zeroBytes(packageDek);
+    }
+  }
+
   Future<VerifiedEncryptedVaultSyncSnapshot>
   createVerifiedEncryptedSyncSnapshot() async {
     _ensureUnlocked();
@@ -639,13 +780,16 @@ class VaultService {
     required VaultManifest manifest,
     List<EncryptedVaultBlob> blobs = const [],
     List<Map<String, Object?>> historyRecords = const [],
+    CancellationToken? cancellationToken,
   }) async {
     Uint8List? dek;
     try {
+      cancellationToken?.throwIfCancelled();
       dek = await _decryptDekWithUnlockError(
         meta: meta,
         password: masterPassword,
       );
+      cancellationToken?.throwIfCancelled();
       await _manifestService.verifyManifest(
         dek: dek,
         meta: meta,
@@ -654,6 +798,7 @@ class VaultService {
         historyRecords: historyRecords,
         manifest: manifest,
       );
+      cancellationToken?.throwIfCancelled();
     } finally {
       _zeroBytes(dek);
     }
@@ -809,20 +954,168 @@ class VaultService {
     _session.lock();
   }
 
+  Future<List<EncryptedVaultItem>> _reencryptItemsBetweenDeks({
+    required List<EncryptedVaultItem> items,
+    required Uint8List sourceDek,
+    required Uint8List targetDek,
+  }) async {
+    final reencryptedItems = <EncryptedVaultItem>[];
+    for (final item in items) {
+      Uint8List? plaintext;
+      try {
+        plaintext = await _crypto.decryptBytes(
+          key: sourceDek,
+          payload: EncryptedPayload(
+            nonce: fromB64(item.nonce),
+            ciphertext: fromB64(item.ciphertext),
+            mac: fromB64(item.mac),
+          ),
+        );
+        final encryptedPayload = await _crypto.encryptBytes(
+          key: targetDek,
+          plaintext: plaintext,
+        );
+        reencryptedItems.add(
+          EncryptedVaultItem(
+            id: item.id,
+            nonce: b64(encryptedPayload.nonce),
+            ciphertext: b64(encryptedPayload.ciphertext),
+            mac: b64(encryptedPayload.mac),
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            deletedAt: item.deletedAt,
+          ),
+        );
+      } finally {
+        _zeroBytes(plaintext);
+      }
+    }
+    return List.unmodifiable(reencryptedItems);
+  }
+
+  Future<List<Map<String, Object?>>> _reencryptHistoryBetweenDeks({
+    required List<Map<String, Object?>> records,
+    required Uint8List sourceDek,
+    required Uint8List targetDek,
+  }) async {
+    final reencryptedRecords = <Map<String, Object?>>[];
+    for (final record in records) {
+      Uint8List? plaintext;
+      try {
+        plaintext = await _crypto.decryptBytes(
+          key: sourceDek,
+          payload: EncryptedPayload(
+            nonce: fromB64(record['password_nonce'] as String),
+            ciphertext: fromB64(record['encrypted_password'] as String),
+            mac: fromB64(record['password_mac'] as String),
+          ),
+        );
+        final encryptedPayload = await _crypto.encryptBytes(
+          key: targetDek,
+          plaintext: plaintext,
+        );
+        reencryptedRecords.add({
+          'id': record['id'],
+          'entry_id': record['entry_id'],
+          'encrypted_password': b64(encryptedPayload.ciphertext),
+          'password_nonce': b64(encryptedPayload.nonce),
+          'password_mac': b64(encryptedPayload.mac),
+          'recorded_at': record['recorded_at'],
+        });
+      } finally {
+        _zeroBytes(plaintext);
+      }
+    }
+    return List.unmodifiable(reencryptedRecords);
+  }
+
+  Future<List<EncryptedVaultBlob>> _reencryptBlobsBetweenDeks({
+    required List<EncryptedVaultBlob> blobs,
+    required Uint8List sourceDek,
+    required Uint8List targetDek,
+  }) async {
+    final reencryptedBlobs = <EncryptedVaultBlob>[];
+    for (final blob in blobs) {
+      Uint8List? sourceBlobKey;
+      Uint8List? targetBlobKey;
+      Uint8List? metadataPlaintext;
+      Uint8List? contentPlaintext;
+      try {
+        sourceBlobKey = await _deriveBlobKey(
+          dek: sourceDek,
+          blobId: blob.blobId,
+        );
+        metadataPlaintext = await _crypto.decryptBytes(
+          key: sourceBlobKey,
+          payload: EncryptedPayload(
+            nonce: fromB64(blob.metadataNonce),
+            ciphertext: fromB64(blob.metadataCiphertext),
+            mac: fromB64(blob.metadataMac),
+          ),
+        );
+        contentPlaintext = await _crypto.decryptBytes(
+          key: sourceBlobKey,
+          payload: EncryptedPayload(
+            nonce: fromB64(blob.nonce),
+            ciphertext: fromB64(blob.ciphertext),
+            mac: fromB64(blob.mac),
+          ),
+        );
+        targetBlobKey = await _deriveBlobKey(
+          dek: targetDek,
+          blobId: blob.blobId,
+        );
+        final encryptedMetadata = await _crypto.encryptBytes(
+          key: targetBlobKey,
+          plaintext: metadataPlaintext,
+        );
+        final encryptedContent = await _crypto.encryptBytes(
+          key: targetBlobKey,
+          plaintext: contentPlaintext,
+        );
+        reencryptedBlobs.add(
+          EncryptedVaultBlob(
+            blobId: blob.blobId,
+            itemId: blob.itemId,
+            metadataNonce: b64(encryptedMetadata.nonce),
+            metadataCiphertext: b64(encryptedMetadata.ciphertext),
+            metadataMac: b64(encryptedMetadata.mac),
+            nonce: b64(encryptedContent.nonce),
+            ciphertext: b64(encryptedContent.ciphertext),
+            mac: b64(encryptedContent.mac),
+            createdAt: blob.createdAt,
+            updatedAt: blob.updatedAt,
+            deletedAt: blob.deletedAt,
+          ),
+        );
+      } finally {
+        _zeroBytes(sourceBlobKey);
+        _zeroBytes(targetBlobKey);
+        _zeroBytes(metadataPlaintext);
+        _zeroBytes(contentPlaintext);
+      }
+    }
+    return List.unmodifiable(reencryptedBlobs);
+  }
+
   Future<List<EncryptedVaultItem>> reencryptItemsForCurrentVault({
     required List<EncryptedVaultItem> items,
     required VaultMeta sourceMeta,
     required String sourcePassword,
+    CancellationToken? cancellationToken,
   }) async {
     _ensureUnlocked();
     Uint8List? sourceDek;
     try {
+      cancellationToken?.throwIfCancelled();
       sourceDek = await _decryptDekWithUnlockError(
         meta: sourceMeta,
         password: sourcePassword,
       );
+      cancellationToken?.throwIfCancelled();
       final reencryptedItems = <EncryptedVaultItem>[];
       for (final item in items) {
+        cancellationToken?.throwIfCancelled();
         Uint8List? plaintext;
         try {
           plaintext = await _crypto.decryptBytes(
@@ -848,6 +1141,7 @@ class VaultService {
               deletedAt: item.deletedAt,
             ),
           );
+          cancellationToken?.throwIfCancelled();
         } finally {
           _zeroBytes(plaintext);
         }
@@ -864,16 +1158,21 @@ class VaultService {
     required List<EncryptedVaultItem> items,
     required VaultMeta sourceMeta,
     required String sourcePassword,
+    CancellationToken? cancellationToken,
   }) async {
     Uint8List? sourceDek;
     try {
+      cancellationToken?.throwIfCancelled();
       sourceDek = await _decryptDekWithUnlockError(
         meta: sourceMeta,
         password: sourcePassword,
       );
+      cancellationToken?.throwIfCancelled();
       final identities = <VaultItemImportIdentity>[];
       for (final item in items) {
+        cancellationToken?.throwIfCancelled();
         final entry = await _decryptEntryWithDek(item, sourceDek);
+        cancellationToken?.throwIfCancelled();
         identities.add(
           VaultItemImportIdentity(
             id: item.id,
@@ -893,16 +1192,20 @@ class VaultService {
     required List<Map<String, Object?>> records,
     required VaultMeta sourceMeta,
     required String sourcePassword,
+    CancellationToken? cancellationToken,
   }) async {
     _ensureUnlocked();
     Uint8List? sourceDek;
     try {
+      cancellationToken?.throwIfCancelled();
       sourceDek = await _decryptDekWithUnlockError(
         meta: sourceMeta,
         password: sourcePassword,
       );
+      cancellationToken?.throwIfCancelled();
       final reencryptedRecords = <Map<String, Object?>>[];
       for (final record in records) {
+        cancellationToken?.throwIfCancelled();
         Uint8List? plaintext;
         try {
           plaintext = await _crypto.decryptBytes(
@@ -925,6 +1228,7 @@ class VaultService {
             'password_mac': b64(encryptedPayload.mac),
             'recorded_at': record['recorded_at'],
           });
+          cancellationToken?.throwIfCancelled();
         } finally {
           _zeroBytes(plaintext);
         }
@@ -940,17 +1244,21 @@ class VaultService {
     required List<EncryptedVaultBlob> blobs,
     required VaultMeta sourceMeta,
     required String sourcePassword,
+    CancellationToken? cancellationToken,
   }) async {
     _ensureUnlocked();
     Uint8List? sourceDek;
     try {
+      cancellationToken?.throwIfCancelled();
       sourceDek = await _decryptDekWithUnlockError(
         meta: sourceMeta,
         password: sourcePassword,
       );
+      cancellationToken?.throwIfCancelled();
       return await _session.withDekCopy((targetDek) async {
         final reencryptedBlobs = <EncryptedVaultBlob>[];
         for (final blob in blobs) {
+          cancellationToken?.throwIfCancelled();
           Uint8List? sourceBlobKey;
           Uint8List? targetBlobKey;
           Uint8List? metadataPlaintext;
@@ -1003,6 +1311,7 @@ class VaultService {
                 deletedAt: blob.deletedAt,
               ),
             );
+            cancellationToken?.throwIfCancelled();
           } finally {
             _zeroBytes(sourceBlobKey);
             _zeroBytes(targetBlobKey);
@@ -1082,6 +1391,9 @@ class VaultService {
     required Uint8List bytes,
   }) async {
     _ensureUnlocked();
+    if (bytes.length > maxVaultBlobBytes) {
+      throw VaultBlobTooLargeException(bytes.length);
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     final blobId = _uuid.v4();
 

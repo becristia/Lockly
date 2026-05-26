@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
@@ -755,6 +756,72 @@ class BackupService {
     );
   }
 
+  /// Creates a LAN-only selected export using a fresh transfer DEK.
+  ///
+  /// The source vault DEK and its persisted wrapping material are never
+  /// serialized; selected data is re-encrypted under the transfer DEK, which is
+  /// wrapped with the source master password for the receiver.
+  Future<VaultBackup> exportLanTransferBackup({
+    required List<String> itemIds,
+    bool includeBlobs = true,
+    bool includeHistory = false,
+    required String sourceMasterPassword,
+  }) async {
+    if (itemIds.isEmpty) {
+      throw ArgumentError.value(
+        itemIds,
+        'itemIds',
+        'At least one item must be selected',
+      );
+    }
+    if (await repository.metaDao.get() == null) {
+      throw StateError('Vault has not been created');
+    }
+
+    final selectedIds = LinkedHashSet<String>.from(itemIds).toList();
+    final items = <EncryptedVaultItem>[];
+    for (final itemId in selectedIds) {
+      final item = await repository.itemsDao.byId(itemId);
+      if (item == null || item.deletedAt != null) {
+        throw VaultItemNotFoundException(itemId);
+      }
+      items.add(item);
+    }
+    final selectedIdSet = selectedIds.toSet();
+    final blobs = includeBlobs
+        ? (await repository.blobsDao.allForManifest())
+              .where(
+                (blob) =>
+                    blob.deletedAt == null &&
+                    selectedIdSet.contains(blob.itemId),
+              )
+              .toList(growable: false)
+        : const <EncryptedVaultBlob>[];
+    final historyItems = includeHistory
+        ? (await repository.historyDao?.allRowsForManifest())
+                  ?.where((row) => selectedIdSet.contains(row['entry_id']))
+                  .map((row) => BackupHistoryItem.fromRow(row))
+                  .toList(growable: false) ??
+              const <BackupHistoryItem>[]
+        : const <BackupHistoryItem>[];
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final export = await vaultService.createPasswordWrappedExport(
+      exportPassword: sourceMasterPassword,
+      items: items,
+      blobs: blobs,
+      historyRecords: historyItems
+          .map((item) => item.toJson())
+          .toList(growable: false),
+      exportVaultId: _uuid.v4(),
+      createdAt: now,
+      updatedAt: now,
+    );
+    return _buildBackupFromPasswordWrappedExport(
+      export: export,
+      scope: _backupScopeSelected,
+    );
+  }
+
   Future<VaultBackup> _buildBackup({
     required VaultMeta meta,
     required List<EncryptedVaultItem> items,
@@ -810,6 +877,68 @@ class BackupService {
           )
           .toList(growable: false),
       items: items
+          .map(
+            (item) => BackupItem(
+              id: item.id,
+              nonce: item.nonce,
+              ciphertext: item.ciphertext,
+              mac: item.mac,
+              createdAt: item.createdAt,
+              updatedAt: item.updatedAt,
+              deletedAt: item.deletedAt,
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  VaultBackup _buildBackupFromPasswordWrappedExport({
+    required PasswordWrappedVaultExport export,
+    required String scope,
+  }) {
+    return VaultBackup(
+      version: _currentBackupVersion,
+      magic: _backupMagic,
+      createdAt: export.meta.updatedAt,
+      scope: scope,
+      itemCount: export.items.length,
+      historyCount: export.historyRecords.length,
+      blobCount: export.blobs.length,
+      vaultId: export.meta.id,
+      vaultCreatedAt: export.meta.createdAt,
+      vaultUpdatedAt: export.meta.updatedAt,
+      biometricEnabled: false,
+      encryptedDekByBiometric: null,
+      encryptedDekByBiometricNonce: null,
+      encryptedDekByBiometricMac: null,
+      manifest: BackupManifest.fromVaultManifest(export.manifest),
+      kdf: export.meta.kdf,
+      kdfParams: export.meta.kdfParams.toJson(),
+      salt: export.meta.salt,
+      encryptedDekByMaster: export.meta.encryptedDekByMaster,
+      encryptedDekByMasterNonce: export.meta.encryptedDekByMasterNonce,
+      encryptedDekByMasterMac: export.meta.encryptedDekByMasterMac,
+      historyItems: export.historyRecords
+          .map((row) => BackupHistoryItem.fromRow(row))
+          .toList(growable: false),
+      blobs: export.blobs
+          .map(
+            (blob) => BackupBlob(
+              blobId: blob.blobId,
+              itemId: blob.itemId,
+              metadataNonce: blob.metadataNonce,
+              metadataCiphertext: blob.metadataCiphertext,
+              metadataMac: blob.metadataMac,
+              nonce: blob.nonce,
+              ciphertext: blob.ciphertext,
+              mac: blob.mac,
+              createdAt: blob.createdAt,
+              updatedAt: blob.updatedAt,
+              deletedAt: blob.deletedAt,
+            ),
+          )
+          .toList(growable: false),
+      items: export.items
           .map(
             (item) => BackupItem(
               id: item.id,
@@ -1189,7 +1318,9 @@ class BackupService {
   importBackupSkippingIdentityConflicts({
     required Map<String, Object?> json,
     required String masterPassword,
+    CancellationToken? cancellationToken,
   }) async {
+    cancellationToken?.throwIfCancelled();
     final backup = VaultBackup.fromJson(json);
     if (backup.version != _currentBackupVersion) {
       throw const BackupFormatException(
@@ -1210,10 +1341,12 @@ class BackupService {
     }
 
     final backupMeta = _backupMetaForVerification(backup);
+    cancellationToken?.throwIfCancelled();
     await vaultService.verifyMasterPassword(
       masterPassword: masterPassword,
       meta: backupMeta,
     );
+    cancellationToken?.throwIfCancelled();
     await vaultService.verifyBackupManifest(
       masterPassword: masterPassword,
       meta: backupMeta,
@@ -1221,7 +1354,9 @@ class BackupService {
       blobs: _manifestBlobsFromBackup(backup.blobs),
       historyRecords: _manifestHistoryFromBackup(backup.historyItems),
       manifest: backup.manifest!.toVaultManifest(),
+      cancellationToken: cancellationToken,
     );
+    cancellationToken?.throwIfCancelled();
 
     final localKeys = <String>{};
     final localItems = await vaultService.listItems();
@@ -1240,7 +1375,9 @@ class BackupService {
           items: _manifestItemsFromBackup(backup.items),
           sourceMeta: backupMeta,
           sourcePassword: masterPassword,
+          cancellationToken: cancellationToken,
         );
+    cancellationToken?.throwIfCancelled();
 
     final ambiguousIncomingItemIds = <String>{};
     final seenIncomingItemIds = <String>{};
@@ -1289,6 +1426,7 @@ class BackupService {
 
     final transactionResult = await repository
         .transaction<_ConflictAwareImportTransactionResult>((txn) async {
+          cancellationToken?.throwIfCancelled();
           final existingMeta = await txn.metaDao.get();
           final existingManifest = await txn.manifestDao.get();
           final now = DateTime.now().millisecondsSinceEpoch;
@@ -1386,28 +1524,37 @@ class BackupService {
             backupMeta: backupMeta,
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
+            cancellationToken: cancellationToken,
           );
+          cancellationToken?.throwIfCancelled();
           final blobsToInsert = await _prepareImportedBlobs(
             blobs: uniquePendingBlobs,
             backupMeta: backupMeta,
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
+            cancellationToken: cancellationToken,
           );
+          cancellationToken?.throwIfCancelled();
           final historyToInsert = await _prepareImportedHistoryRows(
             historyItems: backup.historyItems,
             entryIds: pendingChildItemIds.difference(existingIds),
             backupMeta: backupMeta,
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
+            cancellationToken: cancellationToken,
           );
+          cancellationToken?.throwIfCancelled();
 
           for (final item in itemsToInsert) {
+            cancellationToken?.throwIfCancelled();
             await txn.itemsDao.upsert(item);
           }
           for (final blob in blobsToInsert) {
+            cancellationToken?.throwIfCancelled();
             await txn.blobsDao.upsert(blob);
           }
           for (final historyItem in historyToInsert) {
+            cancellationToken?.throwIfCancelled();
             await txn.historyDao?.insertRaw(historyItem, preserveId: false);
           }
 
@@ -1423,6 +1570,7 @@ class BackupService {
             previous: existingManifest,
             updatedAt: now,
           );
+          cancellationToken?.throwIfCancelled();
           final targetMeta = await txn.metaDao.get();
           return _ConflictAwareImportTransactionResult(
             result: ConflictAwareBackupImportResult(
@@ -1535,6 +1683,7 @@ class BackupService {
     required VaultMeta backupMeta,
     required String masterPassword,
     required bool needsReencryption,
+    CancellationToken? cancellationToken,
   }) async {
     if (!needsReencryption || items.isEmpty) {
       return items;
@@ -1544,6 +1693,7 @@ class BackupService {
       items: items,
       sourceMeta: backupMeta,
       sourcePassword: masterPassword,
+      cancellationToken: cancellationToken,
     );
   }
 
@@ -1553,6 +1703,7 @@ class BackupService {
     required VaultMeta backupMeta,
     required String masterPassword,
     required bool needsReencryption,
+    CancellationToken? cancellationToken,
   }) async {
     if (historyItems.isEmpty || entryIds.isEmpty) {
       return const [];
@@ -1569,6 +1720,7 @@ class BackupService {
       records: rows,
       sourceMeta: backupMeta,
       sourcePassword: masterPassword,
+      cancellationToken: cancellationToken,
     );
   }
 
@@ -1577,6 +1729,7 @@ class BackupService {
     required VaultMeta backupMeta,
     required String masterPassword,
     required bool needsReencryption,
+    CancellationToken? cancellationToken,
   }) async {
     if (!needsReencryption || blobs.isEmpty) {
       return blobs;
@@ -1586,6 +1739,7 @@ class BackupService {
       blobs: blobs,
       sourceMeta: backupMeta,
       sourcePassword: masterPassword,
+      cancellationToken: cancellationToken,
     );
   }
 

@@ -93,6 +93,11 @@ class LanTransferQrPayload {
     if (host.trim().isEmpty) {
       throw const LanTransferFormatException('Host must not be blank');
     }
+    if (!isLanTransferAllowedHost(host)) {
+      throw const LanTransferFormatException(
+        'Host must be a local or private network address',
+      );
+    }
     if (port < 1 || port > 65535) {
       throw const LanTransferFormatException(
         'Port must be between 1 and 65535',
@@ -231,6 +236,49 @@ class LanTransferImportResult {
 
 final _sha256HexPattern = RegExp(r'^[0-9a-f]{64}$');
 final _base64UrlNoPaddingPattern = RegExp(r'^[A-Za-z0-9_-]+$');
+
+bool isLanTransferAllowedHost(String host) {
+  final octets = lanTransferIpv4Octets(host);
+  if (octets == null) {
+    return false;
+  }
+  return _isLoopbackIpv4(octets) ||
+      _isPrivateIpv4(octets) ||
+      _isLinkLocalIpv4(octets);
+}
+
+bool isLanTransferUnspecifiedHost(String host) {
+  final normalized = host.trim().toLowerCase();
+  return normalized == '0.0.0.0' || normalized == '::' || normalized == '[::]';
+}
+
+List<int>? lanTransferIpv4Octets(String address) {
+  final parts = address.trim().split('.');
+  if (parts.length != 4) {
+    return null;
+  }
+  final octets = <int>[];
+  for (final part in parts) {
+    final octet = int.tryParse(part);
+    if (octet == null || octet < 0 || octet > 255) {
+      return null;
+    }
+    octets.add(octet);
+  }
+  return octets;
+}
+
+bool _isLoopbackIpv4(List<int> octets) => octets[0] == 127;
+
+bool _isPrivateIpv4(List<int> octets) {
+  return octets[0] == 10 ||
+      (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] == 192 && octets[1] == 168);
+}
+
+bool _isLinkLocalIpv4(List<int> octets) {
+  return octets[0] == 169 && octets[1] == 254;
+}
 
 const _qrPayloadKeys = <String>{
   'schema',

@@ -41,6 +41,11 @@ build/
 **/android/gradlew
 **/android/gradlew.bat
 **/android/local.properties
+**/android/key.properties
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pem
 **/android/**/GeneratedPluginRegistrant.java
 
 # iOS/XCode related

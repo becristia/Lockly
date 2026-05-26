@@ -9,6 +9,8 @@ import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
 
+const _maxAttachmentPreviewCharacters = 8000;
+
 class VaultDetailPage extends StatefulWidget {
   const VaultDetailPage({
     super.key,
@@ -155,10 +157,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('vaultItemMissing'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('vaultItemMissing')),
+        ),
       );
       Navigator.of(context).pop(true);
     } catch (_) {
@@ -166,18 +168,23 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
         return;
       }
       setState(() => _isDeleting = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('deleteRecordFailed'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('deleteRecordFailed')),
+        ),
       );
     }
   }
 
   Future<void> _exportItem() async {
     widget.services.recordActivity();
+    final masterPassword = await _promptMasterPasswordForExport();
+    if (masterPassword == null) {
+      return;
+    }
     setState(() => _isExporting = true);
     try {
+      await widget.services.verifyMasterPassword(masterPassword);
       final backupJson = await widget.services.exportEncryptedItemBackupJson(
         widget.itemId,
       );
@@ -195,24 +202,73 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('vaultItemMissing'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('vaultItemMissing')),
+        ),
       );
       Navigator.of(context).pop(true);
     } catch (_) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(AppStrings.of(context).text('exportFailed'))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).text('exportFailed'))),
+      );
     } finally {
       if (mounted) {
         setState(() => _isExporting = false);
       }
     }
+  }
+
+  Future<String?> _promptMasterPasswordForExport() {
+    final controller = TextEditingController();
+    var obscure = true;
+    return showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final strings = AppStrings.of(context);
+          return AlertDialog(
+            icon: const Icon(Icons.lock_outline_rounded),
+            title: Text(strings.text('exportSinglePassword')),
+            content: TextField(
+              controller: controller,
+              obscureText: obscure,
+              enableSuggestions: false,
+              autocorrect: false,
+              decoration: InputDecoration(
+                labelText: strings.text('masterPassword'),
+                helperText: strings.text('reauthenticateExportSubtitle'),
+                suffixIcon: IconButton(
+                  onPressed: () => setDialogState(() => obscure = !obscure),
+                  icon: Icon(
+                    obscure
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                ),
+              ),
+              onSubmitted: (value) => Navigator.of(context).pop(value),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(strings.text('cancel')),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(controller.text),
+                child: Text(strings.text('continue')),
+              ),
+            ],
+          );
+        },
+      ),
+    ).whenComplete(() {
+      controller.clear();
+      controller.dispose();
+    });
   }
 
   @override
@@ -263,8 +319,14 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
             else if (entry != null) ...[
               _DetailSection(
                 children: [
-                  _DetailRow(label: strings.text('titleField'), value: entry.title),
-                  _DetailRow(label: strings.text('websiteField'), value: _fallback(entry.website)),
+                  _DetailRow(
+                    label: strings.text('titleField'),
+                    value: entry.title,
+                  ),
+                  _DetailRow(
+                    label: strings.text('websiteField'),
+                    value: _fallback(entry.website),
+                  ),
                   _DetailRow(
                     label: strings.text('usernameField'),
                     value: _fallback(entry.username),
@@ -282,7 +344,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   ),
                   _DetailRow(
                     label: strings.text('passwordField'),
-                    value: _isPasswordVisible ? entry.password : strings.text('hidden'),
+                    value: _isPasswordVisible
+                        ? entry.password
+                        : strings.text('hidden'),
                     trailing: Wrap(
                       spacing: 4,
                       children: [
@@ -361,10 +425,15 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               const SizedBox(height: 16),
               _DetailSection(
                 children: [
-                  _DetailRow(label: strings.text('notesField'), value: _fallback(entry.notes)),
+                  _DetailRow(
+                    label: strings.text('notesField'),
+                    value: _fallback(entry.notes),
+                  ),
                   _DetailRow(
                     label: strings.text('tagsField'),
-                    value: entry.tags.isEmpty ? strings.text('notFilled') : entry.tags.join('、'),
+                    value: entry.tags.isEmpty
+                        ? strings.text('notFilled')
+                        : entry.tags.join(strings.text('listSeparator')),
                   ),
                 ],
               ),
@@ -440,19 +509,37 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(strings.text('passkeys'), style: theme.textTheme.titleSmall),
+                Text(
+                  strings.text('passkeys'),
+                  style: theme.textTheme.titleSmall,
+                ),
               ],
             ),
           ),
-          _DetailRow(label: strings.text('rpId'), value: passkey.relyingPartyId),
-          _DetailRow(label: strings.text('credential'), value: passkey.credentialId),
-          _DetailRow(label: strings.text('user'), value: _fallback(passkey.userHandle)),
-          _DetailRow(label: strings.text('display'), value: _fallback(passkey.displayName)),
+          _DetailRow(
+            label: strings.text('rpId'),
+            value: passkey.relyingPartyId,
+          ),
+          _DetailRow(
+            label: strings.text('credential'),
+            value: passkey.credentialId,
+          ),
+          _DetailRow(
+            label: strings.text('user'),
+            value: _fallback(passkey.userHandle),
+          ),
+          _DetailRow(
+            label: strings.text('display'),
+            value: _fallback(passkey.displayName),
+          ),
           _DetailRow(
             label: strings.text('algorithm'),
             value: _fallback(passkey.publicKeyAlgorithm),
           ),
-          _DetailRow(label: strings.text('platform'), value: _fallback(passkey.platform)),
+          _DetailRow(
+            label: strings.text('platform'),
+            value: _fallback(passkey.platform),
+          ),
           _DetailRow(label: strings.text('readiness'), value: readiness),
         ],
       ),
@@ -477,7 +564,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(strings.text('attachments'), style: theme.textTheme.titleSmall),
+                Text(
+                  strings.text('attachments'),
+                  style: theme.textTheme.titleSmall,
+                ),
                 const Spacer(),
                 if (_isLoadingAttachments)
                   const SizedBox(
@@ -526,11 +616,15 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
         return _AddAttachmentDialog(
           onSave:
               ({required displayName, required mediaType, required content}) {
+                final bytes = Uint8List.fromList(utf8.encode(content));
+                if (bytes.length > maxVaultBlobBytes) {
+                  throw VaultBlobTooLargeException(bytes.length);
+                }
                 return widget.services.addVaultBlob(
                   itemId: widget.itemId,
                   displayName: displayName,
                   mediaType: mediaType,
-                  bytes: Uint8List.fromList(utf8.encode(content)),
+                  bytes: bytes,
                 );
               },
         );
@@ -550,7 +644,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       await showDialog<void>(
         context: context,
         builder: (context) {
-          final text = utf8.decode(blob.bytes, allowMalformed: true);
+          final decoded = utf8.decode(blob.bytes, allowMalformed: true);
+          final text = decoded.length > _maxAttachmentPreviewCharacters
+              ? '${decoded.substring(0, _maxAttachmentPreviewCharacters)}\n...'
+              : decoded;
           return AlertDialog(
             title: Text(blob.displayName),
             content: SizedBox(
@@ -585,10 +682,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('attachmentOpenFailed'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('attachmentOpenFailed')),
+        ),
       );
     }
   }
@@ -601,10 +698,10 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
       await _loadAttachments();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('attachmentDeleteFailed'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('attachmentDeleteFailed')),
+        ),
       );
     }
   }
@@ -688,9 +785,15 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     final diff = DateTime.now().difference(
       DateTime.fromMillisecondsSinceEpoch(timestampMs),
     );
-    if (diff.inDays > 0) return '${diff.inDays} ${AppStrings.of(context).text('daysAgo')}';
-    if (diff.inHours > 0) return '${diff.inHours} ${AppStrings.of(context).text('hoursAgo')}';
-    if (diff.inMinutes > 0) return '${diff.inMinutes} ${AppStrings.of(context).text('minutesAgo')}';
+    if (diff.inDays > 0) {
+      return '${diff.inDays} ${AppStrings.of(context).text('daysAgo')}';
+    }
+    if (diff.inHours > 0) {
+      return '${diff.inHours} ${AppStrings.of(context).text('hoursAgo')}';
+    }
+    if (diff.inMinutes > 0) {
+      return '${diff.inMinutes} ${AppStrings.of(context).text('minutesAgo')}';
+    }
     return AppStrings.of(context).text('justNow');
   }
 
@@ -725,7 +828,9 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               } catch (_) {
                 if (!mounted) return;
                 messenger.showSnackBar(
-                  SnackBar(content: Text(strings.text('restorePasswordFailed'))),
+                  SnackBar(
+                    content: Text(strings.text('restorePasswordFailed')),
+                  ),
                 );
               } finally {
                 if (mounted) setState(() => _isRestoring = false);
@@ -757,6 +862,33 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
   bool _copied = false;
 
   Future<void> _copyBackupJson() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final strings = AppStrings.of(context);
+        return AlertDialog(
+          icon: Icon(
+            Icons.warning_amber_rounded,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          title: Text(strings.text('copyBackupConfirmTitle')),
+          content: Text(strings.text('copyBackupConfirmMessage')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(strings.text('cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(strings.text('copyBackup')),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) {
+      return;
+    }
     final copied = await widget.services.copySensitiveTemporary(
       widget.backupJson,
       clearAfter: const Duration(seconds: 30),
@@ -771,6 +903,22 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
           copied
               ? AppStrings.of(context).text('singleBackupCopied')
               : AppStrings.of(context).copyFailed,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _clearClipboardNow() async {
+    final cleared = await widget.services.clearSensitiveClipboardNow();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          cleared
+              ? AppStrings.of(context).text('clipboardCleared')
+              : AppStrings.of(context).text('clipboardClearNoPendingSecret'),
         ),
       ),
     );
@@ -794,23 +942,23 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 240),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: theme.colorScheme.outlineVariant),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(12),
-                  child: SelectableText(
-                    widget.backupJson,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                      height: 1.35,
-                    ),
-                  ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  strings
+                      .text('backupPreparedNoPreview')
+                      .replaceFirst(
+                        '{bytes}',
+                        widget.backupJson.length.toString(),
+                      ),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
                 ),
               ),
             ),
@@ -828,6 +976,11 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
           label: Text(
             _copied ? strings.text('copied') : strings.text('copyBackup'),
           ),
+        ),
+        TextButton.icon(
+          onPressed: _clearClipboardNow,
+          icon: const Icon(Icons.cleaning_services_outlined),
+          label: Text(strings.text('clearClipboardNow')),
         ),
       ],
     );
@@ -945,13 +1098,28 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
       if (mounted) {
         Navigator.of(context).pop(true);
       }
+    } on VaultBlobTooLargeException {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppStrings.of(context)
+                .text('attachmentTooLarge')
+                .replaceFirst(
+                  '{max}',
+                  _formatAttachmentSize(maxVaultBlobBytes),
+                ),
+          ),
+        ),
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('attachmentAddFailed'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('attachmentAddFailed')),
+        ),
       );
     }
   }
@@ -970,7 +1138,11 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
               TextFormField(
                 key: const ValueKey('attachment-name-input'),
                 controller: _nameController,
-                decoration: InputDecoration(labelText: strings.text('displayName')),
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('displayName'),
+                ),
                 textInputAction: TextInputAction.next,
                 validator: (value) => (value == null || value.trim().isEmpty)
                     ? strings.text('displayNameRequired')
@@ -980,19 +1152,36 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
               TextFormField(
                 key: const ValueKey('attachment-media-type-input'),
                 controller: _mediaTypeController,
-                decoration: InputDecoration(labelText: strings.text('mediaType')),
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('mediaType'),
+                ),
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 key: const ValueKey('attachment-content-input'),
                 controller: _contentController,
+                enableSuggestions: false,
+                autocorrect: false,
                 decoration: InputDecoration(labelText: strings.text('content')),
                 minLines: 3,
                 maxLines: 6,
-                validator: (value) => (value == null || value.isEmpty)
-                    ? strings.text('contentRequired')
-                    : null,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return strings.text('contentRequired');
+                  }
+                  if (utf8.encode(value).length > maxVaultBlobBytes) {
+                    return strings
+                        .text('attachmentTooLarge')
+                        .replaceFirst(
+                          '{max}',
+                          _formatAttachmentSize(maxVaultBlobBytes),
+                        );
+                  }
+                  return null;
+                },
               ),
             ],
           ),

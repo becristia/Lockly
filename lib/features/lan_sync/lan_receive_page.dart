@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_client.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
@@ -49,7 +50,7 @@ class _LanReceivePageState extends State<LanReceivePage> {
     try {
       payload = LanTransferQrPayload.decode(rawValue.trim());
     } on Object {
-      setState(() => _errorKey = 'lanSessionUnavailable');
+      setState(() => _errorKey = 'lanTransferMalformed');
       _resumeScanner();
       return;
     }
@@ -78,10 +79,12 @@ class _LanReceivePageState extends State<LanReceivePage> {
           'lanSourcePasswordTitle',
           payload.senderName,
         ),
-        onImport: (password) => widget.services.receiveLanTransfer(
-          payload: payload,
-          sourceMasterPassword: password,
-        ),
+        onImport: (password, cancellationToken) =>
+            widget.services.receiveLanTransfer(
+              payload: payload,
+              sourceMasterPassword: password,
+              cancellationToken: cancellationToken,
+            ),
       ),
     );
     _dialogOpen = false;
@@ -94,6 +97,10 @@ class _LanReceivePageState extends State<LanReceivePage> {
         _errorKey = null;
       });
     } else {
+      setState(() {
+        _payload = null;
+        _result = null;
+      });
       _resumeScanner();
     }
   }
@@ -220,6 +227,8 @@ class _LanReceivePageState extends State<LanReceivePage> {
         TextFormField(
           key: const ValueKey('lan-receive-paste-field'),
           controller: _pasteController,
+          enableSuggestions: false,
+          autocorrect: false,
           minLines: 3,
           maxLines: 6,
           decoration: InputDecoration(
@@ -288,7 +297,11 @@ class _SourceMasterPasswordDialog extends StatefulWidget {
   });
 
   final String title;
-  final Future<LanTransferImportResult> Function(String password) onImport;
+  final Future<LanTransferImportResult> Function(
+    String password,
+    CancellationToken cancellationToken,
+  )
+  onImport;
 
   @override
   State<_SourceMasterPasswordDialog> createState() =>
@@ -301,39 +314,50 @@ class _SourceMasterPasswordDialogState
   bool _obscure = true;
   bool _importing = false;
   String? _errorKey;
+  CancellationToken? _activeCancellationToken;
 
   @override
   void dispose() {
+    _activeCancellationToken?.cancel();
     _passwordController.clear();
     _passwordController.dispose();
     super.dispose();
   }
 
   void _cancel() {
+    _activeCancellationToken?.cancel();
     _passwordController.clear();
     Navigator.of(context).pop();
   }
 
   Future<void> _import() async {
-    if (_importing || _passwordController.text.isEmpty) {
+    if (_importing) {
+      return;
+    }
+    if (_passwordController.text.isEmpty) {
+      setState(() => _errorKey = 'requiredMasterPassword');
       return;
     }
     final password = _passwordController.text;
+    final cancellationToken = CancellationToken();
+    _activeCancellationToken = cancellationToken;
     _passwordController.clear();
     setState(() {
       _importing = true;
       _errorKey = null;
     });
     try {
-      final result = await widget.onImport(password);
+      final result = await widget.onImport(password, cancellationToken);
       if (!mounted) {
         return;
       }
+      _activeCancellationToken = null;
       Navigator.of(context).pop(result);
     } catch (error) {
       if (!mounted) {
         return;
       }
+      _activeCancellationToken = null;
       setState(() {
         _importing = false;
         _errorKey = _mapImportError(error);
@@ -382,10 +406,7 @@ class _SourceMasterPasswordDialogState
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: _importing ? null : _cancel,
-          child: Text(strings.text('cancel')),
-        ),
+        TextButton(onPressed: _cancel, child: Text(strings.text('cancel'))),
         FilledButton(
           key: const ValueKey('lan-receive-import-button'),
           onPressed: _importing ? null : _import,
@@ -514,7 +535,7 @@ String _mapImportError(Object error) {
   if (error is LanTransferMalformedException ||
       error is LanTransferFormatException ||
       error is FormatException) {
-    return 'lanSessionUnavailable';
+    return 'lanTransferMalformed';
   }
   if (error is StateError && error.message.toLowerCase().contains('unlock')) {
     return 'lanLocalVaultLocked';

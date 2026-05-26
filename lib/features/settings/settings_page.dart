@@ -133,7 +133,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _exportBackup() async {
     widget.services.recordActivity();
+    final masterPassword = await _showMasterPasswordPrompt(
+      title: AppStrings.of(context).text('backupExportTitle'),
+      submitLabel: AppStrings.of(context).text('exportEncryptedBackup'),
+      subtitle: AppStrings.of(context).text('reauthenticateExportSubtitle'),
+      icon: Icons.file_upload_outlined,
+    );
+    if (masterPassword == null) {
+      return;
+    }
     try {
+      await widget.services.verifyMasterPassword(masterPassword);
       final backupJson = await widget.services.exportEncryptedBackupJson();
       if (!mounted) {
         return;
@@ -182,7 +192,32 @@ class _SettingsPageState extends State<SettingsPage> {
     if (confirmed != true) {
       return;
     }
-    await widget.services.clearLocalVault();
+    if (!mounted) {
+      return;
+    }
+    final strings = AppStrings.of(context);
+    final masterPassword = await _showMasterPasswordPrompt(
+      title: strings.text('clearLocalVaultTitle'),
+      submitLabel: strings.text('clearLocalVault'),
+      subtitle: strings.text('reauthenticateClearVaultSubtitle'),
+      icon: Icons.delete_forever_rounded,
+    );
+    if (masterPassword == null) {
+      return;
+    }
+    try {
+      await widget.services.verifyMasterPassword(masterPassword);
+      await widget.services.clearLocalVault();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('clearLocalVaultFailed')),
+        ),
+      );
+    }
   }
 
   @override
@@ -707,6 +742,8 @@ class _MasterPasswordChangeDialogState
                     ),
                   ),
                   obscureText: _oldObscured,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   validator: (value) =>
                       _SettingsPageState._requiredPassword(value, strings),
                 ),
@@ -726,6 +763,8 @@ class _MasterPasswordChangeDialogState
                     ),
                   ),
                   obscureText: _newObscured,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   validator: (value) =>
                       _SettingsPageState._validateNewPassword(value, strings),
                 ),
@@ -745,6 +784,8 @@ class _MasterPasswordChangeDialogState
                     ),
                   ),
                   obscureText: _confirmObscured,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   validator: (value) {
                     if (value != _newPasswordController.text) {
                       return strings.text('passwordMismatch');
@@ -903,6 +944,8 @@ class _MasterPasswordPromptDialogState
                   ),
                 ),
                 obscureText: _obscureMasterPassword,
+                enableSuggestions: false,
+                autocorrect: false,
                 validator: (value) =>
                     _SettingsPageState._requiredPassword(value, strings),
               ),
@@ -971,6 +1014,18 @@ class _BackupExportDialogState extends State<_BackupExportDialog> {
   bool _copied = false;
 
   Future<void> _copyBackupJson() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _ReplicaConfirmationDialog(
+        title: AppStrings.of(context).text('copyBackupConfirmTitle'),
+        message: AppStrings.of(context).text('copyBackupConfirmMessage'),
+        confirmLabel: AppStrings.of(context).text('copyBackup'),
+        destructive: true,
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
     final copied = await widget.services.copySensitiveTemporary(
       widget.backupJson,
       clearAfter: const Duration(seconds: 30),
@@ -985,6 +1040,22 @@ class _BackupExportDialogState extends State<_BackupExportDialog> {
           copied
               ? AppStrings.of(context).text('backupCopied')
               : AppStrings.of(context).copyFailed,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _clearClipboardNow() async {
+    final cleared = await widget.services.clearSensitiveClipboardNow();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          cleared
+              ? AppStrings.of(context).text('clipboardCleared')
+              : AppStrings.of(context).text('clipboardClearNoPendingSecret'),
         ),
       ),
     );
@@ -1023,17 +1094,15 @@ class _BackupExportDialogState extends State<_BackupExportDialog> {
                 context,
               ).colorScheme.surface.withValues(alpha: 0.72),
               borderColor: Theme.of(context).colorScheme.outlineVariant,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 260),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    widget.backupJson,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                      height: 1.35,
+              child: Text(
+                strings
+                    .text('backupPreparedNoPreview')
+                    .replaceFirst(
+                      '{bytes}',
+                      widget.backupJson.length.toString(),
                     ),
-                  ),
-                ),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
             const SizedBox(height: 20),
@@ -1043,6 +1112,12 @@ class _BackupExportDialogState extends State<_BackupExportDialog> {
               label: _copied
                   ? strings.text('copied')
                   : strings.text('copyBackup'),
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: _clearClipboardNow,
+              icon: const Icon(Icons.cleaning_services_outlined),
+              label: Text(strings.text('clearClipboardNow')),
             ),
             const SizedBox(height: 10),
             SizedBox(

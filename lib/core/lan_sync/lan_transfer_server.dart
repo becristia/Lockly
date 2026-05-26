@@ -8,10 +8,18 @@ import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 
 const _expiredSessionGrace = Duration(seconds: 30);
 
+typedef LanAdvertisedHostResolver = Future<String?> Function(String bindHost);
+
 class LanTransferServer {
-  LanTransferServer({required LanTransferCrypto crypto}) : _crypto = crypto;
+  LanTransferServer({
+    required LanTransferCrypto crypto,
+    LanAdvertisedHostResolver? advertisedHostResolver,
+  }) : _crypto = crypto,
+       _advertisedHostResolver =
+           advertisedHostResolver ?? resolveLanAdvertisedHost;
 
   final LanTransferCrypto _crypto;
+  final LanAdvertisedHostResolver _advertisedHostResolver;
 
   HttpServer? _server;
   Timer? _expiryTimer;
@@ -45,12 +53,16 @@ class LanTransferServer {
       key: transferKey,
     );
     final expiresAt = DateTime.now().toUtc().add(ttl);
+    final payloadHost = await _resolvePayloadHost(
+      bindHost: bindHost,
+      advertisedHost: advertisedHost,
+    );
 
     final server = await HttpServer.bind(bindHost, 0);
     _server = server;
     try {
       final payload = LanTransferQrPayload(
-        host: advertisedHost ?? server.address.address,
+        host: payloadHost,
         port: server.port,
         sessionId: sessionId,
         token: token,
@@ -132,10 +144,12 @@ class LanTransferServer {
     }
 
     _session = null;
+    final responseBytes = utf8.encode(jsonEncode(session.envelope.toJson()));
     request.response
       ..statusCode = HttpStatus.ok
       ..headers.contentType = ContentType.json
-      ..write(jsonEncode(session.envelope.toJson()));
+      ..headers.contentLength = responseBytes.length
+      ..add(responseBytes);
     await request.response.close();
     await close();
   }
@@ -174,6 +188,24 @@ class LanTransferServer {
       );
     }
   }
+
+  Future<String> _resolvePayloadHost({
+    required String bindHost,
+    required String? advertisedHost,
+  }) async {
+    final explicitHost = advertisedHost?.trim();
+    if (explicitHost != null && explicitHost.isNotEmpty) {
+      return explicitHost;
+    }
+
+    final resolvedHost = (await _advertisedHostResolver(bindHost))?.trim();
+    if (resolvedHost == null || resolvedHost.isEmpty) {
+      throw const LanTransferFormatException(
+        'No reachable LAN address is available for this device',
+      );
+    }
+    return resolvedHost;
+  }
 }
 
 class LanTransferSession {
@@ -193,4 +225,75 @@ class _LanTransferServerSession {
   final LanTransferQrPayload payload;
   final LanTransferEnvelope envelope;
   final DateTime expiresAt;
+}
+
+Future<String?> resolveLanAdvertisedHost(String bindHost) async {
+  final trimmedBindHost = bindHost.trim();
+  if (trimmedBindHost.isNotEmpty &&
+      !isLanTransferUnspecifiedHost(trimmedBindHost)) {
+    if (!_isAdvertisableLanIpv4(trimmedBindHost)) {
+      throw const LanTransferFormatException(
+        'Bind host must be a reachable LAN IPv4 address',
+      );
+    }
+    return trimmedBindHost;
+  }
+
+  final interfaces = await NetworkInterface.list(
+    type: InternetAddressType.IPv4,
+    includeLoopback: false,
+  );
+  String? linkLocalCandidate;
+  String? fallbackCandidate;
+  for (final interface in interfaces) {
+    for (final address in interface.addresses) {
+      final candidate = address.address.trim();
+      if (!_isAdvertisableLanIpv4(candidate)) {
+        continue;
+      }
+      if (_isPreferredInterfaceName(interface.name)) {
+        return candidate;
+      }
+      if (_isLinkLocalIpv4(candidate)) {
+        linkLocalCandidate ??= candidate;
+        continue;
+      }
+      fallbackCandidate ??= candidate;
+    }
+  }
+  return fallbackCandidate ?? linkLocalCandidate;
+}
+
+bool _isAdvertisableLanIpv4(String address) {
+  final octets = lanTransferIpv4Octets(address);
+  return octets != null &&
+      octets[0] != 127 &&
+      octets[0] < 224 &&
+      isLanTransferAllowedHost(address);
+}
+
+bool _isLinkLocalIpv4(String address) {
+  final octets = lanTransferIpv4Octets(address);
+  return octets != null && octets[0] == 169 && octets[1] == 254;
+}
+
+bool _isPreferredInterfaceName(String name) {
+  final normalized = name.toLowerCase();
+  if (normalized.contains('virtual') ||
+      normalized.contains('vmware') ||
+      normalized.contains('vbox') ||
+      normalized.contains('hyper-v') ||
+      normalized.contains('docker') ||
+      normalized.contains('wintun') ||
+      normalized.contains('wireguard') ||
+      normalized.contains('tailscale') ||
+      normalized.contains('loopback')) {
+    return false;
+  }
+  return normalized.contains('wi-fi') ||
+      normalized.contains('wifi') ||
+      normalized.contains('wlan') ||
+      normalized.contains('ethernet') ||
+      normalized == 'eth0' ||
+      normalized == 'en0';
 }

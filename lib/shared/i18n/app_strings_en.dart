@@ -152,6 +152,7 @@ class AppStringsEn extends AppStrings {
     'lanQrReady': 'QR code ready',
     'lanQrExpires': 'QR expires',
     'lanCancelSession': 'Cancel session',
+    'lanCancellingSession': 'Cancelling session...',
     'lanScanQr': 'Scan QR code',
     'lanPasteQrPayload': 'Paste QR payload',
     'lanSourceMasterPassword': 'Source master password',
@@ -168,6 +169,7 @@ class AppStringsEn extends AppStrings {
     'lanQrExpired': 'QR code expired',
     'lanNetworkUnavailable': 'Local network unavailable',
     'lanSessionUnavailable': 'Transfer session unavailable',
+    'lanTransferMalformed': 'Transfer payload is invalid or incomplete',
     'lanPackageIntegrityFailed': 'Transfer package integrity check failed',
     'lanSourcePasswordWrong': 'Source master password is incorrect',
     'lanLocalVaultLocked': 'Local vault is locked',
@@ -207,6 +209,23 @@ class AppStringsEn extends AppStrings {
     'backupExportTitle': 'Export encrypted backup',
     'backupExportSubtitle':
         'The backup is encrypted and still requires the matching master password to restore.',
+    'reauthenticateExportSubtitle':
+        'Enter the master password before exporting encrypted backup material.',
+    'reauthenticateClearVaultSubtitle':
+        'Enter the master password to confirm local vault deletion.',
+    'clearLocalVaultFailed':
+        'Could not clear the local vault. Check the master password.',
+    'copyBackupConfirmTitle': 'Copy encrypted backup?',
+    'copyBackupConfirmMessage':
+        'The encrypted backup can be used for offline password guessing if someone gets it. Clipboard will be cleared automatically.',
+    'backupPreparedNoPreview':
+        'Encrypted backup is ready ({bytes} characters). The full JSON is hidden on screen.',
+    'clearClipboardNow': 'Clear clipboard now',
+    'clipboardCleared': 'Clipboard cleared.',
+    'clipboardClearNoPendingSecret': 'No pending secret clipboard value.',
+    'attachmentTooLarge': 'Attachment is too large. Maximum size is {max}.',
+    'totpCodeCopied': 'Code copied. Clipboard clears on expiry.',
+    'continue': 'Continue',
     'copied': 'Copied',
     'copyBackup': 'Copy backup',
     'email': 'Email',
@@ -226,6 +245,10 @@ class AppStringsEn extends AppStrings {
         'CSV import temporarily processes plaintext passwords and is only for migration from another password manager. The input is cleared after preview; confirm the source is trusted and delete the original CSV after import.',
     'encryptedBackupJson': 'Encrypted backup JSON',
     'csvParseFailed': 'CSV import could not be parsed locally.',
+    'csvImportTooLarge': 'CSV import is too large. Maximum size is {max}.',
+    'csvImportEmpty': 'CSV import is empty.',
+    'csvHeadersMissing': 'CSV headers are missing.',
+    'csvQuoteNotClosed': 'CSV has an unclosed quoted field.',
     'importFailed': 'Import failed. Check the source data and try again.',
     'importableRow': 'importable row',
     'importableRows': 'importable rows',
@@ -313,6 +336,7 @@ class AppStringsEn extends AppStrings {
     'passwordField': 'Password',
     'notesField': 'Notes',
     'tagsField': 'Tags',
+    'listSeparator': ', ',
     'notFilled': 'Not filled',
     'hidden': 'Hidden',
     'usernameCopied': 'Username copied.',

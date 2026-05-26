@@ -2073,6 +2073,7 @@ void main() {
         itemIds: [githubId],
         includeBlobs: false,
         includeHistory: false,
+        sourceMasterPassword: 'source-master',
       );
       final decoded = jsonDecode(backupJson) as Map<String, Object?>;
 

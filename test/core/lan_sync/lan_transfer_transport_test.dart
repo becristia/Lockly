@@ -24,6 +24,30 @@ void main() {
       Uint8List.fromList(utf8.encode(value));
 
   group('LAN transfer transport', () {
+    test(
+      'server resolves a LAN address when bound to all interfaces',
+      () async {
+        final crypto = transferCrypto();
+        final server = LanTransferServer(
+          crypto: crypto,
+          advertisedHostResolver: (_) async => '192.168.1.44',
+        );
+        final plaintext = packageBytes('{"version":2,"items":[]}');
+
+        final session = await server.start(
+          packageBytes: plaintext,
+          selectedCount: 1,
+          senderName: 'Sender',
+          ttl: const Duration(minutes: 5),
+          bindHost: '0.0.0.0',
+        );
+        addTearDown(() => server.close());
+
+        expect(session.qrPayload.host, '192.168.1.44');
+        expect(session.qrPayload.host, isNot('0.0.0.0'));
+      },
+    );
+
     test('server serves one authenticated encrypted package', () async {
       final crypto = transferCrypto();
       final server = LanTransferServer(crypto: crypto);
@@ -284,6 +308,81 @@ void main() {
         );
       },
     );
+
+    test('unresponsive peer times out as unavailable', () async {
+      final crypto = transferCrypto();
+      final server = await ServerSocket.bind('127.0.0.1', 0);
+      final sockets = <Socket>[];
+      addTearDown(() async {
+        for (final socket in sockets) {
+          socket.destroy();
+        }
+        await server.close();
+      });
+      unawaited(
+        server.forEach((socket) async {
+          sockets.add(socket);
+        }),
+      );
+
+      await expectLater(
+        LanTransferClient(
+          crypto: crypto,
+          requestTimeout: const Duration(milliseconds: 50),
+        ).download(_validPayloadForServer(crypto, server.port)),
+        throwsA(isA<LanTransferUnavailableException>()),
+      );
+    });
+
+    test('slow drip response is bounded by overall timeout', () async {
+      final crypto = transferCrypto();
+      final server = await ServerSocket.bind('127.0.0.1', 0);
+      final sockets = <Socket>[];
+      addTearDown(() async {
+        for (final socket in sockets) {
+          socket.destroy();
+        }
+        await server.close();
+      });
+      unawaited(
+        server.forEach((socket) async {
+          sockets.add(socket);
+          var closed = false;
+          unawaited(socket.done.whenComplete(() => closed = true));
+          socket.write(
+            'HTTP/1.1 200 OK\r\n'
+            'Content-Type: application/json\r\n'
+            'Transfer-Encoding: chunked\r\n'
+            'Connection: keep-alive\r\n'
+            '\r\n',
+          );
+          await socket.flush();
+          unawaited(() async {
+            while (!closed) {
+              await Future<void>.delayed(const Duration(milliseconds: 20));
+              if (closed) {
+                return;
+              }
+              try {
+                socket.write('1\r\n{\r\n');
+                await socket.flush();
+              } catch (_) {
+                return;
+              }
+            }
+          }());
+        }),
+      );
+
+      await expectLater(
+        LanTransferClient(
+          crypto: crypto,
+          requestTimeout: const Duration(milliseconds: 80),
+          overallTimeout: const Duration(milliseconds: 120),
+        ).download(_validPayloadForServer(crypto, server.port)),
+        throwsA(isA<LanTransferUnavailableException>()),
+      );
+    });
 
     test('invalid UTF-8 response throws malformed exception', () async {
       final crypto = transferCrypto();

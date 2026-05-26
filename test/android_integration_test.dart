@@ -14,6 +14,15 @@ void main() {
       expect(manifest, contains('android.permission.CAMERA'));
     });
 
+    test('manifest does not globally allow cleartext HTTP', () {
+      final manifest = File(
+        'android/app/src/main/AndroidManifest.xml',
+      ).readAsStringSync();
+
+      expect(manifest, isNot(contains('android:usesCleartextTraffic="true"')));
+      expect(manifest, isNot(contains('android:networkSecurityConfig')));
+    });
+
     test('manifest disables Android cloud backup for local vault data', () {
       final manifest = File(
         'android/app/src/main/AndroidManifest.xml',
@@ -111,11 +120,15 @@ void main() {
         expect(manifest, contains('android.permission.USE_BIOMETRIC'));
         expect(manifest, contains('android.permission.INTERNET'));
         expect(manifest, contains('android.permission.CAMERA'));
+        expect(
+          manifest,
+          isNot(contains('android:usesCleartextTraffic="true"')),
+        );
         expect(manifest, contains('android:allowBackup="false"'));
         expect(manifest, contains('android:fullBackupContent="false"'));
         expect(manifest, isNot(contains('android:debuggable="true"')));
       },
-      timeout: const Timeout(Duration(minutes: 3)),
+      timeout: const Timeout(Duration(minutes: 6)),
     );
 
     test(

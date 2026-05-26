@@ -273,7 +273,7 @@ void main() {
     await tester.tap(find.text('预览'));
     await tester.pumpAndSettle();
 
-    expect(find.text('无法在本地解析 CSV 导入内容。'), findsOneWidget);
+    expect(find.text('CSV 存在未闭合的引号字段。'), findsOneWidget);
     expect(find.textContaining('bank-secret'), findsNothing);
   });
 
@@ -412,8 +412,15 @@ void main() {
     await tester.tap(exportIcon);
     await tester.pumpAndSettle();
 
+    await tester.enterText(find.byType(TextFormField).last, 'master-password');
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+
     expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
     await tester.tap(find.byIcon(Icons.copy_rounded));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(FilledButton).last);
     await tester.pump();
 
     expect(clipboardText, contains('"version"'));

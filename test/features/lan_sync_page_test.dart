@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
 import 'package:secure_box/data/models/password_entry.dart';
@@ -58,11 +59,13 @@ void main() {
             required itemIds,
             required includeBlobs,
             required includeHistory,
+            required sourceMasterPassword,
             required senderName,
           }) async {
             createdItemIds = List<String>.from(itemIds);
             createdIncludeBlobs = includeBlobs;
             createdIncludeHistory = includeHistory;
+            expect(sourceMasterPassword, 'source-master');
             return session;
           },
     );
@@ -82,6 +85,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('lan-send-item-item-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('lan-send-create-session')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-send-source-master-password-field')),
+      'source-master',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('lan-send-confirm-password')));
     await tester.pumpAndSettle();
 
     expect(createdItemIds, ['item-1']);
@@ -112,6 +122,7 @@ void main() {
               required itemIds,
               required includeBlobs,
               required includeHistory,
+              required sourceMasterPassword,
               required senderName,
             }) async {
               throw StateError('session unavailable');
@@ -126,6 +137,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('lan-send-item-item-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('lan-send-create-session')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('lan-send-source-master-password-field')),
+        'source-master',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('lan-send-confirm-password')));
       await tester.pumpAndSettle();
 
       const strings = AppStringsZh();
@@ -158,6 +176,7 @@ void main() {
               required itemIds,
               required includeBlobs,
               required includeHistory,
+              required sourceMasterPassword,
               required senderName,
             }) => createCompleter.future,
         cancelLanSendSessionOverride: () async {
@@ -173,6 +192,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('lan-send-item-item-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('lan-send-create-session')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('lan-send-source-master-password-field')),
+        'source-master',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('lan-send-confirm-password')));
       await tester.pump();
 
       services.navigatorKey.currentState!.pop();
@@ -218,6 +244,7 @@ void main() {
             required itemIds,
             required includeBlobs,
             required includeHistory,
+            required sourceMasterPassword,
             required senderName,
           }) async => LanTransferSession(
             qrPayload: _validPayload(senderName: 'Office phone'),
@@ -233,6 +260,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('lan-send-item-item-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('lan-send-create-session')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-send-source-master-password-field')),
+      'source-master',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('lan-send-confirm-password')));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -278,7 +312,11 @@ void main() {
         hasVault: true,
         unlocked: true,
         receiveLanTransferOverride:
-            ({required payload, required sourceMasterPassword}) async {
+            ({
+              required payload,
+              required sourceMasterPassword,
+              required cancellationToken,
+            }) async {
               capturedSourcePassword = sourceMasterPassword;
               return const LanTransferImportResult(
                 importedCount: 1,
@@ -359,6 +397,131 @@ void main() {
     expect(controller?.text, isEmpty);
     await tester.pumpAndSettle();
     expect(find.textContaining('source-master'), findsNothing);
+  });
+
+  testWidgets('receive password prompt can be cancelled while importing', (
+    tester,
+  ) async {
+    final payload = _validPayload(senderName: 'Source device');
+    final importCompleter = Completer<LanTransferImportResult>();
+    CancellationToken? capturedCancellationToken;
+    final services = AppServices.fake(
+      hasVault: true,
+      unlocked: true,
+      receiveLanTransferOverride:
+          ({
+            required payload,
+            required sourceMasterPassword,
+            required cancellationToken,
+          }) {
+            capturedCancellationToken = cancellationToken;
+            return importCompleter.future;
+          },
+    );
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeLanReceive);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-receive-paste-field')),
+      payload.encode(),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('lan-receive-use-pasted-payload')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-source-master-password-field')),
+      'source-master',
+    );
+    await tester.tap(find.byKey(const ValueKey('lan-receive-import-button')));
+    await tester.pump();
+
+    await tester.tap(
+      find.widgetWithText(TextButton, const AppStringsZh().text('cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(capturedCancellationToken?.isCancelled, isTrue);
+    expect(
+      find.byKey(const ValueKey('lan-source-master-password-field')),
+      findsNothing,
+    );
+    expect(find.textContaining('source-master'), findsNothing);
+
+    importCompleter.complete(
+      const LanTransferImportResult(
+        importedCount: 1,
+        skippedCount: 0,
+        conflicts: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('receive password prompt cancels import when dismissed by back', (
+    tester,
+  ) async {
+    final payload = _validPayload(senderName: 'Source device');
+    final importCompleter = Completer<LanTransferImportResult>();
+    CancellationToken? capturedCancellationToken;
+    final services = AppServices.fake(
+      hasVault: true,
+      unlocked: true,
+      receiveLanTransferOverride:
+          ({
+            required payload,
+            required sourceMasterPassword,
+            required cancellationToken,
+          }) {
+            capturedCancellationToken = cancellationToken;
+            return importCompleter.future;
+          },
+    );
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeLanReceive);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-receive-paste-field')),
+      payload.encode(),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('lan-receive-use-pasted-payload')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-source-master-password-field')),
+      'source-master',
+    );
+    await tester.tap(find.byKey(const ValueKey('lan-receive-import-button')));
+    await tester.pump();
+
+    Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+    await tester.pumpAndSettle();
+
+    expect(capturedCancellationToken?.isCancelled, isTrue);
+    expect(
+      find.byKey(const ValueKey('lan-source-master-password-field')),
+      findsNothing,
+    );
+
+    importCompleter.complete(
+      const LanTransferImportResult(
+        importedCount: 1,
+        skippedCount: 0,
+        conflicts: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }
 

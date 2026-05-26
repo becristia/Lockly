@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:secure_box/core/backup/backup_service.dart';
+import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_client.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
@@ -23,15 +24,17 @@ class LanTransferService {
     required List<String> itemIds,
     required bool includeBlobs,
     required bool includeHistory,
+    required String sourceMasterPassword,
     required String senderName,
     Duration ttl = const Duration(minutes: 5),
     String bindHost = '0.0.0.0',
     String? advertisedHost,
   }) async {
-    final backup = await _backupService.exportSelectedItemsBackup(
+    final backup = await _backupService.exportLanTransferBackup(
       itemIds: itemIds,
       includeBlobs: includeBlobs,
       includeHistory: includeHistory,
+      sourceMasterPassword: sourceMasterPassword,
     );
     final jsonText = const JsonEncoder.withIndent(
       '  ',
@@ -54,8 +57,14 @@ class LanTransferService {
   Future<LanTransferImportResult> receiveFromPayload({
     required LanTransferQrPayload payload,
     required String sourceMasterPassword,
+    CancellationToken? cancellationToken,
   }) async {
-    final packageBytes = await _client.download(payload);
+    cancellationToken?.throwIfCancelled();
+    final packageBytes = await _client.download(
+      payload,
+      cancellationToken: cancellationToken,
+    );
+    cancellationToken?.throwIfCancelled();
     if (packageBytes.length > maxLanTransferEnvelopeBytes) {
       throw const FormatException('LAN transfer backup is too large to import');
     }
@@ -65,9 +74,11 @@ class LanTransferService {
     if (decoded is! Map) {
       throw const FormatException('LAN transfer backup root must be an object');
     }
+    cancellationToken?.throwIfCancelled();
     final result = await _backupService.importBackupSkippingIdentityConflicts(
       json: Map<String, Object?>.from(decoded),
       masterPassword: sourceMasterPassword,
+      cancellationToken: cancellationToken,
     );
     return _mapImportResult(result);
   }

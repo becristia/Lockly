@@ -553,6 +553,8 @@ class _VaultEditPageState extends State<VaultEditPage> {
         content: TextField(
           controller: controller,
           autofocus: true,
+          enableSuggestions: false,
+          autocorrect: false,
           decoration: InputDecoration(
             hintText: AppStrings.of(ctx).text('totpSecretHint'),
             helperText: AppStrings.of(ctx).text('totpSecretHelper'),
@@ -671,6 +673,8 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-rp-id-input'),
                   controller: _relyingPartyIdController,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: strings.text('relyingPartyId'),
                     hintText: strings.text('exampleDomain'),
@@ -683,6 +687,8 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-credential-id-input'),
                   controller: _credentialIdController,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: strings.text('credentialId'),
                     hintText: strings.text('credentialIdHint'),
@@ -695,6 +701,8 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-user-handle-input'),
                   controller: _userHandleController,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: strings.text('userHandle'),
                   ),
@@ -705,6 +713,8 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-display-name-input'),
                   controller: _displayNameController,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: strings.text('displayName'),
                   ),
@@ -715,6 +725,8 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-algorithm-input'),
                   controller: _algorithmController,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: strings.text('publicKeyAlgorithm'),
                     hintText: strings.text('algorithmHint'),
@@ -726,6 +738,8 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
                 TextFormField(
                   key: const ValueKey('passkey-platform-input'),
                   controller: _platformController,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: strings.text('platform'),
                     hintText: strings.text('platformHint'),

@@ -46,11 +46,11 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
         _error = null;
       });
       _sourceController.clear();
-    } catch (_) {
+    } catch (error) {
       setState(() {
         _preparedCsvText = null;
         _csvReport = null;
-        _error = AppStrings.of(context).text('csvParseFailed');
+        _error = _csvPreviewErrorMessage(error, AppStrings.of(context));
       });
       _sourceController.clear();
     }
@@ -180,6 +180,8 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
                   ),
                   controller: _sourceController,
                   onChanged: isCsv ? (_) => _clearCsvPreview() : null,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   minLines: 6,
                   maxLines: 9,
                   decoration: InputDecoration(
@@ -195,6 +197,8 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
                     key: const ValueKey('migration-backup-password-input'),
                     controller: _passwordController,
                     obscureText: true,
+                    enableSuggestions: false,
+                    autocorrect: false,
                     decoration: InputDecoration(
                       labelText: strings.text('backupMasterPassword'),
                       prefixIcon: const Icon(Icons.lock_outline_rounded),
@@ -252,6 +256,37 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
       _csvReport = null;
       _error = null;
     });
+  }
+
+  String _csvPreviewErrorMessage(Object error, AppStrings strings) {
+    if (error is FormatException) {
+      return switch (error.message) {
+        'CSV import is too large' =>
+          strings
+              .text('csvImportTooLarge')
+              .replaceFirst(
+                '{max}',
+                _formatImportSize(maxPlaintextCsvImportBytes),
+              ),
+        'CSV import is empty' => strings.text('csvImportEmpty'),
+        'CSV headers are missing' => strings.text('csvHeadersMissing'),
+        'CSV quote is not closed' => strings.text('csvQuoteNotClosed'),
+        _ => strings.text('csvParseFailed'),
+      };
+    }
+    return strings.text('csvParseFailed');
+  }
+
+  String _formatImportSize(int bytes) {
+    if (bytes >= 1024 * 1024) {
+      final mb = bytes / (1024 * 1024);
+      return '${mb.toStringAsFixed(mb.truncateToDouble() == mb ? 0 : 1)} MB';
+    }
+    if (bytes >= 1024) {
+      final kb = bytes / 1024;
+      return '${kb.toStringAsFixed(kb.truncateToDouble() == kb ? 0 : 1)} KB';
+    }
+    return '$bytes B';
   }
 }
 

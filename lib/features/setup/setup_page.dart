@@ -277,10 +277,7 @@ class _SetupPageState extends State<SetupPage> {
     final result = MasterPasswordPolicy.evaluate(value ?? '');
     return result.isAcceptable
         ? null
-        : localizedMasterPasswordPolicyMessage(
-            result,
-            AppStrings.of(context),
-          );
+        : localizedMasterPasswordPolicyMessage(result, AppStrings.of(context));
   }
 
   String? _validateConfirmPassword(String? value) {
@@ -314,11 +311,11 @@ class _SetupPageState extends State<SetupPage> {
         return;
       }
       if (_biometricEnabled && biometricResult == BiometricSetupResult.failed) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppStrings.of(context).text('vaultCreatedBiometricFailed')),
+            content: Text(
+              AppStrings.of(context).text('vaultCreatedBiometricFailed'),
+            ),
           ),
         );
       }
@@ -326,10 +323,10 @@ class _SetupPageState extends State<SetupPage> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('createVaultFailed'))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).text('createVaultFailed')),
+        ),
       );
     } finally {
       if (mounted) {

@@ -151,6 +151,8 @@ class _VaultListPageState extends State<VaultListPage> {
                 shadow: false,
                 child: TextField(
                   controller: _searchController,
+                  enableSuggestions: false,
+                  autocorrect: false,
                   onTap: widget.services.recordActivity,
                   onChanged: (_) {
                     widget.services.recordActivity();
