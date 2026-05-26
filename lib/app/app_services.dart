@@ -14,12 +14,8 @@ import 'package:secure_box/core/migration/plaintext_csv_importer.dart';
 import 'package:secure_box/core/security/app_lifecycle_guard.dart';
 import 'package:secure_box/core/security/auto_lock_service.dart';
 import 'package:secure_box/core/security/password_health_service.dart';
-import 'package:secure_box/core/sync/sync_api_client.dart';
-import 'package:secure_box/core/sync/sync_models.dart';
-import 'package:secure_box/core/sync/sync_service.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
-import 'package:secure_box/data/db/sync_state_dao.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/shared/i18n/app_language.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,22 +23,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum AppShellState { setupRequired, locked, unlocked }
 
 enum BiometricSetupResult { notRequested, enabled, failed }
-
-class CloudSyncResult {
-  const CloudSyncResult({
-    required this.importedCount,
-    this.itemConflictCount = 0,
-    this.blobConflictCount = 0,
-  });
-
-  final int importedCount;
-  final int itemConflictCount;
-  final int blobConflictCount;
-
-  int get conflictCount => itemConflictCount + blobConflictCount;
-
-  bool get hasConflicts => conflictCount > 0;
-}
 
 class MasterPasswordChangedBiometricCleanupException implements Exception {
   MasterPasswordChangedBiometricCleanupException(this.cause);
@@ -58,7 +38,6 @@ class AppServices {
     required bool hasVault,
     VaultService? vaultService,
     BackupService? backupService,
-    SyncService? syncService,
     LanTransferService? lanTransferService,
     AndroidAutofillService androidAutofillService =
         const AndroidAutofillService(),
@@ -116,49 +95,6 @@ class AppServices {
       required String sourceMasterPassword,
     })?
     receiveLanTransferOverride,
-    Future<void> Function(String email, String password)? cloudRegisterOverride,
-    Future<void> Function(String email, String password)? cloudLoginOverride,
-    Future<void> Function()? cloudLogoutOverride,
-    Future<String?> Function()? cloudAccountEmailOverride,
-    Future<CloudSyncResult> Function(String masterPassword)?
-    cloudSyncNowOverride,
-    Future<int> Function(String masterPassword)? cloudDownloadOverride,
-    Future<List<SyncDevice>> Function()? listCloudDevicesOverride,
-    Future<void> Function(String deviceId)? revokeCloudDeviceOverride,
-    Future<SyncDevice> Function(String deviceId, String deviceName)?
-    renameCloudDeviceOverride,
-    Future<List<SyncConflictRecord>> Function()? listSyncConflictsOverride,
-    Future<List<SyncBlobConflictRecord>> Function()?
-    listSyncBlobConflictsOverride,
-    Future<List<EmergencyContact>> Function()? listEmergencyContactsOverride,
-    Future<EmergencyContact> Function({
-      required EmergencyContactCreateRequest request,
-    })?
-    createEmergencyContactOverride,
-    Future<EmergencyContact> Function(String contactId)?
-    revokeEmergencyContactOverride,
-    Future<List<EmergencyGrant>> Function()? listEmergencyGrantsOverride,
-    Future<EmergencyGrant> Function({
-      required EmergencyGrantCreateRequest request,
-    })?
-    createEmergencyGrantOverride,
-    Future<EmergencyGrant> Function({
-      required String grantId,
-      required String recipientKeyFingerprint,
-    })?
-    acceptEmergencyGrantOverride,
-    Future<EmergencyGrant> Function({
-      required String grantId,
-      String? requestMessageCiphertext,
-      String? requestMessageAad,
-    })?
-    requestEmergencyGrantAccessOverride,
-    Future<EmergencyGrant> Function(String grantId)?
-    cancelEmergencyGrantOverride,
-    Future<EmergencyGrant> Function(String grantId)?
-    revokeEmergencyGrantOverride,
-    Future<EmergencyAccessPackage> Function(String grantId)?
-    downloadEmergencyAccessPackageOverride,
     Future<void> Function()? clearLocalVaultOverride,
     Future<HealthReport> Function()? analyzePasswordHealthOverride,
     Future<List<VaultListItem>> Function()? listDeletedItemsOverride,
@@ -173,7 +109,6 @@ class AppServices {
   }) : _hasVault = hasVault,
        _vaultService = vaultService,
        _backupService = backupService,
-       _syncService = syncService,
        _lanTransferService = lanTransferService,
        _androidAutofillService = androidAutofillService,
        _biometricService = biometricService,
@@ -203,29 +138,6 @@ class AppServices {
        _createLanSendSessionOverride = createLanSendSessionOverride,
        _cancelLanSendSessionOverride = cancelLanSendSessionOverride,
        _receiveLanTransferOverride = receiveLanTransferOverride,
-       _cloudRegisterOverride = cloudRegisterOverride,
-       _cloudLoginOverride = cloudLoginOverride,
-       _cloudLogoutOverride = cloudLogoutOverride,
-       _cloudAccountEmailOverride = cloudAccountEmailOverride,
-       _cloudSyncNowOverride = cloudSyncNowOverride,
-       _cloudDownloadOverride = cloudDownloadOverride,
-       _listCloudDevicesOverride = listCloudDevicesOverride,
-       _revokeCloudDeviceOverride = revokeCloudDeviceOverride,
-       _renameCloudDeviceOverride = renameCloudDeviceOverride,
-       _listSyncConflictsOverride = listSyncConflictsOverride,
-       _listSyncBlobConflictsOverride = listSyncBlobConflictsOverride,
-       _listEmergencyContactsOverride = listEmergencyContactsOverride,
-       _createEmergencyContactOverride = createEmergencyContactOverride,
-       _revokeEmergencyContactOverride = revokeEmergencyContactOverride,
-       _listEmergencyGrantsOverride = listEmergencyGrantsOverride,
-       _createEmergencyGrantOverride = createEmergencyGrantOverride,
-       _acceptEmergencyGrantOverride = acceptEmergencyGrantOverride,
-       _requestEmergencyGrantAccessOverride =
-           requestEmergencyGrantAccessOverride,
-       _cancelEmergencyGrantOverride = cancelEmergencyGrantOverride,
-       _revokeEmergencyGrantOverride = revokeEmergencyGrantOverride,
-       _downloadEmergencyAccessPackageOverride =
-           downloadEmergencyAccessPackageOverride,
        _clearLocalVaultOverride = clearLocalVaultOverride,
        _analyzePasswordHealthOverride = analyzePasswordHealthOverride,
        _listDeletedItemsOverride = listDeletedItemsOverride,
@@ -300,7 +212,6 @@ class AppServices {
 
   final VaultService? _vaultService;
   final BackupService? _backupService;
-  final SyncService? _syncService;
   final LanTransferService? _lanTransferService;
   final AndroidAutofillService _androidAutofillService;
   final BiometricService? _biometricService;
@@ -356,52 +267,6 @@ class AppServices {
     required String sourceMasterPassword,
   })?
   _receiveLanTransferOverride;
-  final Future<void> Function(String email, String password)?
-  _cloudRegisterOverride;
-  final Future<void> Function(String email, String password)?
-  _cloudLoginOverride;
-  final Future<void> Function()? _cloudLogoutOverride;
-  final Future<String?> Function()? _cloudAccountEmailOverride;
-  final Future<CloudSyncResult> Function(String masterPassword)?
-  _cloudSyncNowOverride;
-  final Future<int> Function(String masterPassword)? _cloudDownloadOverride;
-  final Future<List<SyncDevice>> Function()? _listCloudDevicesOverride;
-  final Future<void> Function(String deviceId)? _revokeCloudDeviceOverride;
-  final Future<SyncDevice> Function(String deviceId, String deviceName)?
-  _renameCloudDeviceOverride;
-  final Future<List<SyncConflictRecord>> Function()? _listSyncConflictsOverride;
-  final Future<List<SyncBlobConflictRecord>> Function()?
-  _listSyncBlobConflictsOverride;
-  final Future<List<EmergencyContact>> Function()?
-  _listEmergencyContactsOverride;
-  final Future<EmergencyContact> Function({
-    required EmergencyContactCreateRequest request,
-  })?
-  _createEmergencyContactOverride;
-  final Future<EmergencyContact> Function(String contactId)?
-  _revokeEmergencyContactOverride;
-  final Future<List<EmergencyGrant>> Function()? _listEmergencyGrantsOverride;
-  final Future<EmergencyGrant> Function({
-    required EmergencyGrantCreateRequest request,
-  })?
-  _createEmergencyGrantOverride;
-  final Future<EmergencyGrant> Function({
-    required String grantId,
-    required String recipientKeyFingerprint,
-  })?
-  _acceptEmergencyGrantOverride;
-  final Future<EmergencyGrant> Function({
-    required String grantId,
-    String? requestMessageCiphertext,
-    String? requestMessageAad,
-  })?
-  _requestEmergencyGrantAccessOverride;
-  final Future<EmergencyGrant> Function(String grantId)?
-  _cancelEmergencyGrantOverride;
-  final Future<EmergencyGrant> Function(String grantId)?
-  _revokeEmergencyGrantOverride;
-  final Future<EmergencyAccessPackage> Function(String grantId)?
-  _downloadEmergencyAccessPackageOverride;
   final Future<void> Function()? _clearLocalVaultOverride;
   final Future<HealthReport> Function()? _analyzePasswordHealthOverride;
   final Future<List<VaultListItem>> Function()? _listDeletedItemsOverride;
@@ -437,11 +302,6 @@ class AppServices {
     bool biometricUnlockSucceeds = false,
     List<PasswordEntry> initialVaultItems = const <PasswordEntry>[],
     Future<HealthReport> Function()? analyzePasswordHealthOverride,
-    List<SyncDevice> cloudDevices = const <SyncDevice>[],
-    String? cloudAccountEmail,
-    Future<void> Function(String email, String password)? cloudRegisterOverride,
-    Future<SyncDevice> Function(String deviceId, String deviceName)?
-    renameCloudDeviceOverride,
     Future<LanTransferSession> Function({
       required List<String> itemIds,
       required bool includeBlobs,
@@ -455,12 +315,6 @@ class AppServices {
       required String sourceMasterPassword,
     })?
     receiveLanTransferOverride,
-    List<SyncConflictRecord> syncConflicts = const <SyncConflictRecord>[],
-    List<SyncBlobConflictRecord> syncBlobConflicts =
-        const <SyncBlobConflictRecord>[],
-    List<EmergencyContact> emergencyContacts = const <EmergencyContact>[],
-    List<EmergencyGrant> emergencyGrants = const <EmergencyGrant>[],
-    EmergencyAccessPackage? emergencyAccessPackage,
     bool autofillSupported = false,
     bool autofillEnabled = false,
     Future<void> Function()? openAutofillSettingsOverride,
@@ -473,18 +327,6 @@ class AppServices {
     var fakeBiometricEnabled = biometricEnabled;
     var fakeAutoLockTimeout = const Duration(minutes: 2);
     var fakeClipboardCleanupTimeout = const Duration(seconds: 30);
-    var fakeCloudAccountEmail = cloudAccountEmail;
-    final fakeCloudDevices = <String, SyncDevice>{
-      for (final device in cloudDevices) device.id: device,
-    };
-    final fakeEmergencyContacts = {
-      for (final contact in emergencyContacts) contact.id: contact,
-    };
-    final fakeEmergencyGrants = {
-      for (final grant in emergencyGrants) grant.id: grant,
-    };
-    var fakeEmergencyContactCounter = emergencyContacts.length;
-    var fakeEmergencyGrantCounter = emergencyGrants.length;
 
     void seedItems() {
       for (final entry in initialVaultItems) {
@@ -661,174 +503,6 @@ class AppServices {
       createLanSendSessionOverride: createLanSendSessionOverride,
       cancelLanSendSessionOverride: cancelLanSendSessionOverride,
       receiveLanTransferOverride: receiveLanTransferOverride,
-      cloudRegisterOverride: (email, password) async {
-        final override = cloudRegisterOverride;
-        if (override != null) {
-          await override(email, password);
-        }
-        fakeCloudAccountEmail = email;
-      },
-      cloudLoginOverride: (email, password) async {
-        fakeCloudAccountEmail = email;
-      },
-      cloudLogoutOverride: () async {
-        fakeCloudAccountEmail = null;
-      },
-      cloudAccountEmailOverride: () async => fakeCloudAccountEmail,
-      cloudSyncNowOverride: (masterPassword) async =>
-          const CloudSyncResult(importedCount: 0),
-      listCloudDevicesOverride: () async =>
-          List.unmodifiable(fakeCloudDevices.values),
-      renameCloudDeviceOverride:
-          renameCloudDeviceOverride ??
-          (deviceId, deviceName) async {
-            final existing = fakeCloudDevices[deviceId];
-            if (existing == null) {
-              throw StateError('Cloud device not found: $deviceId');
-            }
-            final renamed = SyncDevice(
-              id: existing.id,
-              deviceName: deviceName,
-              deviceType: existing.deviceType,
-              trusted: existing.trusted,
-              platform: existing.platform,
-              clientVersion: existing.clientVersion,
-              lastSyncAt: existing.lastSyncAt,
-              lastIpAddress: existing.lastIpAddress,
-              lastUserAgent: existing.lastUserAgent,
-              createdAt: existing.createdAt,
-              revokedAt: existing.revokedAt,
-            );
-            fakeCloudDevices[deviceId] = renamed;
-            return renamed;
-          },
-      listSyncConflictsOverride: () async => List.unmodifiable(syncConflicts),
-      listSyncBlobConflictsOverride: () async =>
-          List.unmodifiable(syncBlobConflicts),
-      listEmergencyContactsOverride: () async {
-        return List.unmodifiable(fakeEmergencyContacts.values);
-      },
-      createEmergencyContactOverride: ({required request}) async {
-        fakeEmergencyContactCounter += 1;
-        final contact = EmergencyContact(
-          id: 'contact-$fakeEmergencyContactCounter',
-          ownerUserId: 'fake-owner',
-          recipientUserId: 'fake-recipient-$fakeEmergencyContactCounter',
-          recipientEmail: request.recipientEmail,
-          recipientPublicKey: request.recipientPublicKey,
-          recipientKeyFingerprint: request.recipientKeyFingerprint,
-          recipientLabel: request.recipientLabel,
-          status: 'active',
-          createdAt: _fakeIsoTimestamp(fakeTimestamp += 1),
-          updatedAt: _fakeIsoTimestamp(fakeTimestamp),
-        );
-        fakeEmergencyContacts[contact.id] = contact;
-        return contact;
-      },
-      revokeEmergencyContactOverride: (contactId) async {
-        final existing = fakeEmergencyContacts[contactId];
-        if (existing == null) {
-          throw StateError('Emergency contact not found: $contactId');
-        }
-        final revoked = _copyEmergencyContact(
-          existing,
-          status: 'revoked',
-          revokedAt: _fakeIsoTimestamp(fakeTimestamp += 1),
-          updatedAt: _fakeIsoTimestamp(fakeTimestamp),
-        );
-        fakeEmergencyContacts[contactId] = revoked;
-        return revoked;
-      },
-      listEmergencyGrantsOverride: () async {
-        return List.unmodifiable(fakeEmergencyGrants.values);
-      },
-      createEmergencyGrantOverride: ({required request}) async {
-        fakeEmergencyGrantCounter += 1;
-        final grant = EmergencyGrant(
-          id: 'grant-$fakeEmergencyGrantCounter',
-          ownerUserId: 'fake-owner',
-          recipientUserId: 'fake-recipient',
-          contactId: request.contactId,
-          vaultId: 'fake-vault',
-          status: 'pending_acceptance',
-          waitingPeriodHours: request.waitingPeriodHours,
-          packageAad: request.packageAad,
-          packageFingerprint: request.packageFingerprint,
-          recipientKeyFingerprint: null,
-          createdAt: _fakeIsoTimestamp(fakeTimestamp += 1),
-          updatedAt: _fakeIsoTimestamp(fakeTimestamp),
-        );
-        fakeEmergencyGrants[grant.id] = grant;
-        return grant;
-      },
-      acceptEmergencyGrantOverride:
-          ({required grantId, required recipientKeyFingerprint}) async {
-            final accepted = _updateFakeEmergencyGrant(
-              fakeEmergencyGrants,
-              grantId,
-              status: 'active',
-              recipientKeyFingerprint: recipientKeyFingerprint,
-              updatedAt: _fakeIsoTimestamp(fakeTimestamp += 1),
-            );
-            return accepted;
-          },
-      requestEmergencyGrantAccessOverride:
-          ({
-            required grantId,
-            requestMessageCiphertext,
-            requestMessageAad,
-          }) async {
-            final requested = _updateFakeEmergencyGrant(
-              fakeEmergencyGrants,
-              grantId,
-              status: 'access_requested',
-              requestedAt: _fakeIsoTimestamp(fakeTimestamp += 1),
-              updatedAt: _fakeIsoTimestamp(fakeTimestamp),
-            );
-            return requested;
-          },
-      cancelEmergencyGrantOverride: (grantId) async {
-        final cancelled = _updateFakeEmergencyGrant(
-          fakeEmergencyGrants,
-          grantId,
-          status: 'cancelled',
-          cancelledAt: _fakeIsoTimestamp(fakeTimestamp += 1),
-          updatedAt: _fakeIsoTimestamp(fakeTimestamp),
-        );
-        return cancelled;
-      },
-      revokeEmergencyGrantOverride: (grantId) async {
-        final revoked = _updateFakeEmergencyGrant(
-          fakeEmergencyGrants,
-          grantId,
-          status: 'revoked',
-          revokedAt: _fakeIsoTimestamp(fakeTimestamp += 1),
-          updatedAt: _fakeIsoTimestamp(fakeTimestamp),
-        );
-        return revoked;
-      },
-      downloadEmergencyAccessPackageOverride: (grantId) async {
-        final package = emergencyAccessPackage;
-        final grant = fakeEmergencyGrants[grantId];
-        if (package == null || grant == null) {
-          throw StateError('Emergency access package not found: $grantId');
-        }
-        if (package.grantId == grantId) {
-          return package;
-        }
-        return EmergencyAccessPackage(
-          grantId: grantId,
-          ownerUserId: grant.ownerUserId,
-          recipientUserId: grant.recipientUserId,
-          contactId: grant.contactId,
-          status: package.status,
-          encryptedRecoveryPackage: package.encryptedRecoveryPackage,
-          packageAad: grant.packageAad,
-          packageFingerprint: grant.packageFingerprint,
-          recipientKeyFingerprint: grant.recipientKeyFingerprint,
-          downloadedAt: package.downloadedAt,
-        );
-      },
       clearLocalVaultOverride: () async {
         fakeItems.clear();
         fakeServices!._hasVault = false;
@@ -1377,400 +1051,6 @@ class AppServices {
     return lanTransferService.cancelSendSession();
   }
 
-  Future<void> loginCloudSync({
-    required String email,
-    required String password,
-  }) async {
-    final override = _cloudLoginOverride;
-    if (override != null) {
-      return override(email, password);
-    }
-    await syncService.login(email: email, password: password);
-  }
-
-  Future<void> registerCloudSync({
-    required String email,
-    required String password,
-  }) async {
-    final override = _cloudRegisterOverride;
-    if (override != null) {
-      return override(email, password);
-    }
-    await syncService.register(email: email, password: password);
-  }
-
-  Future<void> logoutCloudSync() async {
-    final override = _cloudLogoutOverride;
-    if (override != null) {
-      return override();
-    }
-    return syncService.logout();
-  }
-
-  Future<String?> cloudSyncAccountEmail() async {
-    final override = _cloudAccountEmailOverride;
-    if (override != null) {
-      return override();
-    }
-    final service = _syncService;
-    if (service == null) {
-      return null;
-    }
-    return service.currentAccountEmail();
-  }
-
-  Future<bool> isCloudSyncSignedIn() async {
-    return (await cloudSyncAccountEmail()) != null;
-  }
-
-  Future<List<SyncDevice>> listCloudSyncDevices() async {
-    final override = _listCloudDevicesOverride;
-    if (override != null) {
-      return override();
-    }
-    return syncService.listDevices();
-  }
-
-  Future<void> revokeCloudSyncDevice(String deviceId) async {
-    final override = _revokeCloudDeviceOverride;
-    if (override != null) {
-      return override(deviceId);
-    }
-    return syncService.revokeDevice(deviceId);
-  }
-
-  Future<SyncDevice> renameCloudSyncDevice({
-    required String deviceId,
-    required String deviceName,
-  }) async {
-    final override = _renameCloudDeviceOverride;
-    if (override != null) {
-      return override(deviceId, deviceName);
-    }
-    return syncService.renameDevice(deviceId, deviceName);
-  }
-
-  Future<List<SyncConflictRecord>> listSyncConflicts() async {
-    final override = _listSyncConflictsOverride;
-    if (override != null) {
-      return override();
-    }
-    return syncService.conflicts();
-  }
-
-  Future<List<SyncBlobConflictRecord>> listSyncBlobConflicts() async {
-    final override = _listSyncBlobConflictsOverride;
-    if (override != null) {
-      return override();
-    }
-    return syncService.blobConflicts();
-  }
-
-  Future<void> clearSyncConflict(String itemId) {
-    return syncService.clearConflict(itemId);
-  }
-
-  Future<void> clearSyncBlobConflict(String blobId) {
-    return syncService.clearBlobConflict(blobId);
-  }
-
-  Future<List<EmergencyContact>> listEmergencyContacts() async {
-    final override = _listEmergencyContactsOverride;
-    if (override != null) {
-      return override();
-    }
-    return syncService.listEmergencyContacts();
-  }
-
-  Future<EmergencyContact> createEmergencyContact({
-    required EmergencyContactCreateRequest request,
-  }) async {
-    final override = _createEmergencyContactOverride;
-    if (override != null) {
-      return override(request: request);
-    }
-    return syncService.createEmergencyContact(request: request);
-  }
-
-  Future<EmergencyContact> revokeEmergencyContact(String contactId) async {
-    final override = _revokeEmergencyContactOverride;
-    if (override != null) {
-      return override(contactId);
-    }
-    return syncService.revokeEmergencyContact(contactId);
-  }
-
-  Future<List<EmergencyGrant>> listEmergencyGrants() async {
-    final override = _listEmergencyGrantsOverride;
-    if (override != null) {
-      return override();
-    }
-    return syncService.listEmergencyGrants();
-  }
-
-  Future<EmergencyGrant> createEmergencyGrant({
-    required EmergencyGrantCreateRequest request,
-  }) async {
-    final override = _createEmergencyGrantOverride;
-    if (override != null) {
-      return override(request: request);
-    }
-    return syncService.createEmergencyGrant(request: request);
-  }
-
-  Future<EmergencyGrant> acceptEmergencyGrant({
-    required String grantId,
-    required String recipientKeyFingerprint,
-  }) async {
-    final override = _acceptEmergencyGrantOverride;
-    if (override != null) {
-      return override(
-        grantId: grantId,
-        recipientKeyFingerprint: recipientKeyFingerprint,
-      );
-    }
-    return syncService.acceptEmergencyGrant(
-      grantId: grantId,
-      recipientKeyFingerprint: recipientKeyFingerprint,
-    );
-  }
-
-  Future<EmergencyGrant> requestEmergencyGrantAccess({
-    required String grantId,
-    String? requestMessageCiphertext,
-    String? requestMessageAad,
-  }) async {
-    final override = _requestEmergencyGrantAccessOverride;
-    if (override != null) {
-      return override(
-        grantId: grantId,
-        requestMessageCiphertext: requestMessageCiphertext,
-        requestMessageAad: requestMessageAad,
-      );
-    }
-    return syncService.requestEmergencyGrantAccess(
-      grantId: grantId,
-      requestMessageCiphertext: requestMessageCiphertext,
-      requestMessageAad: requestMessageAad,
-    );
-  }
-
-  Future<EmergencyGrant> cancelEmergencyGrant(String grantId) async {
-    final override = _cancelEmergencyGrantOverride;
-    if (override != null) {
-      return override(grantId);
-    }
-    return syncService.cancelEmergencyGrant(grantId);
-  }
-
-  Future<EmergencyGrant> revokeEmergencyGrant(String grantId) async {
-    final override = _revokeEmergencyGrantOverride;
-    if (override != null) {
-      return override(grantId);
-    }
-    return syncService.revokeEmergencyGrant(grantId);
-  }
-
-  Future<EmergencyAccessPackage> downloadEmergencyAccessPackage(
-    String grantId,
-  ) async {
-    final override = _downloadEmergencyAccessPackageOverride;
-    if (override != null) {
-      return override(grantId);
-    }
-    return syncService.downloadEmergencyAccessPackage(grantId);
-  }
-
-  Future<CloudSyncResult> syncEncryptedVaultNow({
-    required String masterPassword,
-  }) async {
-    final override = _cloudSyncNowOverride;
-    if (override != null) {
-      return override(masterPassword);
-    }
-    var snapshot = await _lockShellOnIntegrity(
-      vaultService.createVerifiedEncryptedSyncSnapshot,
-    );
-    var importedCount = 0;
-
-    if (snapshot.items.isEmpty && snapshot.blobs.isEmpty) {
-      try {
-        importedCount = await downloadCloudEncryptedVault(
-          masterPassword: masterPassword,
-          mode: BackupImportMode.merge,
-        );
-      } on SyncApiException catch (error) {
-        if (error.statusCode != 404 || error.code != 'VAULT_NOT_INITIALIZED') {
-          rethrow;
-        }
-      }
-      snapshot = await _lockShellOnIntegrity(
-        vaultService.createVerifiedEncryptedSyncSnapshot,
-      );
-    } else {
-      try {
-        importedCount += await _downloadCloudAdditionsBeforePush(
-          masterPassword: masterPassword,
-          beforeSnapshot: snapshot,
-        );
-      } on SyncApiException catch (error) {
-        if (error.statusCode != 404 || error.code != 'VAULT_NOT_INITIALIZED') {
-          rethrow;
-        }
-      }
-      snapshot = await _lockShellOnIntegrity(
-        vaultService.createVerifiedEncryptedSyncSnapshot,
-      );
-    }
-
-    final metaPayload = SyncVaultMetaPayload.fromLocal(
-      snapshot.meta,
-      manifest: snapshot.manifest,
-      revision: snapshot.manifest.counter,
-    );
-    await syncService.ensureVaultMetaInitialized(metaPayload);
-    SyncPushResponse itemPush;
-    SyncBlobPushResponse? blobPush;
-    if (snapshot.items.isNotEmpty && snapshot.blobs.isNotEmpty) {
-      final vaultPush = await syncService.pushEncryptedVault(
-        items: snapshot.items,
-        blobs: snapshot.blobs,
-      );
-      itemPush = vaultPush.items;
-      blobPush = vaultPush.blobs;
-    } else {
-      itemPush = snapshot.items.isEmpty
-          ? const SyncPushResponse(applied: [], conflicts: [])
-          : await syncService.pushEncryptedItems(items: snapshot.items);
-    }
-    if (snapshot.items.isEmpty && snapshot.blobs.isNotEmpty) {
-      blobPush = await syncService.pushEncryptedBlobs(blobs: snapshot.blobs);
-    }
-    if (itemPush.conflicts.isNotEmpty ||
-        (blobPush?.conflicts.isNotEmpty ?? false)) {
-      return CloudSyncResult(
-        importedCount: importedCount,
-        itemConflictCount: itemPush.conflicts.length,
-        blobConflictCount: blobPush?.conflicts.length ?? 0,
-      );
-    }
-    await syncService.uploadVaultMeta(metaPayload);
-    importedCount += await downloadCloudEncryptedVault(
-      masterPassword: masterPassword,
-      mode: BackupImportMode.merge,
-    );
-    return CloudSyncResult(importedCount: importedCount);
-  }
-
-  Future<int> _downloadCloudAdditionsBeforePush({
-    required String masterPassword,
-    required VerifiedEncryptedVaultSyncSnapshot beforeSnapshot,
-  }) async {
-    final beforeItemIds = beforeSnapshot.items.map((item) => item.id).toSet();
-    final beforeBlobIds = beforeSnapshot.blobs
-        .map((blob) => blob.blobId)
-        .toSet();
-    final download = await syncService.prepareEncryptedVaultDownload();
-    final importedCount = await importEncryptedBackupJson(
-      backupJson: download.backupJson,
-      masterPassword: masterPassword,
-      mode: BackupImportMode.skip,
-    );
-    final afterSnapshot = await _lockShellOnIntegrity(
-      vaultService.createVerifiedEncryptedSyncSnapshot,
-    );
-    final remoteItemIds = download.items.map((item) => item.id).toSet();
-    final remoteBlobIds = download.blobs.map((blob) => blob.id).toSet();
-    final importedItemIds = afterSnapshot.items
-        .map((item) => item.id)
-        .where(
-          (id) => !beforeItemIds.contains(id) && remoteItemIds.contains(id),
-        )
-        .toSet();
-    final importedBlobIds = afterSnapshot.blobs
-        .map((blob) => blob.blobId)
-        .where(
-          (id) => !beforeBlobIds.contains(id) && remoteBlobIds.contains(id),
-        )
-        .toSet();
-    await syncService.recordImportedEncryptedRows(
-      download: download,
-      itemIds: importedItemIds,
-      blobIds: importedBlobIds,
-    );
-    return importedCount;
-  }
-
-  Future<int> downloadCloudEncryptedVault({
-    required String masterPassword,
-    BackupImportMode mode = BackupImportMode.skip,
-  }) async {
-    final override = _cloudDownloadOverride;
-    if (override != null) {
-      return override(masterPassword);
-    }
-    final download = await syncService.prepareEncryptedVaultDownload();
-    final importedCount = await importEncryptedBackupJson(
-      backupJson: download.backupJson,
-      masterPassword: masterPassword,
-      mode: mode,
-    );
-    await _applyRemoteDeletedSyncItems(download.items);
-    await _applyRemoteDeletedSyncBlobs(download.blobs);
-    await syncService.commitEncryptedVaultDownload(download);
-    for (final item in download.items) {
-      await clearSyncConflict(item.id);
-    }
-    for (final blob in download.blobs) {
-      await syncService.clearBlobConflict(blob.id);
-    }
-    return importedCount;
-  }
-
-  Future<void> _applyRemoteDeletedSyncItems(List<SyncItem> items) async {
-    final deletedIds = {
-      for (final item in items)
-        if (item.payload.deleted) item.id,
-    };
-    if (deletedIds.isEmpty) {
-      return;
-    }
-    if (!vaultService.isUnlocked) {
-      throw StateError('Remote deleted sync items require an unlocked vault');
-    }
-    await _lockShellOnIntegrity(() async {
-      for (final id in deletedIds) {
-        try {
-          await vaultService.deleteItem(id);
-        } on VaultItemNotFoundException {
-          // Missing or already-deleted local rows already satisfy the tombstone.
-        }
-      }
-    });
-  }
-
-  Future<void> _applyRemoteDeletedSyncBlobs(List<SyncBlob> blobs) async {
-    final deletedIds = {
-      for (final blob in blobs)
-        if (blob.payload.deleted) blob.id,
-    };
-    if (deletedIds.isEmpty) {
-      return;
-    }
-    if (!vaultService.isUnlocked) {
-      throw StateError('Remote deleted sync blobs require an unlocked vault');
-    }
-    await _lockShellOnIntegrity(() async {
-      for (final id in deletedIds) {
-        try {
-          await vaultService.deleteBlob(id);
-        } on VaultItemNotFoundException {
-          // Missing or already-deleted local rows already satisfy the tombstone.
-        }
-      }
-    });
-  }
-
   Future<void> clearLocalVault() async {
     await _cancelActiveLanSendSession();
 
@@ -1833,14 +1113,6 @@ class AppServices {
     final service = _backupService;
     if (service == null) {
       throw StateError('BackupService is unavailable in this app context.');
-    }
-    return service;
-  }
-
-  SyncService get syncService {
-    final service = _syncService;
-    if (service == null) {
-      throw StateError('SyncService is unavailable in this app context.');
     }
     return service;
   }
@@ -2080,73 +1352,6 @@ class _FakeVaultItem {
           : deletedAt as int?,
     );
   }
-}
-
-String _fakeIsoTimestamp(int millisecondsSinceEpoch) {
-  return DateTime.fromMillisecondsSinceEpoch(
-    millisecondsSinceEpoch,
-    isUtc: true,
-  ).toIso8601String();
-}
-
-EmergencyContact _copyEmergencyContact(
-  EmergencyContact contact, {
-  String? status,
-  String? updatedAt,
-  String? revokedAt,
-}) {
-  return EmergencyContact(
-    id: contact.id,
-    ownerUserId: contact.ownerUserId,
-    recipientUserId: contact.recipientUserId,
-    recipientEmail: contact.recipientEmail,
-    recipientPublicKey: contact.recipientPublicKey,
-    recipientKeyFingerprint: contact.recipientKeyFingerprint,
-    recipientLabel: contact.recipientLabel,
-    status: status ?? contact.status,
-    createdAt: contact.createdAt,
-    updatedAt: updatedAt ?? contact.updatedAt,
-    revokedAt: revokedAt ?? contact.revokedAt,
-  );
-}
-
-EmergencyGrant _updateFakeEmergencyGrant(
-  Map<String, EmergencyGrant> grants,
-  String grantId, {
-  required String status,
-  String? recipientKeyFingerprint,
-  String? requestedAt,
-  String? cancelledAt,
-  String? revokedAt,
-  String? updatedAt,
-}) {
-  final existing = grants[grantId];
-  if (existing == null) {
-    throw StateError('Emergency grant not found: $grantId');
-  }
-  final updated = EmergencyGrant(
-    id: existing.id,
-    ownerUserId: existing.ownerUserId,
-    recipientUserId: existing.recipientUserId,
-    contactId: existing.contactId,
-    vaultId: existing.vaultId,
-    status: status,
-    waitingPeriodHours: existing.waitingPeriodHours,
-    packageAad: existing.packageAad,
-    packageFingerprint: existing.packageFingerprint,
-    recipientKeyFingerprint:
-        recipientKeyFingerprint ?? existing.recipientKeyFingerprint,
-    requestedAt: requestedAt ?? existing.requestedAt,
-    readyAt: existing.readyAt,
-    downloadedAt: existing.downloadedAt,
-    cancelledAt: cancelledAt ?? existing.cancelledAt,
-    revokedAt: revokedAt ?? existing.revokedAt,
-    expiresAt: existing.expiresAt,
-    createdAt: existing.createdAt,
-    updatedAt: updatedAt ?? existing.updatedAt,
-  );
-  grants[grantId] = updated;
-  return updated;
 }
 
 bool _matchesFakeQuery({required PasswordEntry entry, required String query}) {

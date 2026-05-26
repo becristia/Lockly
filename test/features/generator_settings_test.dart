@@ -8,7 +8,6 @@ import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
-import 'package:secure_box/core/sync/sync_models.dart';
 import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
@@ -120,147 +119,30 @@ void main() {
     expect(find.widgetWithText(FilledButton, '清除'), findsOneWidget);
   });
 
-  testWidgets(
-    'settings registers a cloud account with backend account credentials',
-    (tester) async {
-      String? registeredEmail;
-      String? registeredPassword;
-      final services = AppServices.fake(
-        hasVault: true,
-        unlocked: true,
-        cloudRegisterOverride: (email, password) async {
-          registeredEmail = email;
-          registeredPassword = password;
-        },
-      );
-
-      await tester.pumpWidget(SecureBoxApp(services: services));
-      await tester.pumpAndSettle();
-      services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
-      await tester.pumpAndSettle();
-
-      final registerTile = find.byKey(
-        const ValueKey('settings-cloud-register'),
-      );
-      await tester.scrollUntilVisible(registerTile, 120);
-      await tester.tap(registerTile);
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(const ValueKey('cloud-register-email-field')),
-        'new@example.test',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('cloud-register-password-field')),
-        'backend-account-password',
-      );
-      await tester.tap(find.widgetWithText(FilledButton, '注册'));
-      await tester.pumpAndSettle();
-
-      expect(registeredEmail, 'new@example.test');
-      expect(registeredPassword, 'backend-account-password');
-      expect(find.textContaining('backend-account-password'), findsNothing);
-      expect(find.textContaining('已注册并连接'), findsOneWidget);
-    },
-  );
-
-  testWidgets('settings reports cloud sync conflicts instead of success', (
+  testWidgets('settings exposes LAN exchange and no cloud sync actions', (
     tester,
   ) async {
-    final services = AppServices(
-      hasVault: true,
-      initialShellState: AppShellState.unlocked,
-      biometricEnabledOverride: () async => false,
-      autoLockTimeoutOverride: () async => const Duration(minutes: 2),
-      clipboardCleanupTimeoutOverride: () async => const Duration(seconds: 30),
-      cloudAccountEmailOverride: () async => 'sync@example.test',
-      cloudSyncNowOverride: (masterPassword) async {
-        return const CloudSyncResult(
-          importedCount: 2,
-          itemConflictCount: 1,
-          blobConflictCount: 1,
-        );
-      },
-      trackActivity: false,
-    );
+    final services = AppServices.fake(hasVault: true, unlocked: true);
 
     await tester.pumpWidget(SecureBoxApp(services: services));
     await tester.pumpAndSettle();
     services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
     await tester.pumpAndSettle();
 
-    final syncTile = find.byKey(const ValueKey('settings-cloud-sync-now'));
-    await tester.scrollUntilVisible(syncTile, 120);
-    await tester.tap(syncTile);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'local-master-password');
-    await tester.tap(find.widgetWithText(FilledButton, '同步'));
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('检测到同步冲突'), findsOneWidget);
-    expect(find.textContaining('2 个未解决冲突'), findsOneWidget);
-    expect(find.textContaining('local-master-password'), findsNothing);
-    expect(find.textContaining('已同步；已导入'), findsNothing);
-  });
-
-  testWidgets('cloud devices dialog can rename a device', (tester) async {
-    String? renamedDeviceId;
-    String? renamedDeviceName;
-    final services = AppServices.fake(
-      hasVault: true,
-      unlocked: true,
-      cloudAccountEmail: 'sync@example.test',
-      cloudDevices: const [
-        SyncDevice(
-          id: 'device-1',
-          deviceName: 'Old phone',
-          deviceType: 'mobile',
-          trusted: true,
-          platform: 'android',
-          clientVersion: '1.4.2',
-          createdAt: '2026-05-23T00:00:00Z',
-        ),
-      ],
-      renameCloudDeviceOverride: (deviceId, deviceName) async {
-        renamedDeviceId = deviceId;
-        renamedDeviceName = deviceName;
-        return SyncDevice(
-          id: deviceId,
-          deviceName: deviceName,
-          deviceType: 'mobile',
-          trusted: true,
-          platform: 'android',
-          clientVersion: '1.4.2',
-          createdAt: '2026-05-23T00:00:00Z',
-        );
-      },
+    expect(
+      find.byKey(const ValueKey('settings-section-lan-sync')),
+      findsOneWidget,
     );
-
-    await tester.pumpWidget(SecureBoxApp(services: services));
-    await tester.pumpAndSettle();
-    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
-    await tester.pumpAndSettle();
-
-    final devicesTile = find.byKey(const ValueKey('settings-cloud-devices'));
-    await tester.scrollUntilVisible(devicesTile, 120);
-    await tester.tap(devicesTile);
-    await tester.pumpAndSettle();
-
-    await tester.tap(
-      find.byKey(const ValueKey('cloud-device-rename-device-1')),
+    expect(find.byKey(const ValueKey('settings-lan-send')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-lan-receive')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-section-cloud-sync')),
+      findsNothing,
     );
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('cloud-device-rename-field')),
-      'Travel phone',
-    );
-    await tester.tap(find.widgetWithText(FilledButton, '重命名'));
-    await tester.pumpAndSettle();
-
-    expect(renamedDeviceId, 'device-1');
-    expect(renamedDeviceName, 'Travel phone');
-    expect(find.text('Travel phone'), findsOneWidget);
-    expect(find.text('Old phone'), findsNothing);
+    expect(find.byKey(_settingsActionKey('cloud-register')), findsNothing);
+    expect(find.byKey(_settingsActionKey('cloud-sync-now')), findsNothing);
+    expect(find.byKey(_settingsActionKey('cloud-download')), findsNothing);
+    expect(find.byKey(_settingsActionKey('cloud-devices')), findsNothing);
   });
 
   testWidgets('settings opens migration wizard from backup import', (
@@ -798,6 +680,10 @@ void main() {
     expect(harness.services.shellState.value, AppShellState.locked);
     expect(harness.vaultService.isUnlocked, isFalse);
   });
+}
+
+ValueKey<String> _settingsActionKey(String suffix) {
+  return ValueKey('settings-$suffix');
 }
 
 Future<_BiometricHarness> _buildBiometricHarness() async {

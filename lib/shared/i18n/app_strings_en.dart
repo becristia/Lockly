@@ -123,10 +123,8 @@ class AppStringsEn extends AppStrings {
     'cloudNotConnected': 'Not connected',
     'cloudConnected': 'Connected',
     'cloudRegisteredConnected': 'Registered and connected',
-    'cloudSyncConflictsDetected': 'Sync conflicts detected; imported',
     'cloudEncryptedUpdates': 'encrypted updates',
     'cloudUnresolvedConflicts': 'unresolved conflicts',
-    'cloudSyncedImported': 'Synced; imported',
     'cloudDownloadedImported': 'Downloaded and imported',
     'cloudEncryptedRecords': 'encrypted records',
     'cloudDeviceCountSuffix': 'cloud device(s)',
@@ -141,8 +139,6 @@ class AppStringsEn extends AppStrings {
     'cloudNetworkFailed':
         'Cannot reach the cloud sync service. Check the backend URL and network.',
     'cloudActionFailed': 'Cloud sync action failed. Try again later.',
-    'cloudSyncVaultTitle': 'Sync encrypted vault',
-    'cloudSync': 'Sync',
     'cloudDownloadVaultTitle': 'Download cloud vault',
     'clearLocalVaultTitle': 'Clear local vault',
     'clearLocalVaultMessage':
@@ -159,10 +155,6 @@ class AppStringsEn extends AppStrings {
     'tagManagementTitle': 'Tag management',
     'tagManagementSubtitle': 'Manage vault tags.',
     'tagManagementSubtitleShort': 'Manage vault tags',
-    'cloudSyncTitle': 'Cloud sync',
-    'cloudSyncSubtitle':
-        'Sync encrypted vault data through your backend account.',
-    'cloudSyncStatus': 'Cloud sync status',
     'cloudLogin': 'Cloud login',
     'cloudLoginSubtitle': 'Use a separate backend account password.',
     'cloudRegister': 'Cloud register',
@@ -489,8 +481,6 @@ class AppStringsEn extends AppStrings {
     'reusedCountLabel': 'reused',
     'staleCountLabel': 'stale',
     'foundLocallySuffix': 'passwords found locally.',
-    'cloudSyncMissingDetail':
-        'Cloud sync is not connected or local sync state is missing.',
     'unresolvedConflict': 'unresolved conflict(s)',
     'syncNoPendingConflictsDetail':
         'Local encrypted sync state has no pending conflict records.',

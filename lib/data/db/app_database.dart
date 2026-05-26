@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
   static const int vaultMetaSingletonKey = 1;
   static const int vaultManifestSingletonKey = 1;
 
@@ -70,8 +70,6 @@ class AppDatabase {
         ''');
         await _createVaultManifestTable(db);
         await _createPasswordHistoryTable(db);
-        await _createSyncStateTables(db);
-        await _createSyncBlobStateTables(db);
         await _createVaultBlobsTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -81,14 +79,15 @@ class AppDatabase {
         if (oldVersion < 3) {
           await _createPasswordHistoryTable(db);
         }
-        if (oldVersion < 4) {
-          await _createSyncStateTables(db);
-        }
         if (oldVersion < 5) {
           await _createVaultBlobsTable(db);
         }
-        if (oldVersion < 6) {
-          await _createSyncBlobStateTables(db);
+        if (oldVersion < 7) {
+          await db.execute('DROP TABLE IF EXISTS sync_blob_conflicts');
+          await db.execute('DROP TABLE IF EXISTS sync_blob_state');
+          await db.execute('DROP TABLE IF EXISTS sync_conflicts');
+          await db.execute('DROP TABLE IF EXISTS sync_item_state');
+          await db.execute('DROP TABLE IF EXISTS sync_state');
         }
       },
     );
@@ -149,50 +148,6 @@ class AppDatabase {
     await db.execute('''
       CREATE INDEX vault_blobs_manifest_idx
       ON vault_blobs (blob_id ASC)
-    ''');
-  }
-
-  static Future<void> _createSyncStateTables(DatabaseExecutor db) async {
-    await db.execute('''
-      CREATE TABLE sync_state (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE sync_item_state (
-        item_id TEXT PRIMARY KEY,
-        server_revision INTEGER NOT NULL,
-        server_updated_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE sync_conflicts (
-        item_id TEXT PRIMARY KEY,
-        client_revision INTEGER NOT NULL,
-        server_revision INTEGER NOT NULL,
-        remote_payload TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    ''');
-  }
-
-  static Future<void> _createSyncBlobStateTables(DatabaseExecutor db) async {
-    await db.execute('''
-      CREATE TABLE sync_blob_state (
-        blob_id TEXT PRIMARY KEY,
-        server_revision INTEGER NOT NULL,
-        server_updated_at TEXT
-      )
-    ''');
-    await db.execute('''
-      CREATE TABLE sync_blob_conflicts (
-        blob_id TEXT PRIMARY KEY,
-        client_revision INTEGER NOT NULL,
-        server_revision INTEGER NOT NULL,
-        remote_payload TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
     ''');
   }
 }

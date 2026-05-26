@@ -5,7 +5,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
-import 'package:secure_box/app/sync_service_factory.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
@@ -23,7 +22,6 @@ import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/db/app_database.dart';
 import 'package:secure_box/data/db/password_history_dao.dart';
 import 'package:secure_box/data/db/settings_dao.dart';
-import 'package:secure_box/data/db/sync_state_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
@@ -78,18 +76,11 @@ Future<void> main() async {
     server: LanTransferServer(crypto: lanTransferCrypto),
     client: LanTransferClient(crypto: lanTransferCrypto),
   );
-  const syncBaseUrl = String.fromEnvironment('LOCKLY_SYNC_BASE_URL');
-  final syncStateDao = SyncStateDao(database);
-  final syncService = buildProductionSyncService(
-    syncBaseUrl: syncBaseUrl,
-    syncState: syncStateDao,
-  );
   final services = AppServices(
     hasVault: hasVault,
     autoLockTimeout: autoLockTimeout,
     persistLanguagePreference: true,
     vaultService: vaultService,
-    syncService: syncService,
     backupService: backupService,
     lanTransferService: lanTransferService,
     biometricService: BiometricService(

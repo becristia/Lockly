@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
-import 'package:secure_box/core/sync/sync_api_client.dart';
-import 'package:secure_box/core/sync/sync_models.dart';
-import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 import 'package:secure_box/features/migration/migration_wizard_page.dart';
@@ -39,12 +36,6 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _biometricEnabled = false;
   Duration _autoLockTimeout = const Duration(minutes: 2);
   Duration _clipboardCleanupTimeout = const Duration(seconds: 30);
-  bool _cloudSyncBusy = false;
-  String _cloudSyncStatusKey = 'cloudNotConnected';
-  String? _cloudSyncAccountEmail;
-  int? _cloudSyncImportedCount;
-  int? _cloudSyncConflictCount;
-  int? _cloudSyncDeviceCount;
 
   @override
   void initState() {
@@ -57,7 +48,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final autoLockTimeout = await widget.services.getAutoLockTimeout();
     final clipboardCleanupTimeout = await widget.services
         .getClipboardCleanupTimeout();
-    final cloudSyncAccountEmail = await widget.services.cloudSyncAccountEmail();
     if (!mounted) {
       return;
     }
@@ -65,10 +55,6 @@ class _SettingsPageState extends State<SettingsPage> {
       _biometricEnabled = biometricEnabled;
       _autoLockTimeout = autoLockTimeout;
       _clipboardCleanupTimeout = clipboardCleanupTimeout;
-      _cloudSyncAccountEmail = cloudSyncAccountEmail;
-      _setCloudSyncStatus(
-        cloudSyncAccountEmail == null ? 'cloudNotConnected' : 'cloudConnected',
-      );
     });
   }
 
@@ -183,227 +169,6 @@ class _SettingsPageState extends State<SettingsPage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _loginCloudSync() async {
-    widget.services.recordActivity();
-    final input = await _showCloudLoginDialog(context);
-    if (input == null) return;
-    await _runCloudSyncAction(() async {
-      await widget.services.loginCloudSync(
-        email: input.email,
-        password: input.password,
-      );
-      _cloudSyncAccountEmail = input.email;
-      _setCloudSyncStatus('cloudConnected');
-    });
-  }
-
-  Future<void> _registerCloudSync() async {
-    widget.services.recordActivity();
-    final input = await _showCloudRegisterDialog(context);
-    if (input == null) return;
-    await _runCloudSyncAction(() async {
-      await widget.services.registerCloudSync(
-        email: input.email,
-        password: input.password,
-      );
-      _cloudSyncAccountEmail = input.email;
-      _setCloudSyncStatus('cloudRegisteredConnected');
-    });
-  }
-
-  Future<void> _syncCloudNow() async {
-    widget.services.recordActivity();
-    if (!await _ensureCloudSignedIn()) {
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
-    final strings = AppStrings.of(context);
-    final masterPassword = await _showMasterPasswordPrompt(
-      title: strings.text('cloudSyncVaultTitle'),
-      submitLabel: strings.text('cloudSync'),
-    );
-    if (masterPassword == null) {
-      return;
-    }
-    await _runCloudSyncAction(() async {
-      final imported = await widget.services.syncEncryptedVaultNow(
-        masterPassword: masterPassword,
-      );
-      if (imported.hasConflicts) {
-        _setCloudSyncStatus(
-          'cloudSyncConflicts',
-          importedCount: imported.importedCount,
-          conflictCount: imported.conflictCount,
-        );
-      } else {
-        _setCloudSyncStatus(
-          'cloudSynced',
-          importedCount: imported.importedCount,
-        );
-      }
-    });
-  }
-
-  Future<void> _downloadCloudVault() async {
-    widget.services.recordActivity();
-    if (!await _ensureCloudSignedIn()) {
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
-    final strings = AppStrings.of(context);
-    final masterPassword = await _showMasterPasswordPrompt(
-      title: strings.text('cloudDownloadVaultTitle'),
-      submitLabel: strings.text('download'),
-    );
-    if (masterPassword == null) {
-      return;
-    }
-    await _runCloudSyncAction(() async {
-      final imported = await widget.services.downloadCloudEncryptedVault(
-        masterPassword: masterPassword,
-      );
-      _setCloudSyncStatus('cloudDownloaded', importedCount: imported);
-    });
-  }
-
-  Future<void> _showCloudDevices() async {
-    widget.services.recordActivity();
-    if (!await _ensureCloudSignedIn()) {
-      return;
-    }
-    if (_cloudSyncBusy) return;
-    setState(() => _cloudSyncBusy = true);
-    try {
-      final devices = await widget.services.listCloudSyncDevices();
-      _setCloudSyncStatus('cloudDeviceCount', deviceCount: devices.length);
-      if (!mounted) {
-        return;
-      }
-      setState(() => _cloudSyncBusy = false);
-      await showDialog<void>(
-        context: context,
-        builder: (context) => _CloudDevicesDialog(
-          devices: devices,
-          onRename: (deviceId, deviceName) async {
-            final device = await widget.services.renameCloudSyncDevice(
-              deviceId: deviceId,
-              deviceName: deviceName,
-            );
-            if (mounted) {
-              setState(() => _setCloudSyncStatus('cloudDeviceRenamed'));
-            }
-            return device;
-          },
-          onRevoke: (deviceId) async {
-            await widget.services.revokeCloudSyncDevice(deviceId);
-            if (mounted) {
-              setState(() => _setCloudSyncStatus('cloudDeviceRevoked'));
-            }
-          },
-        ),
-      );
-      return;
-    } catch (error) {
-      _setCloudSyncStatus('cloudUnavailable');
-      if (mounted) {
-        _showCloudMessage(_cloudSyncErrorMessage(error));
-      }
-    } finally {
-      if (mounted && _cloudSyncBusy) {
-        setState(() => _cloudSyncBusy = false);
-      }
-    }
-  }
-
-  Future<void> _logoutCloudSync() async {
-    widget.services.recordActivity();
-    await _runCloudSyncAction(() async {
-      await widget.services.logoutCloudSync();
-      _cloudSyncAccountEmail = null;
-      _setCloudSyncStatus('cloudNotConnected');
-    });
-  }
-
-  Future<void> _runCloudSyncAction(Future<void> Function() action) async {
-    if (_cloudSyncBusy) return;
-    setState(() => _cloudSyncBusy = true);
-    try {
-      await action();
-    } catch (error) {
-      _setCloudSyncStatus('cloudUnavailable');
-      if (mounted) {
-        _showCloudMessage(_cloudSyncErrorMessage(error));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _cloudSyncBusy = false);
-      }
-    }
-  }
-
-  Future<bool> _ensureCloudSignedIn() async {
-    try {
-      final email = await widget.services.cloudSyncAccountEmail();
-      if (email == null) {
-        _cloudSyncAccountEmail = null;
-        _setCloudSyncStatus('cloudNotConnected');
-        if (mounted) {
-          setState(() {});
-          _showCloudMessage(AppStrings.of(context).text('cloudLoginRequired'));
-        }
-        return false;
-      }
-      _cloudSyncAccountEmail = email;
-      return true;
-    } catch (_) {
-      _cloudSyncAccountEmail = null;
-      _setCloudSyncStatus('cloudUnavailable');
-      if (mounted) {
-        setState(() {});
-        _showCloudMessage(AppStrings.of(context).text('cloudNetworkFailed'));
-      }
-      return false;
-    }
-  }
-
-  void _showCloudMessage(String message) {
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  String _cloudSyncErrorMessage(Object error) {
-    final strings = AppStrings.of(context);
-    if (error is SyncApiException) {
-      return switch (error.code) {
-        'INVALID_CREDENTIALS' => strings.text('cloudInvalidCredentials'),
-        'USER_DISABLED' => strings.text('cloudUserDisabled'),
-        'VALIDATION_ERROR' => strings.text('cloudRegisterValidationError'),
-        'UNAUTHORIZED' ||
-        'TOKEN_INVALID' ||
-        'TOKEN_EXPIRED' => strings.text('cloudLoginRequired'),
-        _ =>
-          error.statusCode >= 500
-              ? strings.text('cloudNetworkFailed')
-              : strings.text('cloudActionFailed'),
-      };
-    }
-    if (error is StateError && error.message.contains('token')) {
-      return strings.text('cloudLoginRequired');
-    }
-    if (error is VaultUnlockException) {
-      return strings.text('masterPasswordConfirmationFailed');
-    }
-    return strings.text('cloudNetworkFailed');
   }
 
   Future<void> _clearLocalVault() async {
@@ -630,73 +395,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-cloud-sync'),
-              title: strings.text('cloudSyncTitle'),
-              subtitle: strings.text('cloudSyncSubtitle'),
-              icon: Icons.cloud_sync_outlined,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.cloud_done_outlined),
-                      title: Text(strings.text('cloudSyncStatus')),
-                      subtitle: Text(_cloudSyncStatusLabel(strings)),
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      key: const ValueKey('settings-cloud-login'),
-                      icon: Icons.login_rounded,
-                      title: strings.text('cloudLogin'),
-                      subtitle: strings.text('cloudLoginSubtitle'),
-                      onTap: _cloudSyncBusy ? null : _loginCloudSync,
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      key: const ValueKey('settings-cloud-register'),
-                      icon: Icons.person_add_alt_1_rounded,
-                      title: strings.text('cloudRegister'),
-                      subtitle: strings.text('cloudRegisterSubtitle'),
-                      onTap: _cloudSyncBusy ? null : _registerCloudSync,
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      key: const ValueKey('settings-cloud-sync-now'),
-                      icon: Icons.sync_rounded,
-                      title: strings.text('cloudSyncVaultTitle'),
-                      subtitle: strings.text('cloudSyncSubtitle'),
-                      onTap: _cloudSyncBusy ? null : _syncCloudNow,
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      key: const ValueKey('settings-cloud-download'),
-                      icon: Icons.cloud_download_outlined,
-                      title: strings.text('cloudDownloadVault'),
-                      subtitle: strings.text('cloudDownloadVaultTitle'),
-                      onTap: _cloudSyncBusy ? null : _downloadCloudVault,
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      key: const ValueKey('settings-cloud-devices'),
-                      icon: Icons.devices_outlined,
-                      title: strings.text('cloudDevices'),
-                      subtitle: strings.text('cloudDevicesSubtitle'),
-                      onTap: _cloudSyncBusy ? null : _showCloudDevices,
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      icon: Icons.logout_rounded,
-                      title: strings.text('cloudLogout'),
-                      subtitle: strings.text('cloudLogoutSubtitle'),
-                      onTap: _cloudSyncBusy ? null : _logoutCloudSync,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
             SecureSection(
               key: const ValueKey('settings-section-lan-sync'),
               title: strings.text('lanExchangeTitle'),
@@ -807,33 +505,8 @@ class _SettingsPageState extends State<SettingsPage> {
       builder: (context) => _MasterPasswordPromptDialog(
         title: title,
         submitLabel: submitLabel,
-        subtitle:
-            subtitle ??
-            AppStrings.of(context).text('cloudMasterPasswordPromptSubtitle'),
+        subtitle: subtitle,
         icon: icon,
-      ),
-    );
-  }
-
-  Future<_CloudLoginInput?> _showCloudLoginDialog(BuildContext context) {
-    return showDialog<_CloudLoginInput>(
-      context: context,
-      builder: (context) => _CloudLoginDialog(
-        title: AppStrings.of(context).text('cloudLogin'),
-        submitLabel: AppStrings.of(context).text('login'),
-      ),
-    );
-  }
-
-  Future<_CloudLoginInput?> _showCloudRegisterDialog(BuildContext context) {
-    return showDialog<_CloudLoginInput>(
-      context: context,
-      builder: (context) => _CloudLoginDialog(
-        title: AppStrings.of(context).text('cloudRegister'),
-        submitLabel: AppStrings.of(context).text('register'),
-        emailFieldKey: ValueKey('cloud-register-email-field'),
-        passwordFieldKey: ValueKey('cloud-register-password-field'),
-        validateRegistrationPassword: true,
       ),
     );
   }
@@ -860,44 +533,6 @@ class _SettingsPageState extends State<SettingsPage> {
       return strings.text('requiredMasterPassword');
     }
     return null;
-  }
-
-  void _setCloudSyncStatus(
-    String key, {
-    int? importedCount,
-    int? conflictCount,
-    int? deviceCount,
-  }) {
-    _cloudSyncStatusKey = key;
-    _cloudSyncImportedCount = importedCount;
-    _cloudSyncConflictCount = conflictCount;
-    _cloudSyncDeviceCount = deviceCount;
-  }
-
-  String _cloudSyncStatusLabel(AppStrings strings) {
-    String connectedLabel(String base) {
-      final email = _cloudSyncAccountEmail;
-      return email == null || email.isEmpty ? base : '$base · $email';
-    }
-
-    return switch (_cloudSyncStatusKey) {
-      'cloudConnected' => connectedLabel(strings.text('cloudConnected')),
-      'cloudRegisteredConnected' => connectedLabel(
-        strings.text('cloudRegisteredConnected'),
-      ),
-      'cloudSyncConflicts' =>
-        '${strings.text('cloudSyncConflictsDetected')} ${_cloudSyncImportedCount ?? 0} ${strings.text('cloudEncryptedUpdates')}, ${_cloudSyncConflictCount ?? 0} ${strings.text('cloudUnresolvedConflicts')}',
-      'cloudSynced' =>
-        '${strings.text('cloudSyncedImported')} ${_cloudSyncImportedCount ?? 0} ${strings.text('cloudEncryptedUpdates')}',
-      'cloudDownloaded' =>
-        '${strings.text('cloudDownloadedImported')} ${_cloudSyncImportedCount ?? 0} ${strings.text('cloudEncryptedRecords')}',
-      'cloudDeviceCount' =>
-        '${_cloudSyncDeviceCount ?? 0} ${strings.text('cloudDeviceCountSuffix')}',
-      'cloudDeviceRenamed' => strings.text('cloudDeviceRenamed'),
-      'cloudDeviceRevoked' => strings.text('cloudDeviceRevoked'),
-      'cloudUnavailable' => strings.text('cloudUnavailable'),
-      _ => strings.text('cloudNotConnected'),
-    };
   }
 
   static String? _validateNewPassword(String? value, AppStrings strings) {
@@ -1197,7 +832,7 @@ class _MasterPasswordPromptDialog extends StatefulWidget {
 
   final String title;
   final String submitLabel;
-  final String subtitle;
+  final String? subtitle;
   final IconData icon;
 
   @override
@@ -1238,12 +873,14 @@ class _MasterPasswordPromptDialogState
                 widget.title,
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              const SizedBox(height: 10),
-              Text(
-                widget.subtitle,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+              if (widget.subtitle != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  widget.subtitle!,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
               const SizedBox(height: 24),
               TextFormField(
                 controller: _controller,
@@ -1451,341 +1088,6 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
-class _CloudLoginDialog extends StatefulWidget {
-  const _CloudLoginDialog({
-    required this.title,
-    required this.submitLabel,
-    this.emailFieldKey = const ValueKey('cloud-login-email-field'),
-    this.passwordFieldKey = const ValueKey('cloud-login-password-field'),
-    this.validateRegistrationPassword = false,
-  });
-
-  final String title;
-  final String submitLabel;
-  final ValueKey<String> emailFieldKey;
-  final ValueKey<String> passwordFieldKey;
-  final bool validateRegistrationPassword;
-
-  @override
-  State<_CloudLoginDialog> createState() => _CloudLoginDialogState();
-}
-
-class _CloudLoginDialogState extends State<_CloudLoginDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _passwordObscured = true;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = AppStrings.of(context);
-    return AlertDialog(
-      title: Text(widget.title),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              key: widget.emailFieldKey,
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(labelText: strings.text('email')),
-              validator: (value) {
-                final email = value?.trim() ?? '';
-                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
-                  return strings.text('enterEmailAddress');
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: widget.passwordFieldKey,
-              controller: _passwordController,
-              obscureText: _passwordObscured,
-              decoration: InputDecoration(
-                labelText: strings.text('accountPassword'),
-                suffixIcon: IconButton(
-                  tooltip: _passwordObscured
-                      ? strings.text('showPassword')
-                      : strings.text('hidePassword'),
-                  onPressed: () =>
-                      setState(() => _passwordObscured = !_passwordObscured),
-                  icon: Icon(
-                    _passwordObscured
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                  ),
-                ),
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return strings.text('enterAccountPassword');
-                }
-                if (widget.validateRegistrationPassword &&
-                    value.length < MasterPasswordPolicy.minLength) {
-                  return strings.text('cloudRegisterValidationError');
-                }
-                return null;
-              },
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(strings.text('cancel')),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (!(_formKey.currentState?.validate() ?? false)) {
-              return;
-            }
-            Navigator.of(context).pop(
-              _CloudLoginInput(
-                email: _emailController.text.trim(),
-                password: _passwordController.text,
-              ),
-            );
-          },
-          child: Text(widget.submitLabel),
-        ),
-      ],
-    );
-  }
-}
-
-class _CloudDevicesDialog extends StatefulWidget {
-  const _CloudDevicesDialog({
-    required this.devices,
-    required this.onRename,
-    required this.onRevoke,
-  });
-
-  final List<SyncDevice> devices;
-  final Future<SyncDevice> Function(String deviceId, String deviceName)
-  onRename;
-  final Future<void> Function(String deviceId) onRevoke;
-
-  @override
-  State<_CloudDevicesDialog> createState() => _CloudDevicesDialogState();
-}
-
-class _CloudDevicesDialogState extends State<_CloudDevicesDialog> {
-  late List<SyncDevice> _devices;
-  String? _busyDeviceId;
-
-  @override
-  void initState() {
-    super.initState();
-    _devices = List<SyncDevice>.of(widget.devices);
-  }
-
-  Future<void> _rename(SyncDevice device) async {
-    if (_busyDeviceId != null) {
-      return;
-    }
-    final deviceName = await showDialog<String>(
-      context: context,
-      builder: (context) => _CloudDeviceRenameDialog(device: device),
-    );
-    if (deviceName == null || deviceName == device.deviceName || !mounted) {
-      return;
-    }
-    setState(() => _busyDeviceId = device.id);
-    try {
-      final renamed = await widget.onRename(device.id, deviceName);
-      if (mounted) {
-        setState(() {
-          final index = _devices.indexWhere((item) => item.id == device.id);
-          if (index != -1) {
-            _devices[index] = renamed;
-          }
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _busyDeviceId = null);
-      }
-    }
-  }
-
-  Future<void> _revoke(String deviceId) async {
-    if (_busyDeviceId != null) {
-      return;
-    }
-    setState(() => _busyDeviceId = deviceId);
-    try {
-      await widget.onRevoke(deviceId);
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _busyDeviceId = null);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = AppStrings.of(context);
-    return AlertDialog(
-      title: Text(strings.text('cloudDevices')),
-      content: SizedBox(
-        width: 420,
-        child: _devices.isEmpty
-            ? Text(strings.text('noCloudDevices'))
-            : ListView.separated(
-                shrinkWrap: true,
-                itemCount: _devices.length,
-                separatorBuilder: (_, _) => const Divider(),
-                itemBuilder: (context, index) {
-                  final device = _devices[index];
-                  final busy = _busyDeviceId == device.id;
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.devices_outlined),
-                    title: Text(device.deviceName),
-                    subtitle: Text(_formatDeviceMetadata(device, strings)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          key: ValueKey('cloud-device-rename-${device.id}'),
-                          tooltip: strings.text('rename'),
-                          onPressed: busy ? null : () => _rename(device),
-                          icon: const Icon(Icons.edit_outlined),
-                        ),
-                        TextButton(
-                          onPressed: busy ? null : () => _revoke(device.id),
-                          child: Text(
-                            busy
-                                ? strings.text('working')
-                                : strings.text('revokeGrant'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _busyDeviceId == null
-              ? () => Navigator.of(context).pop()
-              : null,
-          child: Text(strings.text('close')),
-        ),
-      ],
-    );
-  }
-}
-
-class _CloudDeviceRenameDialog extends StatefulWidget {
-  const _CloudDeviceRenameDialog({required this.device});
-
-  final SyncDevice device;
-
-  @override
-  State<_CloudDeviceRenameDialog> createState() =>
-      _CloudDeviceRenameDialogState();
-}
-
-class _CloudDeviceRenameDialogState extends State<_CloudDeviceRenameDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.device.deviceName);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = AppStrings.of(context);
-    return AlertDialog(
-      title: Text(strings.text('renameDevice')),
-      content: Form(
-        key: _formKey,
-        child: TextFormField(
-          key: const ValueKey('cloud-device-rename-field'),
-          controller: _controller,
-          decoration: InputDecoration(labelText: strings.text('deviceName')),
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return strings.text('enterDeviceName');
-            }
-            return null;
-          },
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(strings.text('cancel')),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (!(_formKey.currentState?.validate() ?? false)) {
-              return;
-            }
-            Navigator.of(context).pop(_controller.text.trim());
-          },
-          child: Text(strings.text('rename')),
-        ),
-      ],
-    );
-  }
-}
-
-String _formatDeviceMetadata(SyncDevice device, AppStrings strings) {
-  final platform =
-      _firstNonBlank(device.platform, device.deviceType) ??
-      strings.text('unknownPlatform');
-  final clientVersion = _nonBlank(device.clientVersion);
-  final lastSyncAt = _nonBlank(device.lastSyncAt);
-  final lastIpAddress = _nonBlank(device.lastIpAddress);
-  final lastUserAgent = _nonBlank(device.lastUserAgent);
-  final values = <String>[
-    platform,
-    if (clientVersion != null) 'v$clientVersion',
-    if (lastSyncAt != null) '${strings.text('lastSync')} $lastSyncAt',
-    if (lastIpAddress != null) '${strings.text('ipAddress')} $lastIpAddress',
-    ?lastUserAgent,
-  ];
-  return values.join(' | ');
-}
-
-String? _firstNonBlank(String? first, String? second) {
-  return _nonBlank(first) ?? _nonBlank(second);
-}
-
-String? _nonBlank(String? value) {
-  if (value == null) {
-    return null;
-  }
-  final trimmed = value.trim();
-  return trimmed.isEmpty ? null : trimmed;
-}
-
 class _DurationTile extends StatelessWidget {
   const _DurationTile({
     required this.icon,
@@ -1827,11 +1129,4 @@ class _DurationTile extends StatelessWidget {
       ),
     );
   }
-}
-
-class _CloudLoginInput {
-  const _CloudLoginInput({required this.email, required this.password});
-
-  final String email;
-  final String password;
 }

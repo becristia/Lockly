@@ -151,8 +151,7 @@ void main() {
       r'''(?:_showSnack|showSnackBar)\(\s*(?:const\s+)?['"]|'''
       r'''(?:labelText|hintText|helperText|errorText|tooltip|semanticLabel|'''
       r'''title|subtitle|message|label|actionLabel|confirmLabel|'''
-      r'''submitLabel|failureMessage)\s*:\s*(?:const\s+)?['"]|'''
-      r'''_cloudSyncStatus\s*=\s*['"]''',
+      r'''submitLabel|failureMessage)\s*:\s*(?:const\s+)?['"]''',
     );
     final offenders = <String>[];
 

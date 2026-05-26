@@ -110,7 +110,7 @@ void main() {
     final db = await AppDatabase.openInMemory();
     addTearDown(db.close);
 
-    expect(AppDatabase.schemaVersion, 6);
+    expect(AppDatabase.schemaVersion, 7);
 
     final columns = await db.rawQuery('PRAGMA table_info(vault_blobs)');
     final columnNames = columns.map((column) => column['name']).toSet();
@@ -135,6 +135,64 @@ void main() {
     expect(columnNames, isNot(contains('plaintext')));
     expect(columnNames, isNot(contains('file_bytes')));
     expect(columnNames, isNot(contains('raw_key')));
+  });
+
+  test('current schema omits cloud sync state tables', () async {
+    final db = await AppDatabase.openInMemory();
+    addTearDown(db.close);
+
+    expect(AppDatabase.schemaVersion, 7);
+    expect(await _tableExists(db, 'sync_state'), isFalse);
+    expect(await _tableExists(db, 'sync_item_state'), isFalse);
+    expect(await _tableExists(db, 'sync_conflicts'), isFalse);
+    expect(await _tableExists(db, 'sync_blob_state'), isFalse);
+    expect(await _tableExists(db, 'sync_blob_conflicts'), isFalse);
+  });
+
+  test('upgrade to schema 7 drops only cloud sync state tables', () async {
+    final path = await databaseFactoryFfi.getDatabasesPath();
+    final dbPath = '$path/cloud_sync_drop_migration_test.db';
+    await databaseFactoryFfi.deleteDatabase(dbPath);
+    addTearDown(() => databaseFactoryFfi.deleteDatabase(dbPath));
+
+    final oldDb = await databaseFactoryFfi.openDatabase(
+      dbPath,
+      options: OpenDatabaseOptions(
+        version: 6,
+        onCreate: (db, version) async {
+          await db.execute('CREATE TABLE settings (key TEXT PRIMARY KEY)');
+          await db.execute('CREATE TABLE vault_items (id TEXT PRIMARY KEY)');
+          await db.execute('CREATE TABLE vault_manifest (id TEXT PRIMARY KEY)');
+          await db.execute('CREATE TABLE sync_state (id TEXT PRIMARY KEY)');
+          await db.execute(
+            'CREATE TABLE sync_item_state (item_id TEXT PRIMARY KEY)',
+          );
+          await db.execute(
+            'CREATE TABLE sync_conflicts (item_id TEXT PRIMARY KEY)',
+          );
+          await db.execute(
+            'CREATE TABLE sync_blob_state (blob_id TEXT PRIMARY KEY)',
+          );
+          await db.execute(
+            'CREATE TABLE sync_blob_conflicts (blob_id TEXT PRIMARY KEY)',
+          );
+        },
+      ),
+    );
+    await oldDb.close();
+
+    final upgradedDb = await AppDatabase.open(dbPath);
+    addTearDown(upgradedDb.close);
+
+    expect(await upgradedDb.getVersion(), AppDatabase.schemaVersion);
+    expect(await _tableExists(upgradedDb, 'settings'), isTrue);
+    expect(await _tableExists(upgradedDb, 'vault_items'), isTrue);
+    expect(await _tableExists(upgradedDb, 'vault_manifest'), isTrue);
+    expect(await _tableExists(upgradedDb, 'sync_state'), isFalse);
+    expect(await _tableExists(upgradedDb, 'sync_item_state'), isFalse);
+    expect(await _tableExists(upgradedDb, 'sync_conflicts'), isFalse);
+    expect(await _tableExists(upgradedDb, 'sync_blob_state'), isFalse);
+    expect(await _tableExists(upgradedDb, 'sync_blob_conflicts'), isFalse);
   });
 
   test('vault manifest dao stores exactly one singleton row', () async {
@@ -577,6 +635,14 @@ void main() {
       );
     },
   );
+}
+
+Future<bool> _tableExists(Database db, String tableName) async {
+  final rows = await db.rawQuery(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+    [tableName],
+  );
+  return rows.isNotEmpty;
 }
 
 VaultMeta _buildVaultMeta({
