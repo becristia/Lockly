@@ -24,6 +24,7 @@ import 'package:secure_box/data/db/settings_dao.dart';
 import 'package:secure_box/data/db/vault_items_dao.dart';
 import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
+import 'package:secure_box/data/models/encrypted_vault_blob.dart';
 import 'package:secure_box/data/models/encrypted_vault_item.dart';
 import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
@@ -946,6 +947,43 @@ void main() {
   );
 
   test(
+    'conflict-aware import requires an existing target vault before writing data',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final itemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [itemId],
+        includeBlobs: true,
+        includeHistory: true,
+      );
+
+      final target = await _buildHarness();
+
+      await expectLater(
+        target.backupService.importBackupSkippingIdentityConflicts(
+          json: backup.toJson(),
+          masterPassword: 'source-master',
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(await target.repository.metaDao.get(), isNull);
+      expect(await target.repository.itemsDao.rawRowsForTest(), isEmpty);
+    },
+  );
+
+  test(
     'conflict-aware import skips local identity conflicts and re-encrypts accepted items',
     () async {
       final source = await _buildHarness();
@@ -1101,12 +1139,40 @@ void main() {
           title: 'Accepted row',
           website: 'https://accepted.example',
           username: 'accepted@example.com',
+          password: 'first-old-password',
+          notes: 'first wins',
+          tags: const ['accepted'],
+        ),
+      );
+      await source.vaultService.updateItem(
+        firstId,
+        PasswordEntry(
+          title: 'Accepted row',
+          website: 'https://accepted.example',
+          username: 'accepted@example.com',
           password: 'first-password',
           notes: 'first wins',
           tags: const ['accepted'],
         ),
       );
+      await source.vaultService.addBlob(
+        itemId: firstId,
+        displayName: 'accepted-secret.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('accepted blob bytes')),
+      );
       final secondId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Duplicate row',
+          website: 'https://duplicate.example',
+          username: 'duplicate@example.com',
+          password: 'second-old-password',
+          notes: 'second loses',
+          tags: const ['duplicate'],
+        ),
+      );
+      await source.vaultService.updateItem(
+        secondId,
         PasswordEntry(
           title: 'Duplicate row',
           website: 'https://duplicate.example',
@@ -1116,10 +1182,16 @@ void main() {
           tags: const ['duplicate'],
         ),
       );
+      await source.vaultService.addBlob(
+        itemId: secondId,
+        displayName: 'duplicate-secret.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('duplicate blob bytes')),
+      );
       final backup = await source.backupService.exportSelectedItemsBackup(
         itemIds: [firstId, secondId],
-        includeBlobs: false,
-        includeHistory: false,
+        includeBlobs: true,
+        includeHistory: true,
       );
       final duplicateItems = [
         backup.items[0],
@@ -1133,6 +1205,35 @@ void main() {
           deletedAt: backup.items[1].deletedAt,
         ),
       ];
+      final duplicateBlobs = backup.blobs
+          .map(
+            (blob) => BackupBlob(
+              blobId: blob.blobId,
+              itemId: firstId,
+              metadataNonce: blob.metadataNonce,
+              metadataCiphertext: blob.metadataCiphertext,
+              metadataMac: blob.metadataMac,
+              nonce: blob.nonce,
+              ciphertext: blob.ciphertext,
+              mac: blob.mac,
+              createdAt: blob.createdAt,
+              updatedAt: blob.updatedAt,
+              deletedAt: blob.deletedAt,
+            ),
+          )
+          .toList(growable: false);
+      final duplicateHistory = backup.historyItems
+          .map(
+            (historyItem) => BackupHistoryItem(
+              id: historyItem.id,
+              entryId: firstId,
+              encryptedPassword: historyItem.encryptedPassword,
+              nonce: historyItem.nonce,
+              mac: historyItem.mac,
+              recordedAt: historyItem.recordedAt,
+            ),
+          )
+          .toList(growable: false);
       final sourceMeta = (await source.repository.metaDao.get())!;
       final duplicateManifest = await source.vaultService
           .createManifestForImportedVault(
@@ -1151,6 +1252,26 @@ void main() {
                   ),
                 )
                 .toList(growable: false),
+            blobs: duplicateBlobs
+                .map(
+                  (blob) => EncryptedVaultBlob(
+                    blobId: blob.blobId,
+                    itemId: blob.itemId,
+                    metadataNonce: blob.metadataNonce,
+                    metadataCiphertext: blob.metadataCiphertext,
+                    metadataMac: blob.metadataMac,
+                    nonce: blob.nonce,
+                    ciphertext: blob.ciphertext,
+                    mac: blob.mac,
+                    createdAt: blob.createdAt,
+                    updatedAt: blob.updatedAt,
+                    deletedAt: blob.deletedAt,
+                  ),
+                )
+                .toList(growable: false),
+            historyRecords: duplicateHistory
+                .map((historyItem) => historyItem.toJson())
+                .toList(growable: false),
             previous: null,
             updatedAt: backup.createdAt!,
           );
@@ -1160,8 +1281,8 @@ void main() {
         createdAt: backup.createdAt,
         scope: backup.scope,
         itemCount: duplicateItems.length,
-        historyCount: 0,
-        blobCount: 0,
+        historyCount: duplicateHistory.length,
+        blobCount: duplicateBlobs.length,
         vaultId: backup.vaultId,
         vaultCreatedAt: backup.vaultCreatedAt,
         vaultUpdatedAt: backup.vaultUpdatedAt,
@@ -1177,6 +1298,8 @@ void main() {
         encryptedDekByMasterNonce: backup.encryptedDekByMasterNonce,
         encryptedDekByMasterMac: backup.encryptedDekByMasterMac,
         items: duplicateItems,
+        blobs: duplicateBlobs,
+        historyItems: duplicateHistory,
       );
 
       final target = await _buildHarness();
@@ -1199,6 +1322,8 @@ void main() {
       final imported = await target.vaultService.getItem(firstId);
       expect(imported.title, 'Accepted row');
       expect(imported.password, 'first-password');
+      expect(await target.vaultService.listBlobs(firstId), isEmpty);
+      expect(await target.vaultService.listPasswordHistory(firstId), isEmpty);
     },
   );
 

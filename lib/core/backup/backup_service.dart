@@ -1197,6 +1197,18 @@ class BackupService {
       );
     }
 
+    final existingMetaBeforeImport = await repository.metaDao.get();
+    if (existingMetaBeforeImport == null) {
+      throw StateError(
+        'Conflict-aware imports require an existing target vault so imported rows can remain encrypted under the receiver vault key.',
+      );
+    }
+    if (!vaultService.isUnlocked) {
+      throw StateError(
+        'Conflict-aware imports require an unlocked target vault so local identities can be checked safely.',
+      );
+    }
+
     final backupMeta = _backupMetaForVerification(backup);
     await vaultService.verifyMasterPassword(
       masterPassword: masterPassword,
@@ -1211,26 +1223,16 @@ class BackupService {
       manifest: backup.manifest!.toVaultManifest(),
     );
 
-    final existingMetaBeforeImport = await repository.metaDao.get();
-    final hasExistingVault = existingMetaBeforeImport != null;
-    if (hasExistingVault && !vaultService.isUnlocked) {
-      throw StateError(
-        'Conflict-aware imports into an existing vault require an unlocked target vault so local identities can be checked safely.',
-      );
-    }
-
     final localKeys = <String>{};
-    if (hasExistingVault) {
-      final localItems = await vaultService.listItems();
-      for (final item in localItems) {
-        localKeys.add(
-          backupIdentityConflictKey(
-            title: item.title,
-            website: item.website,
-            username: item.username,
-          ),
-        );
-      }
+    final localItems = await vaultService.listItems();
+    for (final item in localItems) {
+      localKeys.add(
+        backupIdentityConflictKey(
+          title: item.title,
+          website: item.website,
+          username: item.username,
+        ),
+      );
     }
 
     final incomingIdentities = await vaultService
@@ -1239,6 +1241,14 @@ class BackupService {
           sourceMeta: backupMeta,
           sourcePassword: masterPassword,
         );
+
+    final ambiguousIncomingItemIds = <String>{};
+    final seenIncomingItemIds = <String>{};
+    for (final item in backup.items) {
+      if (!seenIncomingItemIds.add(item.id)) {
+        ambiguousIncomingItemIds.add(item.id);
+      }
+    }
 
     final acceptedItemIndexes = <int>{};
     final duplicateKeys = <String>{};
@@ -1282,10 +1292,16 @@ class BackupService {
           final existingMeta = await txn.metaDao.get();
           final existingManifest = await txn.manifestDao.get();
           final now = DateTime.now().millisecondsSinceEpoch;
-          final preserveExistingMeta = existingMeta != null;
-          final needsReencryption =
-              preserveExistingMeta &&
-              !_hasSameEncryptionEnvelope(existingMeta, backupMeta);
+          if (existingMeta == null) {
+            throw StateError(
+              'Conflict-aware imports require an existing target vault.',
+            );
+          }
+          final preserveExistingMeta = true;
+          final needsReencryption = !_hasSameEncryptionEnvelope(
+            existingMeta,
+            backupMeta,
+          );
           if (needsReencryption && !vaultService.isUnlocked) {
             throw StateError(
               'Conflict-aware imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
@@ -1350,8 +1366,11 @@ class BackupService {
             );
           }
           final pendingItemIds = pendingItems.map((item) => item.id).toSet();
+          final pendingChildItemIds = pendingItemIds.difference(
+            ambiguousIncomingItemIds,
+          );
           final pendingBlobs = backup.blobs
-              .where((blob) => pendingItemIds.contains(blob.itemId))
+              .where((blob) => pendingChildItemIds.contains(blob.itemId))
               .map(
                 (blob) => _buildImportedBlob(
                   blob,
@@ -1390,7 +1409,7 @@ class BackupService {
           );
           final historyToInsert = await _prepareImportedHistoryRows(
             historyItems: backup.historyItems,
-            entryIds: pendingItemIds.difference(existingIds),
+            entryIds: pendingChildItemIds.difference(existingIds),
             backupMeta: backupMeta,
             masterPassword: masterPassword,
             needsReencryption: needsPendingReencryption,
