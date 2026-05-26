@@ -140,7 +140,7 @@ class LanTransferQrPayload {
       scheme: 'http',
       host: host,
       port: port,
-      pathSegments: ['lan-transfer', sessionId],
+      pathSegments: ['v1', 'transfer', sessionId],
     );
   }
 }

@@ -189,7 +189,7 @@ void main() {
       expect(uri.scheme, 'http');
       expect(uri.host, payload.host);
       expect(uri.port, payload.port);
-      expect(uri.path, '/lan-transfer/${payload.sessionId}');
+      expect(uri.path, '/v1/transfer/${payload.sessionId}');
       expect(uri.toString(), isNot(contains(payload.token)));
       expect(uri.toString(), isNot(contains(payload.transferKey)));
       expect(uri.query, isEmpty);
