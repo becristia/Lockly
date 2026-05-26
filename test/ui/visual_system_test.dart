@@ -116,9 +116,19 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.byKey(const ValueKey('settings-section-lan-sync')),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('settings-section-autofill')),
       findsNothing,
     );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-lan-send')),
+      160,
+    );
+    expect(find.byKey(const ValueKey('settings-lan-send')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-lan-receive')), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('settings-cloud-download')),
       160,

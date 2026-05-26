@@ -46,6 +46,8 @@ dependencies:
   sqflite_common_ffi: ^2.4.0+3
   sqlite3_flutter_libs: ^0.6.0+eol
   shared_preferences: ^2.5.5
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.2.0
 
 dev_dependencies:
   flutter_test:

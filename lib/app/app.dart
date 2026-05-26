@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/features/lan_sync/lan_receive_page.dart';
+import 'package:secure_box/features/lan_sync/lan_send_page.dart';
+import 'package:secure_box/features/lan_sync/lan_sync_page.dart';
 import 'package:secure_box/features/password_generator/password_generator_page.dart';
 import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/features/setup/setup_page.dart';
@@ -144,15 +147,9 @@ class _SecureBoxAppState extends State<SecureBoxApp>
         services: widget.services,
       ),
       AppServices.routeSettings => SettingsPage(services: widget.services),
-      AppServices.routeLanSync => const _LanRoutePlaceholder(
-        key: ValueKey('lan-sync-route-placeholder'),
-      ),
-      AppServices.routeLanSend => const _LanRoutePlaceholder(
-        key: ValueKey('lan-send-route-placeholder'),
-      ),
-      AppServices.routeLanReceive => const _LanRoutePlaceholder(
-        key: ValueKey('lan-receive-route-placeholder'),
-      ),
+      AppServices.routeLanSync => LanSyncPage(services: widget.services),
+      AppServices.routeLanSend => LanSendPage(services: widget.services),
+      AppServices.routeLanReceive => LanReceivePage(services: widget.services),
       _ => UnlockPage(services: widget.services),
     };
   }
@@ -162,15 +159,6 @@ class _SecureBoxAppState extends State<SecureBoxApp>
       AppLanguage.zh => const AppStringsZh(),
       AppLanguage.en => const AppStringsEn(),
     };
-  }
-}
-
-class _LanRoutePlaceholder extends StatelessWidget {
-  const _LanRoutePlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(body: SizedBox.expand());
   }
 }
 

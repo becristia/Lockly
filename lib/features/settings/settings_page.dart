@@ -698,6 +698,45 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 20),
             SecureSection(
+              key: const ValueKey('settings-section-lan-sync'),
+              title: strings.text('lanExchangeTitle'),
+              subtitle: strings.text('lanExchangeSubtitle'),
+              icon: Icons.lan_outlined,
+              child: SecurePanel(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    _ActionTile(
+                      key: const ValueKey('settings-lan-send'),
+                      icon: Icons.qr_code_2_rounded,
+                      title: strings.text('lanSendData'),
+                      subtitle: strings.text('lanSendDataSubtitle'),
+                      onTap: () {
+                        widget.services.recordActivity();
+                        Navigator.of(
+                          context,
+                        ).pushNamed(AppServices.routeLanSend);
+                      },
+                    ),
+                    const Divider(),
+                    _ActionTile(
+                      key: const ValueKey('settings-lan-receive'),
+                      icon: Icons.qr_code_scanner_rounded,
+                      title: strings.text('lanReceiveData'),
+                      subtitle: strings.text('lanReceiveDataSubtitle'),
+                      onTap: () {
+                        widget.services.recordActivity();
+                        Navigator.of(
+                          context,
+                        ).pushNamed(AppServices.routeLanReceive);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SecureSection(
               key: const ValueKey('settings-section-backup'),
               title: strings.text('encryptedBackup'),
               subtitle: strings.text('encryptedBackupSubtitle'),
