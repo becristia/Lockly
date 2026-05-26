@@ -101,6 +101,17 @@
 
 记录结果：
 
+## P0-10：主密码不传输、不持久化、不记录
+
+步骤：
+1. 发送端生成 LAN session，接收端扫码并输入发送端 master password。
+2. 完成导入或故意输入错误 master password 触发失败。
+3. 检查二维码内容、导入结果页、错误提示、本地持久化数据和可访问日志。
+
+期望结果：发送端和接收端 master password 仅在本机内存中用于当前解密/解锁流程；不会写入 QR payload、LAN 传输包、数据库、SharedPreferences、结果页、错误提示或日志。
+
+记录结果：
+
 ## P1-01：network unavailable shows retryable message
 
 步骤：
