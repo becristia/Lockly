@@ -1763,6 +1763,8 @@ class AppServices {
   }
 
   Future<void> clearLocalVault() async {
+    await _cancelActiveLanSendSession();
+
     final override = _clearLocalVaultOverride;
     if (override != null) {
       return override();
@@ -1913,6 +1915,7 @@ class AppServices {
   }
 
   void lockVault() {
+    unawaited(_cancelActiveLanSendSession());
     final clipboardClear = _clipboardService?.clearPendingPasswordNow();
     if (clipboardClear != null) {
       unawaited(clipboardClear);
@@ -1980,6 +1983,7 @@ class AppServices {
   }
 
   void dispose() {
+    unawaited(_cancelActiveLanSendSession());
     _isDisposed = true;
     shellState.removeListener(_syncNavigatorToShellState);
     WidgetsBinding.instance.removeObserver(appLifecycleGuard);
@@ -1989,6 +1993,14 @@ class AppServices {
     shellState.dispose();
     themeModeNotifier.dispose();
     languageNotifier.dispose();
+  }
+
+  Future<void> _cancelActiveLanSendSession() {
+    final service = _lanTransferService;
+    if (service == null) {
+      return Future<void>.value();
+    }
+    return service.cancelSendSession();
   }
 
   void _syncNavigatorToShellState() {

@@ -296,6 +296,47 @@ void main() {
     });
   });
 
+  group('AppServices LAN transfer lifecycle', () {
+    setUpAll(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+    });
+
+    test('lockVault cancels active real send session', () async {
+      await _runWithRealHttpClient(() async {
+        final sessionHarness = await _buildAppServicesLanSessionHarness();
+        addTearDown(sessionHarness.services.dispose);
+
+        await _expectLanSessionAvailableWithoutDownload(
+          sessionHarness.localhostPayload,
+        );
+        sessionHarness.services.lockVault();
+        await _allowFireAndForgetCancellation();
+
+        await _expectLanPayloadUnavailable(
+          target: sessionHarness.target,
+          payload: sessionHarness.localhostPayload,
+        );
+      });
+    });
+
+    test('dispose cancels active real send session', () async {
+      await _runWithRealHttpClient(() async {
+        final sessionHarness = await _buildAppServicesLanSessionHarness();
+
+        await _expectLanSessionAvailableWithoutDownload(
+          sessionHarness.localhostPayload,
+        );
+        sessionHarness.services.dispose();
+        await _allowFireAndForgetCancellation();
+
+        await _expectLanPayloadUnavailable(
+          target: sessionHarness.target,
+          payload: sessionHarness.localhostPayload,
+        );
+      });
+    });
+  });
+
   group('AppServices LAN transfer wrappers', () {
     setUpAll(() {
       TestWidgetsFlutterBinding.ensureInitialized();
@@ -415,6 +456,30 @@ void main() {
         );
       },
     );
+
+    test(
+      'clearLocalVault cancels active send session when overridden',
+      () async {
+        final harness = await _buildHarness();
+        final service = _RecordingLanTransferService(harness.backupService);
+        var clearCalled = false;
+        final services = AppServices(
+          hasVault: true,
+          initialShellState: AppShellState.unlocked,
+          trackActivity: false,
+          lanTransferService: service,
+          clearLocalVaultOverride: () async {
+            clearCalled = true;
+          },
+        );
+        addTearDown(services.dispose);
+
+        await services.clearLocalVault();
+
+        expect(clearCalled, isTrue);
+        expect(service.cancelCalled, isTrue);
+      },
+    );
   });
 
   test('LAN routes resolve while unlocked', () {
@@ -484,6 +549,88 @@ Future<_LanTransferHarness> _buildHarness() async {
   );
 }
 
+Future<_AppServicesLanSessionHarness>
+_buildAppServicesLanSessionHarness() async {
+  final source = await _buildHarness();
+  await source.vaultService.createVault(masterPassword: 'source-master');
+  await source.vaultService.unlock(masterPassword: 'source-master');
+  final sourceId = await source.vaultService.createItem(
+    PasswordEntry(
+      title: 'GitHub',
+      website: 'https://github.com',
+      username: 'user@example.com',
+      password: 'source-password',
+      notes: 'source notes',
+      tags: const ['dev'],
+    ),
+  );
+
+  final target = await _buildHarness();
+  await target.vaultService.createVault(masterPassword: 'target-master');
+  await target.vaultService.unlock(masterPassword: 'target-master');
+
+  final services = AppServices(
+    hasVault: true,
+    initialShellState: AppShellState.unlocked,
+    trackActivity: false,
+    vaultService: source.vaultService,
+    lanTransferService: _LocalhostLanTransferService(source.backupService),
+  );
+  addTearDown(services.lanTransferService.cancelSendSession);
+  final session = await services.createLanSendSession(
+    itemIds: [sourceId],
+    includeBlobs: false,
+    includeHistory: false,
+    senderName: 'Source',
+  );
+
+  return _AppServicesLanSessionHarness(
+    services: services,
+    target: target,
+    localhostPayload: session.qrPayload,
+  );
+}
+
+Future<void> _allowFireAndForgetCancellation() {
+  return Future<void>.delayed(const Duration(milliseconds: 25));
+}
+
+Future<void> _expectLanPayloadUnavailable({
+  required _LanTransferHarness target,
+  required LanTransferQrPayload payload,
+}) async {
+  await expectLater(
+    target.lanTransferService.receiveFromPayload(
+      payload: payload,
+      sourceMasterPassword: 'source-master',
+    ),
+    throwsA(isA<LanTransferUnavailableException>()),
+  );
+}
+
+Future<void> _expectLanSessionAvailableWithoutDownload(
+  LanTransferQrPayload payload,
+) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(payload.transferUri());
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer wrong-token');
+    final response = await request.close();
+    await response.drain<void>();
+    expect(response.statusCode, HttpStatus.unauthorized);
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<T> _runWithRealHttpClient<T>(Future<T> Function() action) {
+  final overrides = _RealHttpOverrides();
+  return HttpOverrides.runZoned(
+    action,
+    createHttpClient: overrides.createHttpClient,
+  );
+}
+
 LanTransferCrypto _transferCrypto() {
   final random = SecureRandom();
   return LanTransferCrypto(
@@ -504,6 +651,55 @@ class _LanTransferHarness {
   final VaultService vaultService;
   final BackupService backupService;
   final LanTransferService lanTransferService;
+}
+
+class _AppServicesLanSessionHarness {
+  const _AppServicesLanSessionHarness({
+    required this.services,
+    required this.target,
+    required this.localhostPayload,
+  });
+
+  final AppServices services;
+  final _LanTransferHarness target;
+  final LanTransferQrPayload localhostPayload;
+}
+
+class _LocalhostLanTransferService extends LanTransferService {
+  _LocalhostLanTransferService(BackupService backupService)
+    : super(
+        backupService: backupService,
+        server: LanTransferServer(crypto: _transferCrypto()),
+        client: LanTransferClient(crypto: _transferCrypto()),
+      );
+
+  @override
+  Future<LanTransferSession> createSendSession({
+    required List<String> itemIds,
+    required bool includeBlobs,
+    required bool includeHistory,
+    required String senderName,
+    Duration ttl = const Duration(minutes: 5),
+    String bindHost = '0.0.0.0',
+    String? advertisedHost,
+  }) {
+    return super.createSendSession(
+      itemIds: itemIds,
+      includeBlobs: includeBlobs,
+      includeHistory: includeHistory,
+      senderName: senderName,
+      ttl: ttl,
+      bindHost: '127.0.0.1',
+      advertisedHost: '127.0.0.1',
+    );
+  }
+}
+
+class _RealHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context);
+  }
 }
 
 class _RecordingLanTransferService extends LanTransferService {
