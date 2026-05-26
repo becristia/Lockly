@@ -697,6 +697,7 @@ class _LocalhostLanTransferService extends LanTransferService {
 
 class _RealHttpOverrides extends HttpOverrides {
   @override
+  // ignore: unnecessary_overrides
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context);
   }

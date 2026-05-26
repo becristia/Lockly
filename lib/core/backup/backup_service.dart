@@ -1297,7 +1297,6 @@ class BackupService {
               'Conflict-aware imports require an existing target vault.',
             );
           }
-          final preserveExistingMeta = true;
           final needsReencryption = !_hasSameEncryptionEnvelope(
             existingMeta,
             backupMeta,
@@ -1308,46 +1307,34 @@ class BackupService {
             );
           }
 
-          final importedMeta = _buildImportedMeta(
-            backup: backup,
-            existingMeta: existingMeta,
-            preserveExistingId: preserveExistingMeta,
-            now: now,
+          await _verifyExistingManifestBeforeImportMutation(
+            txn: txn,
+            masterPassword: masterPassword,
+            meta: existingMeta,
+            manifest: existingManifest,
           );
-          if (!preserveExistingMeta) {
-            await txn.metaDao.save(importedMeta);
-          } else {
-            await _verifyExistingManifestBeforeImportMutation(
-              txn: txn,
-              masterPassword: masterPassword,
-              meta: existingMeta,
-              manifest: existingManifest,
-            );
-          }
 
           final existingIds = <String>{};
-          if (preserveExistingMeta) {
-            for (final entry in backup.items.asMap().entries) {
-              final index = entry.key;
-              final item = entry.value;
-              if (!acceptedItemIndexes.contains(index)) {
-                continue;
-              }
-              final existingItem = await txn.itemsDao.byId(item.id);
-              if (existingItem != null) {
-                acceptedItemIndexes.remove(index);
-                existingIds.add(item.id);
-                final identity = incomingIdentities[index];
-                conflicts.add(
-                  BackupImportConflict(
-                    itemId: identity.id,
-                    title: identity.title,
-                    website: identity.website,
-                    username: identity.username,
-                    reason: BackupImportConflictReason.existingLocalEntry,
-                  ),
-                );
-              }
+          for (final entry in backup.items.asMap().entries) {
+            final index = entry.key;
+            final item = entry.value;
+            if (!acceptedItemIndexes.contains(index)) {
+              continue;
+            }
+            final existingItem = await txn.itemsDao.byId(item.id);
+            if (existingItem != null) {
+              acceptedItemIndexes.remove(index);
+              existingIds.add(item.id);
+              final identity = incomingIdentities[index];
+              conflicts.add(
+                BackupImportConflict(
+                  itemId: identity.id,
+                  title: identity.title,
+                  website: identity.website,
+                  username: identity.username,
+                  reason: BackupImportConflictReason.existingLocalEntry,
+                ),
+              );
             }
           }
 
@@ -1385,8 +1372,7 @@ class BackupService {
             if (!pendingBlobIds.add(blob.blobId)) {
               continue;
             }
-            if (preserveExistingMeta &&
-                (await txn.blobsDao.byBlobId(blob.blobId)) != null) {
+            if ((await txn.blobsDao.byBlobId(blob.blobId)) != null) {
               continue;
             }
             uniquePendingBlobs.add(blob);
@@ -1422,17 +1408,14 @@ class BackupService {
             await txn.blobsDao.upsert(blob);
           }
           for (final historyItem in historyToInsert) {
-            await txn.historyDao?.insertRaw(
-              historyItem,
-              preserveId: !preserveExistingMeta,
-            );
+            await txn.historyDao?.insertRaw(historyItem, preserveId: false);
           }
 
           final manifest = await _rewriteManifestAfterImport(
             txn: txn,
             backup: backup,
             masterPassword: masterPassword,
-            preserveExistingMeta: preserveExistingMeta,
+            preserveExistingMeta: true,
             dataChanged:
                 itemsToInsert.isNotEmpty ||
                 blobsToInsert.isNotEmpty ||
