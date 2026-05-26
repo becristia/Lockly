@@ -61,6 +61,36 @@ void main() {
       );
     });
 
+    test('only one concurrent authorized request receives package', () async {
+      final crypto = transferCrypto();
+      final server = LanTransferServer(crypto: crypto);
+      final largePackage = Uint8List(8 * 1024 * 1024);
+      final session = await server.start(
+        packageBytes: largePackage,
+        selectedCount: 1,
+        senderName: 'Sender',
+        ttl: const Duration(minutes: 5),
+        bindHost: '127.0.0.1',
+        advertisedHost: '127.0.0.1',
+      );
+      addTearDown(() => server.close());
+
+      const requestCount = 8;
+      final statusCodes = await Future.wait(
+        List.generate(
+          requestCount,
+          (_) => _withheldAuthorizedGetStatus(session.qrPayload),
+        ),
+      );
+
+      expect(statusCodes.where((code) => code == HttpStatus.ok), hasLength(1));
+      final unavailableCount = statusCodes.where((code) => code == null).length;
+      final nonOkCount = statusCodes
+          .where((code) => code != null && code != HttpStatus.ok)
+          .length;
+      expect(nonOkCount + unavailableCount, requestCount - 1);
+    });
+
     test('wrong token fails with unauthorized exception', () async {
       final crypto = transferCrypto();
       final server = LanTransferServer(crypto: crypto);
@@ -110,6 +140,29 @@ void main() {
         LanTransferClient(crypto: crypto).download(session.qrPayload),
         throwsA(isA<LanTransferExpiredException>()),
       );
+    });
+
+    test('expired session returns gone over raw HTTP', () async {
+      final crypto = transferCrypto();
+      final server = LanTransferServer(crypto: crypto);
+      final session = await server.start(
+        packageBytes: packageBytes('{"items":[]}'),
+        selectedCount: 1,
+        senderName: 'Sender',
+        ttl: const Duration(milliseconds: 25),
+        bindHost: '127.0.0.1',
+        advertisedHost: '127.0.0.1',
+      );
+      addTearDown(() => server.close());
+
+      await _waitUntil(() => DateTime.now().toUtc().isAfter(session.expiresAt));
+
+      final statusCode = await _authorizedGetStatus(
+        session.qrPayload.transferUri(),
+        session.qrPayload.token,
+      );
+
+      expect(statusCode, HttpStatus.gone);
     });
 
     test('package integrity mismatch fails before decrypting', () async {
@@ -190,5 +243,53 @@ Future<void> _waitUntil(
       throw StateError('Timed out waiting for condition');
     }
     await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
+Future<int> _authorizedGetStatus(Uri uri, String token) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(uri);
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    final response = await request.close();
+    await response.drain<void>();
+    return response.statusCode;
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<int?> _withheldAuthorizedGetStatus(LanTransferQrPayload payload) async {
+  Socket? socket;
+  try {
+    socket = await Socket.connect(payload.host, payload.port);
+    final requestPath = payload.transferUri().path;
+    socket
+      ..write('GET $requestPath HTTP/1.1\r\n')
+      ..write('Host: ${payload.host}:${payload.port}\r\n')
+      ..write('Authorization: Bearer ${payload.token}\r\n')
+      ..write('Connection: close\r\n')
+      ..write('\r\n');
+    await socket.flush();
+
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final responseBytes = <int>[];
+    await for (final chunk in socket.timeout(
+      const Duration(seconds: 5),
+      onTimeout: (sink) => sink.close(),
+    )) {
+      responseBytes.addAll(chunk);
+    }
+
+    final responseText = latin1.decode(responseBytes, allowInvalid: true);
+    final match = RegExp(r'HTTP/1\.[01] (\d{3}) ').firstMatch(responseText);
+    return match == null ? null : int.parse(match.group(1)!);
+  } on HttpException {
+    return null;
+  } on SocketException {
+    return null;
+  } finally {
+    socket?.destroy();
   }
 }

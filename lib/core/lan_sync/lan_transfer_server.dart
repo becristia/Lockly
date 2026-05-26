@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:secure_box/core/lan_sync/lan_transfer_crypto.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 
+const _expiredSessionGrace = Duration(seconds: 30);
+
 class LanTransferServer {
   LanTransferServer({required LanTransferCrypto crypto}) : _crypto = crypto;
 
@@ -57,7 +59,7 @@ class LanTransferServer {
       envelope: envelope,
       expiresAt: expiresAt,
     );
-    _expiryTimer = Timer(ttl, () {
+    _expiryTimer = Timer(ttl + _expiredSessionGrace, () {
       unawaited(close());
     });
     unawaited(server.forEach((request) => _handleRequest(request)));
@@ -96,7 +98,6 @@ class LanTransferServer {
 
     if (!DateTime.now().toUtc().isBefore(session.expiresAt)) {
       await _sendEmpty(request, HttpStatus.gone);
-      await close();
       return;
     }
 
@@ -114,12 +115,12 @@ class LanTransferServer {
       return;
     }
 
+    _session = null;
     request.response
       ..statusCode = HttpStatus.ok
       ..headers.contentType = ContentType.json
       ..write(jsonEncode(session.envelope.toJson()));
     await request.response.close();
-    _session = null;
     await close();
   }
 
