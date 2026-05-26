@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -139,6 +141,58 @@ void main() {
       find.byKey(const ValueKey('settings-section-backup')),
       findsOneWidget,
     );
+  });
+
+  test('local-only surfaces keep legacy remote entry points removed', () {
+    final repoRoot = Directory.current;
+    final legacyRemoteSurfaces = <String>[
+      ['cloud', 'NotConnected'].join(),
+      ['cloud', 'Register'].join(),
+      ['cloud', 'DownloadVault'].join(),
+      ['sync', 'Conflicts'].join(),
+      ['cloud', 'Revision'].join(),
+      ['emergency', 'Access'].join(),
+      ['emergency', 'KeyGenerationFailed'].join(),
+      ['emergency', 'HeaderSubtitle'].join(),
+      ['roadmap', 'EmergencyDetail'].join(),
+      ['emergency', 'Package'].join(),
+      ['settings-section-', 'cloud-sync'].join(),
+      ['settings-', 'cloud-'].join(),
+      ['security-center-', 'emergency'].join(),
+      ['security-center-', 'conflicts-card'].join(),
+      ['security-center-', 'devices-card'].join(),
+      ['LOCKLY', '_SYNC', '_BASE', '_URL'].join(),
+      ['Sync', 'Service'].join(),
+      ['Sync', 'ApiClient'].join(),
+      ['Sync', 'CredentialStore'].join(),
+      ['Sync', 'StateDao'].join(),
+      ['core/', 'sync'].join(),
+      ['emergency', '_access'].join(),
+    ];
+    final scannedFiles = <String>[
+      ...Directory('${repoRoot.path}/lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.dart'))
+          .map((file) => file.path),
+      ...Directory('${repoRoot.path}/test')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.dart'))
+          .map((file) => file.path),
+    ];
+
+    final matches = <String>[];
+    for (final filePath in scannedFiles) {
+      final content = File(filePath).readAsStringSync();
+      for (final surface in legacyRemoteSurfaces) {
+        if (content.contains(surface)) {
+          matches.add('$filePath: $surface');
+        }
+      }
+    }
+
+    expect(matches, isEmpty);
   });
 
   testWidgets('settings opens migration wizard from backup import', (

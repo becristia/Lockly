@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class SecurityCenterPage extends StatefulWidget {
@@ -98,6 +99,18 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
                     onAnalyze: _analyzeHealth,
                   ),
                   const SizedBox(height: 12),
+                  _LocalExchangeCard(
+                    onSend: () {
+                      widget.services.recordActivity();
+                      Navigator.of(context).pushNamed(AppServices.routeLanSend);
+                    },
+                    onReceive: () {
+                      widget.services.recordActivity();
+                      Navigator.of(
+                        context,
+                      ).pushNamed(AppServices.routeLanReceive);
+                    },
+                  ),
                   const SizedBox(height: 18),
                   _RoadmapGrid(),
                 ],
@@ -131,6 +144,137 @@ class _LoadingCard extends StatelessWidget {
           const SizedBox(width: 12),
           Text(strings.text('loadingSecurityPosture')),
         ],
+      ),
+    );
+  }
+}
+
+class _LocalExchangeCard extends StatelessWidget {
+  const _LocalExchangeCard({required this.onSend, required this.onReceive});
+
+  final VoidCallback onSend;
+  final VoidCallback onReceive;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final theme = Theme.of(context);
+    return SecurePanel(
+      key: const ValueKey('security-center-local-exchange-card'),
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const _IconTile(
+                  icon: Icons.lan_outlined,
+                  color: SecureVisualColors.success,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        strings.text('securityCenterLocalExchangeTitle'),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: SecureVisualColors.text,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        strings.text('securityCenterLocalExchangeSubtitle'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: SecureVisualColors.text.withValues(
+                            alpha: 0.72,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          _LocalExchangeActionTile(
+            keyValue: 'security-center-local-exchange-send',
+            icon: Icons.qr_code_2_rounded,
+            title: strings.text('lanSendData'),
+            subtitle: strings.text('lanSendDataSubtitle'),
+            onTap: onSend,
+          ),
+          const Divider(height: 1),
+          _LocalExchangeActionTile(
+            keyValue: 'security-center-local-exchange-receive',
+            icon: Icons.qr_code_scanner_rounded,
+            title: strings.text('lanReceiveData'),
+            subtitle: strings.text('lanReceiveDataSubtitle'),
+            onTap: onReceive,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocalExchangeActionTile extends StatelessWidget {
+  const _LocalExchangeActionTile({
+    required this.keyValue,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final String keyValue;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      key: ValueKey(keyValue),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: SecureVisualColors.blue),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: SecureVisualColors.text,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: SecureVisualColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: SecureVisualColors.muted,
+            ),
+          ],
+        ),
       ),
     );
   }

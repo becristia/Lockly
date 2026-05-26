@@ -234,6 +234,9 @@ class AppStringsEn extends AppStrings {
     'skippedRows': 'skipped rows',
     'securityCenterTitle': 'Security Center',
     'securityCenterSubtitle': 'Vault security overview',
+    'securityCenterLocalExchangeTitle': 'Local backup and transfer',
+    'securityCenterLocalExchangeSubtitle':
+        'Move records by LAN QR codes or receive a local transfer payload.',
     'loadingSecurityPosture': 'Loading security posture',
     'runLocalCheck': 'Run local check',
     'runAgain': 'Run again',

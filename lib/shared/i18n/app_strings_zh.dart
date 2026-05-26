@@ -211,6 +211,8 @@ class AppStringsZh extends AppStrings {
     'skippedRows': '跳过的行',
     'securityCenterTitle': '安全中心',
     'securityCenterSubtitle': '密码库安全概览',
+    'securityCenterLocalExchangeTitle': '本地备份与转移',
+    'securityCenterLocalExchangeSubtitle': '通过局域网二维码转移记录，或接收本地传输载荷。',
     'loadingSecurityPosture': '正在加载安全状态',
     'runLocalCheck': '运行本地检查',
     'runAgain': '再次运行',

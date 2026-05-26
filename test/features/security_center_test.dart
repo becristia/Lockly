@@ -99,6 +99,57 @@ void main() {
     );
   });
 
+  testWidgets('security center opens LAN exchange recovery actions', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SecurityCenterPage(services: services),
+        routes: {
+          AppServices.routeLanSend: (_) =>
+              const _RouteMarker(key: ValueKey('lan-send-route')),
+          AppServices.routeLanReceive: (_) =>
+              const _RouteMarker(key: ValueKey('lan-receive-route')),
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('security-center-local-exchange-card')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('security-center-local-exchange-send')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('security-center-local-exchange-receive')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('security-center-local-exchange-send')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('lan-send-route')), findsOneWidget);
+
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('lan-send-route'))),
+    ).pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('security-center-local-exchange-receive')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('lan-receive-route')), findsOneWidget);
+  });
+
   testWidgets('vault shell opens security center tab', (tester) async {
     final services = AppServices.fake(
       hasVault: true,
@@ -119,4 +170,13 @@ void main() {
 
     expect(find.byKey(const ValueKey('security-center-page')), findsOneWidget);
   });
+}
+
+class _RouteMarker extends StatelessWidget {
+  const _RouteMarker({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: SizedBox.shrink());
+  }
 }

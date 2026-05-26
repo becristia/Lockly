@@ -160,9 +160,87 @@ void main() {
       options: OpenDatabaseOptions(
         version: 6,
         onCreate: (db, version) async {
-          await db.execute('CREATE TABLE settings (key TEXT PRIMARY KEY)');
-          await db.execute('CREATE TABLE vault_items (id TEXT PRIMARY KEY)');
-          await db.execute('CREATE TABLE vault_manifest (id TEXT PRIMARY KEY)');
+          await db.execute('''
+            CREATE TABLE vault_meta (
+              singleton_key INTEGER NOT NULL DEFAULT 1
+                CHECK (singleton_key = 1)
+                UNIQUE,
+              id TEXT PRIMARY KEY,
+              version INTEGER NOT NULL,
+              kdf TEXT NOT NULL,
+              kdf_params TEXT NOT NULL,
+              salt TEXT NOT NULL,
+              encrypted_dek_by_master TEXT NOT NULL,
+              encrypted_dek_by_master_nonce TEXT NOT NULL,
+              encrypted_dek_by_master_mac TEXT NOT NULL,
+              encrypted_dek_by_biometric TEXT,
+              encrypted_dek_by_biometric_nonce TEXT,
+              encrypted_dek_by_biometric_mac TEXT,
+              biometric_enabled INTEGER NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE vault_items (
+              id TEXT PRIMARY KEY,
+              nonce TEXT NOT NULL,
+              ciphertext TEXT NOT NULL,
+              mac TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              deleted_at INTEGER
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE settings (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE vault_manifest (
+              singleton_key INTEGER NOT NULL DEFAULT 1
+                CHECK (singleton_key = 1)
+                UNIQUE,
+              version INTEGER NOT NULL,
+              epoch INTEGER NOT NULL,
+              counter INTEGER NOT NULL,
+              nonce TEXT NOT NULL,
+              ciphertext TEXT NOT NULL,
+              mac TEXT NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE password_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              entry_id TEXT NOT NULL,
+              encrypted_password TEXT NOT NULL,
+              password_nonce TEXT NOT NULL,
+              password_mac TEXT NOT NULL,
+              recorded_at INTEGER NOT NULL,
+              FOREIGN KEY (entry_id) REFERENCES vault_items(id)
+                ON DELETE CASCADE
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE vault_blobs (
+              blob_id TEXT PRIMARY KEY,
+              item_id TEXT NOT NULL,
+              metadata_nonce TEXT NOT NULL,
+              metadata_ciphertext TEXT NOT NULL,
+              metadata_mac TEXT NOT NULL,
+              nonce TEXT NOT NULL,
+              ciphertext TEXT NOT NULL,
+              mac TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              deleted_at INTEGER,
+              FOREIGN KEY (item_id) REFERENCES vault_items(id)
+                ON DELETE CASCADE
+            )
+          ''');
           await db.execute('CREATE TABLE sync_state (id TEXT PRIMARY KEY)');
           await db.execute(
             'CREATE TABLE sync_item_state (item_id TEXT PRIMARY KEY)',
@@ -176,6 +254,71 @@ void main() {
           await db.execute(
             'CREATE TABLE sync_blob_conflicts (blob_id TEXT PRIMARY KEY)',
           );
+          await db.insert('settings', {
+            'key': 'clipboard_clear_seconds',
+            'value': '45',
+          });
+          await db.insert('vault_meta', {
+            'singleton_key': 1,
+            'id': 'vault-v6',
+            'version': 1,
+            'kdf': 'pbkdf2-hmac-sha256',
+            'kdf_params': '{"iterations":120000,"bits":256}',
+            'salt': 'legacy-salt',
+            'encrypted_dek_by_master': 'legacy-master-dek',
+            'encrypted_dek_by_master_nonce': 'legacy-master-nonce',
+            'encrypted_dek_by_master_mac': 'legacy-master-mac',
+            'encrypted_dek_by_biometric': 'legacy-biometric-dek',
+            'encrypted_dek_by_biometric_nonce': 'legacy-biometric-nonce',
+            'encrypted_dek_by_biometric_mac': 'legacy-biometric-mac',
+            'biometric_enabled': 1,
+            'created_at': 1747000000000,
+            'updated_at': 1747000001111,
+          });
+          await db.insert('vault_items', {
+            'id': 'item-v6',
+            'nonce': 'item-nonce',
+            'ciphertext': 'item-ciphertext',
+            'mac': 'item-mac',
+            'created_at': 1747000002222,
+            'updated_at': 1747000003333,
+            'deleted_at': null,
+          });
+          await db.insert('vault_manifest', {
+            'singleton_key': 1,
+            'version': 1,
+            'epoch': 2,
+            'counter': 3,
+            'nonce': 'manifest-nonce',
+            'ciphertext': 'manifest-ciphertext',
+            'mac': 'manifest-mac',
+            'updated_at': 1747000004444,
+          });
+          await db.insert('password_history', {
+            'entry_id': 'item-v6',
+            'encrypted_password': 'history-ciphertext',
+            'password_nonce': 'history-nonce',
+            'password_mac': 'history-mac',
+            'recorded_at': 1747000005555,
+          });
+          await db.insert('vault_blobs', {
+            'blob_id': 'blob-v6',
+            'item_id': 'item-v6',
+            'metadata_nonce': 'metadata-nonce',
+            'metadata_ciphertext': 'metadata-ciphertext',
+            'metadata_mac': 'metadata-mac',
+            'nonce': 'blob-nonce',
+            'ciphertext': 'blob-ciphertext',
+            'mac': 'blob-mac',
+            'created_at': 1747000006666,
+            'updated_at': 1747000007777,
+            'deleted_at': null,
+          });
+          await db.insert('sync_state', {'id': 'sync-state-v6'});
+          await db.insert('sync_item_state', {'item_id': 'item-v6'});
+          await db.insert('sync_conflicts', {'item_id': 'item-v6'});
+          await db.insert('sync_blob_state', {'blob_id': 'blob-v6'});
+          await db.insert('sync_blob_conflicts', {'blob_id': 'blob-v6'});
         },
       ),
     );
@@ -188,6 +331,31 @@ void main() {
     expect(await _tableExists(upgradedDb, 'settings'), isTrue);
     expect(await _tableExists(upgradedDb, 'vault_items'), isTrue);
     expect(await _tableExists(upgradedDb, 'vault_manifest'), isTrue);
+    expect(await _tableExists(upgradedDb, 'vault_meta'), isTrue);
+    expect(await _tableExists(upgradedDb, 'password_history'), isTrue);
+    expect(await _tableExists(upgradedDb, 'vault_blobs'), isTrue);
+
+    expect((await upgradedDb.query('settings')).single, {
+      'key': 'clipboard_clear_seconds',
+      'value': '45',
+    });
+    expect((await upgradedDb.query('vault_meta')).single['id'], 'vault-v6');
+    expect(
+      (await upgradedDb.query('vault_items')).single['ciphertext'],
+      'item-ciphertext',
+    );
+    expect(
+      (await upgradedDb.query('vault_manifest')).single['ciphertext'],
+      'manifest-ciphertext',
+    );
+    expect(
+      (await upgradedDb.query('password_history')).single['encrypted_password'],
+      'history-ciphertext',
+    );
+    expect(
+      (await upgradedDb.query('vault_blobs')).single['ciphertext'],
+      'blob-ciphertext',
+    );
     expect(await _tableExists(upgradedDb, 'sync_state'), isFalse);
     expect(await _tableExists(upgradedDb, 'sync_item_state'), isFalse);
     expect(await _tableExists(upgradedDb, 'sync_conflicts'), isFalse);
