@@ -7,6 +7,9 @@ import 'package:secure_box/core/autofill/android_autofill_service.dart';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/clipboard/clipboard_service.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_service.dart';
 import 'package:secure_box/core/migration/plaintext_csv_importer.dart';
 import 'package:secure_box/core/security/app_lifecycle_guard.dart';
 import 'package:secure_box/core/security/auto_lock_service.dart';
@@ -56,6 +59,7 @@ class AppServices {
     VaultService? vaultService,
     BackupService? backupService,
     SyncService? syncService,
+    LanTransferService? lanTransferService,
     AndroidAutofillService androidAutofillService =
         const AndroidAutofillService(),
     BiometricService? biometricService,
@@ -99,6 +103,18 @@ class AppServices {
     Future<String> Function()? exportBackupOverride,
     Future<int> Function(String backupJson, String masterPassword)?
     importBackupOverride,
+    Future<LanTransferSession> Function({
+      required List<String> itemIds,
+      required bool includeBlobs,
+      required bool includeHistory,
+      required String senderName,
+    })?
+    createLanSendSessionOverride,
+    Future<LanTransferImportResult> Function({
+      required LanTransferQrPayload payload,
+      required String sourceMasterPassword,
+    })?
+    receiveLanTransferOverride,
     Future<void> Function(String email, String password)? cloudRegisterOverride,
     Future<void> Function(String email, String password)? cloudLoginOverride,
     Future<void> Function()? cloudLogoutOverride,
@@ -157,6 +173,7 @@ class AppServices {
        _vaultService = vaultService,
        _backupService = backupService,
        _syncService = syncService,
+       _lanTransferService = lanTransferService,
        _androidAutofillService = androidAutofillService,
        _biometricService = biometricService,
        _clipboardService = clipboardService,
@@ -182,6 +199,8 @@ class AppServices {
        _setClipboardCleanupTimeoutOverride = setClipboardCleanupTimeoutOverride,
        _exportBackupOverride = exportBackupOverride,
        _importBackupOverride = importBackupOverride,
+       _createLanSendSessionOverride = createLanSendSessionOverride,
+       _receiveLanTransferOverride = receiveLanTransferOverride,
        _cloudRegisterOverride = cloudRegisterOverride,
        _cloudLoginOverride = cloudLoginOverride,
        _cloudLogoutOverride = cloudLogoutOverride,
@@ -243,6 +262,9 @@ class AppServices {
   static const routeGenerator = '/generator';
   static const routeSettings = '/settings';
   static const routeHealth = '/health';
+  static const routeLanSync = '/lan-sync';
+  static const routeLanSend = '/lan-sync/send';
+  static const routeLanReceive = '/lan-sync/receive';
   static const maxImportedBackupJsonBytes = 8 * 1024 * 1024;
   static const _languagePreferenceKey = 'lockly.language';
 
@@ -277,6 +299,7 @@ class AppServices {
   final VaultService? _vaultService;
   final BackupService? _backupService;
   final SyncService? _syncService;
+  final LanTransferService? _lanTransferService;
   final AndroidAutofillService _androidAutofillService;
   final BiometricService? _biometricService;
   final ClipboardService? _clipboardService;
@@ -318,6 +341,18 @@ class AppServices {
   final Future<String> Function()? _exportBackupOverride;
   final Future<int> Function(String backupJson, String masterPassword)?
   _importBackupOverride;
+  final Future<LanTransferSession> Function({
+    required List<String> itemIds,
+    required bool includeBlobs,
+    required bool includeHistory,
+    required String senderName,
+  })?
+  _createLanSendSessionOverride;
+  final Future<LanTransferImportResult> Function({
+    required LanTransferQrPayload payload,
+    required String sourceMasterPassword,
+  })?
+  _receiveLanTransferOverride;
   final Future<void> Function(String email, String password)?
   _cloudRegisterOverride;
   final Future<void> Function(String email, String password)?
@@ -404,6 +439,18 @@ class AppServices {
     Future<void> Function(String email, String password)? cloudRegisterOverride,
     Future<SyncDevice> Function(String deviceId, String deviceName)?
     renameCloudDeviceOverride,
+    Future<LanTransferSession> Function({
+      required List<String> itemIds,
+      required bool includeBlobs,
+      required bool includeHistory,
+      required String senderName,
+    })?
+    createLanSendSessionOverride,
+    Future<LanTransferImportResult> Function({
+      required LanTransferQrPayload payload,
+      required String sourceMasterPassword,
+    })?
+    receiveLanTransferOverride,
     List<SyncConflictRecord> syncConflicts = const <SyncConflictRecord>[],
     List<SyncBlobConflictRecord> syncBlobConflicts =
         const <SyncBlobConflictRecord>[],
@@ -607,6 +654,8 @@ class AppServices {
       exportBackupOverride: () async =>
           jsonEncode({'version': 1, 'items': fakeItems.length}),
       importBackupOverride: (backupJson, masterPassword) async => 0,
+      createLanSendSessionOverride: createLanSendSessionOverride,
+      receiveLanTransferOverride: receiveLanTransferOverride,
       cloudRegisterOverride: (email, password) async {
         final override = cloudRegisterOverride;
         if (override != null) {
@@ -1269,6 +1318,56 @@ class AppServices {
     return result;
   }
 
+  Future<LanTransferSession> createLanSendSession({
+    required List<String> itemIds,
+    required bool includeBlobs,
+    required bool includeHistory,
+    required String senderName,
+  }) async {
+    final override = _createLanSendSessionOverride;
+    if (override != null) {
+      return override(
+        itemIds: itemIds,
+        includeBlobs: includeBlobs,
+        includeHistory: includeHistory,
+        senderName: senderName,
+      );
+    }
+
+    return _lockShellOnIntegrity(
+      () => lanTransferService.createSendSession(
+        itemIds: itemIds,
+        includeBlobs: includeBlobs,
+        includeHistory: includeHistory,
+        senderName: senderName,
+      ),
+    );
+  }
+
+  Future<LanTransferImportResult> receiveLanTransfer({
+    required LanTransferQrPayload payload,
+    required String sourceMasterPassword,
+  }) async {
+    final override = _receiveLanTransferOverride;
+    if (override != null) {
+      return override(
+        payload: payload,
+        sourceMasterPassword: sourceMasterPassword,
+      );
+    }
+
+    return _lockShellOnIntegrity(
+      () => lanTransferService.receiveFromPayload(
+        payload: payload,
+        sourceMasterPassword: sourceMasterPassword,
+      ),
+    );
+  }
+
+  Future<void> cancelLanSendSession() {
+    return lanTransferService.cancelSendSession();
+  }
+
   Future<void> loginCloudSync({
     required String email,
     required String password,
@@ -1735,6 +1834,16 @@ class AppServices {
     return service;
   }
 
+  LanTransferService get lanTransferService {
+    final service = _lanTransferService;
+    if (service == null) {
+      throw StateError(
+        'LanTransferService is unavailable in this app context.',
+      );
+    }
+    return service;
+  }
+
   Future<AndroidAutofillStatus> getAndroidAutofillStatus() {
     final override = _autofillStatusOverride;
     if (override != null) {
@@ -1770,7 +1879,12 @@ class AppServices {
     }
 
     return switch (requested) {
-      routeVault || routeGenerator || routeSettings => requested,
+      routeVault ||
+      routeGenerator ||
+      routeSettings ||
+      routeLanSync ||
+      routeLanSend ||
+      routeLanReceive => requested,
       _ => routeVault,
     };
   }

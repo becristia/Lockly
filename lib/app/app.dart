@@ -144,6 +144,15 @@ class _SecureBoxAppState extends State<SecureBoxApp>
         services: widget.services,
       ),
       AppServices.routeSettings => SettingsPage(services: widget.services),
+      AppServices.routeLanSync => const _LanRoutePlaceholder(
+        key: ValueKey('lan-sync-route-placeholder'),
+      ),
+      AppServices.routeLanSend => const _LanRoutePlaceholder(
+        key: ValueKey('lan-send-route-placeholder'),
+      ),
+      AppServices.routeLanReceive => const _LanRoutePlaceholder(
+        key: ValueKey('lan-receive-route-placeholder'),
+      ),
       _ => UnlockPage(services: widget.services),
     };
   }
@@ -153,6 +162,15 @@ class _SecureBoxAppState extends State<SecureBoxApp>
       AppLanguage.zh => const AppStringsZh(),
       AppLanguage.en => const AppStringsEn(),
     };
+  }
+}
+
+class _LanRoutePlaceholder extends StatelessWidget {
+  const _LanRoutePlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: SizedBox.expand());
   }
 }
 

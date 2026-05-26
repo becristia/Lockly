@@ -12,6 +12,10 @@ import 'package:secure_box/core/clipboard/clipboard_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/kdf_service.dart';
 import 'package:secure_box/core/crypto/secure_random.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_client.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_crypto.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_service.dart';
 import 'package:secure_box/core/vault/vault_anchor_service.dart';
 import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/core/vault/vault_repository.dart';
@@ -61,6 +65,19 @@ Future<void> main() async {
     crypto: CryptoService(random: random),
     anchorService: VaultAnchorService(store: SecureStorageVaultAnchorStore()),
   );
+  final backupService = BackupService(
+    repository: repository,
+    vaultService: vaultService,
+  );
+  final lanTransferCrypto = LanTransferCrypto(
+    crypto: CryptoService(random: random),
+    random: random,
+  );
+  final lanTransferService = LanTransferService(
+    backupService: backupService,
+    server: LanTransferServer(crypto: lanTransferCrypto),
+    client: LanTransferClient(crypto: lanTransferCrypto),
+  );
   const syncBaseUrl = String.fromEnvironment('LOCKLY_SYNC_BASE_URL');
   final syncStateDao = SyncStateDao(database);
   final syncService = buildProductionSyncService(
@@ -73,10 +90,8 @@ Future<void> main() async {
     persistLanguagePreference: true,
     vaultService: vaultService,
     syncService: syncService,
-    backupService: BackupService(
-      repository: repository,
-      vaultService: vaultService,
-    ),
+    backupService: backupService,
+    lanTransferService: lanTransferService,
     biometricService: BiometricService(
       authenticator: LocalAuthBiometricAuthenticator(
         localizedReason: '验证身份以解锁 Lockly',
