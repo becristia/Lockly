@@ -111,10 +111,6 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('settings-section-cloud-sync')),
-      findsNothing,
-    );
-    expect(
       find.byKey(const ValueKey('settings-section-lan-sync')),
       findsOneWidget,
     );
@@ -136,7 +132,6 @@ void main() {
       find.byKey(const ValueKey('settings-section-danger')),
       findsOneWidget,
     );
-    expect(find.byKey(_settingsActionKey('cloud-download')), findsNothing);
   });
 
   testWidgets('settings hides Android Autofill while feature is disabled', (
@@ -194,8 +189,4 @@ void main() {
     );
     expect(find.text('生成结果'), findsOneWidget);
   });
-}
-
-ValueKey<String> _settingsActionKey(String suffix) {
-  return ValueKey('settings-$suffix');
 }

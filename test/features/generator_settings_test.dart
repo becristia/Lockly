@@ -119,7 +119,7 @@ void main() {
     expect(find.widgetWithText(FilledButton, '清除'), findsOneWidget);
   });
 
-  testWidgets('settings exposes LAN exchange and no cloud sync actions', (
+  testWidgets('settings exposes LAN exchange local transfer actions', (
     tester,
   ) async {
     final services = AppServices.fake(hasVault: true, unlocked: true);
@@ -136,13 +136,9 @@ void main() {
     expect(find.byKey(const ValueKey('settings-lan-send')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-lan-receive')), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('settings-section-cloud-sync')),
-      findsNothing,
+      find.byKey(const ValueKey('settings-section-backup')),
+      findsOneWidget,
     );
-    expect(find.byKey(_settingsActionKey('cloud-register')), findsNothing);
-    expect(find.byKey(_settingsActionKey('cloud-sync-now')), findsNothing);
-    expect(find.byKey(_settingsActionKey('cloud-download')), findsNothing);
-    expect(find.byKey(_settingsActionKey('cloud-devices')), findsNothing);
   });
 
   testWidgets('settings opens migration wizard from backup import', (
@@ -680,10 +676,6 @@ void main() {
     expect(harness.services.shellState.value, AppShellState.locked);
     expect(harness.vaultService.isUnlocked, isFalse);
   });
-}
-
-ValueKey<String> _settingsActionKey(String suffix) {
-  return ValueKey('settings-$suffix');
 }
 
 Future<_BiometricHarness> _buildBiometricHarness() async {

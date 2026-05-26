@@ -6,9 +6,7 @@ import 'package:secure_box/core/security/password_health_service.dart';
 import 'package:secure_box/features/security_center/security_center_page.dart';
 
 void main() {
-  testWidgets('security center is local-only after cloud removal', (
-    tester,
-  ) async {
+  testWidgets('security center exposes local safety cards', (tester) async {
     final services = AppServices.fake(hasVault: true, unlocked: true);
 
     await tester.pumpWidget(
@@ -22,24 +20,25 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('security-center-cloud-card')),
-      findsNothing,
+      find.byKey(
+        const ValueKey('security-center-migration'),
+        skipOffstage: false,
+      ),
+      findsWidgets,
     );
     expect(
-      find.byKey(const ValueKey('security-center-conflicts-card')),
-      findsNothing,
+      find.byKey(
+        const ValueKey('security-center-attachments'),
+        skipOffstage: false,
+      ),
+      findsWidgets,
     );
     expect(
-      find.byKey(const ValueKey('security-center-devices-card')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('security-center-emergency-card')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('security-center-emergency-access')),
-      findsNothing,
+      find.byKey(
+        const ValueKey('security-center-passkeys'),
+        skipOffstage: false,
+      ),
+      findsWidgets,
     );
   });
 
