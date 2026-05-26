@@ -6,6 +6,7 @@ import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/shared/i18n/app_language.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/i18n/app_strings_en.dart';
 import 'package:secure_box/shared/i18n/app_strings_zh.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -138,6 +139,25 @@ void main() {
     expect(strings.text('passkeyMetadata'), '通行密钥元数据');
     expect(strings.text('relyingPartyId'), '信赖方 ID');
     expect(strings.text('credentialIdHint'), 'base64url 格式的凭据 ID');
+  });
+
+  test('LAN import result count strings keep placeholder contract', () {
+    const english = AppStringsEn();
+    const chinese = AppStringsZh();
+
+    for (final key in ['lanImportedCount', 'lanSkippedCount']) {
+      expect(english.text(key), contains('{count}'), reason: 'en $key');
+      expect(chinese.text(key), contains('{count}'), reason: 'zh $key');
+    }
+
+    expect(
+      chinese.text('lanImportedCount').replaceAll('{count}', '3'),
+      contains('已导入 3 条'),
+    );
+    expect(
+      chinese.text('lanSkippedCount').replaceAll('{count}', '2'),
+      contains('已跳过 2 条'),
+    );
   });
 
   test('app-owned visible strings are centralized', () {

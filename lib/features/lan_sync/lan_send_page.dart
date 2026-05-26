@@ -108,7 +108,7 @@ class _LanSendPageState extends State<LanSendPage> {
       }
       setState(() {
         _creating = false;
-        _errorKey = 'lanNoRecordsSelected';
+        _errorKey = 'lanSessionUnavailable';
       });
     }
   }

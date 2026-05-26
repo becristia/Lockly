@@ -92,6 +92,49 @@ void main() {
   });
 
   testWidgets(
+    'send flow shows session unavailable when session creation fails',
+    (tester) async {
+      final services = AppServices.fake(
+        hasVault: true,
+        unlocked: true,
+        initialVaultItems: [
+          PasswordEntry(
+            title: 'GitHub',
+            website: 'https://github.com',
+            username: 'user@example.com',
+            password: 'secret-password',
+            notes: '',
+            tags: const ['dev'],
+          ),
+        ],
+        createLanSendSessionOverride:
+            ({
+              required itemIds,
+              required includeBlobs,
+              required includeHistory,
+              required senderName,
+            }) async {
+              throw StateError('session unavailable');
+            },
+      );
+
+      await tester.pumpWidget(SecureBoxApp(services: services));
+      await tester.pumpAndSettle();
+      services.navigatorKey.currentState!.pushNamed(AppServices.routeLanSend);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('lan-send-item-item-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('lan-send-create-session')));
+      await tester.pumpAndSettle();
+
+      const strings = AppStringsZh();
+      expect(find.text(strings.text('lanSessionUnavailable')), findsOneWidget);
+      expect(find.text(strings.text('lanNoRecordsSelected')), findsNothing);
+    },
+  );
+
+  testWidgets(
     'send flow cancels in-flight session creation after leaving page',
     (tester) async {
       final createCompleter = Completer<LanTransferSession>();
