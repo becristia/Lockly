@@ -14,6 +14,7 @@ import 'package:secure_box/shared/i18n/app_strings_en.dart';
 import 'package:secure_box/shared/i18n/app_strings_scope.dart';
 import 'package:secure_box/shared/i18n/app_strings_zh.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
+import 'package:secure_box/shared/widgets/windows_window_controls.dart';
 
 class SecureBoxApp extends StatefulWidget {
   const SecureBoxApp({super.key, required this.services});
@@ -123,12 +124,14 @@ class _SecureBoxAppState extends State<SecureBoxApp>
               child: ValueListenableBuilder<bool>(
                 valueListenable: _privacyCoverVisible,
                 builder: (context, coverVisible, _) {
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      child ?? const SizedBox.shrink(),
-                      if (coverVisible) const _PrivacyCover(),
-                    ],
+                  return WindowsWindowFrame(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        child ?? const SizedBox.shrink(),
+                        if (coverVisible) const _PrivacyCover(),
+                      ],
+                    ),
                   );
                 },
               ),

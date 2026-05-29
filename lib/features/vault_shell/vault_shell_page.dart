@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/features/password_generator/password_generator_page.dart';
-import 'package:secure_box/features/security_center/security_center_page.dart';
 import 'package:secure_box/features/settings/settings_page.dart';
 import 'package:secure_box/features/totp/totp_page.dart';
 import 'package:secure_box/features/vault_list/vault_list_page.dart';
@@ -26,9 +25,8 @@ class _VaultShellPageState extends State<VaultShellPage> {
     final isDesktopWidth = MediaQuery.sizeOf(context).width >= 900;
     final page = switch (_selectedIndex) {
       0 => VaultListPage(services: widget.services),
-      1 => SecurityCenterPage(services: widget.services),
-      2 => TotpPage(services: widget.services),
-      3 => PasswordGeneratorPage(
+      1 => TotpPage(services: widget.services),
+      2 => PasswordGeneratorPage(
         services: widget.services,
         onSavedToVault: () => setState(() => _selectedIndex = 0),
       ),
@@ -59,14 +57,6 @@ class _VaultShellPageState extends State<VaultShellPage> {
                         icon: const Icon(Icons.lock_outline_rounded),
                         selectedIcon: const Icon(Icons.lock_rounded),
                         label: Text(strings.vaultTab),
-                      ),
-                      NavigationRailDestination(
-                        icon: const Icon(
-                          Icons.security_outlined,
-                          key: ValueKey('vault-shell-security-tab'),
-                        ),
-                        selectedIcon: const Icon(Icons.security_rounded),
-                        label: Text(strings.securityTab),
                       ),
                       NavigationRailDestination(
                         icon: const Icon(Icons.qr_code_2_outlined),
@@ -114,12 +104,6 @@ class _VaultShellPageState extends State<VaultShellPage> {
                 icon: const Icon(Icons.lock_outline_rounded),
                 selectedIcon: const Icon(Icons.lock_rounded),
                 label: strings.vaultTab,
-              ),
-              NavigationDestination(
-                key: const ValueKey('vault-shell-security-tab'),
-                icon: const Icon(Icons.security_outlined),
-                selectedIcon: const Icon(Icons.security_rounded),
-                label: strings.securityTab,
               ),
               NavigationDestination(
                 key: const ValueKey('vault-shell-totp-tab'),

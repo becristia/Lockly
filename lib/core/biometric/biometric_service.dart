@@ -148,7 +148,7 @@ void _requireValidDek(Uint8List dek) {
 class LocalAuthBiometricAuthenticator implements BiometricAuthenticator {
   LocalAuthBiometricAuthenticator({
     LocalAuthentication? localAuth,
-    this.localizedReason = 'Authenticate to unlock Lockly',
+    this.localizedReason = '使用指纹或面容解锁 Lockly',
     this.localizedReasonProvider,
   }) : _localAuth = localAuth ?? LocalAuthentication();
 
@@ -184,11 +184,7 @@ class SecureStorageDekStore implements SecureDekStore {
     AndroidOptions Function()? androidOptionsProvider,
     WindowsOptions windowsOptions = WindowsOptions.defaultOptions,
     String key = _defaultDekKey,
-  }) : _storage =
-           storage ??
-           FlutterSecureStorage(
-             aOptions: androidOptionsProvider?.call() ?? androidOptions,
-           ),
+  }) : _storage = storage ?? FlutterSecureStorage(aOptions: androidOptions),
        _options = androidOptions,
        _androidOptionsProvider = androidOptionsProvider,
        _windowsOptions = windowsOptions,
@@ -198,8 +194,8 @@ class SecureStorageDekStore implements SecureDekStore {
   static const _defaultAndroidOptions = AndroidOptions.biometric(
     storageNamespace: 'secure_box_biometric',
     enforceBiometrics: true,
-    biometricPromptTitle: 'Unlock Lockly',
-    biometricPromptSubtitle: 'Authenticate to unlock your local vault',
+    biometricPromptTitle: '指纹/面容解锁 Lockly',
+    biometricPromptSubtitle: '使用系统生物识别解锁本地密码库',
     migrateWithBackup: false,
   );
   @visibleForTesting

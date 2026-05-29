@@ -68,6 +68,7 @@ void main() {
             expect(sourceMasterPassword, 'source-master');
             return session;
           },
+      cancelLanSendSessionOverride: () async {},
     );
 
     await tester.pumpWidget(SecureBoxApp(services: services));
@@ -97,8 +98,165 @@ void main() {
     expect(createdItemIds, ['item-1']);
     expect(createdIncludeBlobs, isTrue);
     expect(createdIncludeHistory, isFalse);
+    expect(await services.getAutoLockTimeout(), const Duration(minutes: 5));
     expect(find.byKey(const ValueKey('lan-send-qr')), findsOneWidget);
     expect(find.textContaining('secret-password'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('lan-send-cancel-session')));
+    await tester.pumpAndSettle();
+
+    expect(await services.getAutoLockTimeout(), const Duration(minutes: 2));
+  });
+
+  testWidgets('LAN send can select standalone MFA entries', (tester) async {
+    final session = LanTransferSession(
+      qrPayload: _validPayload(senderName: 'Office phone'),
+      expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+    );
+    List<String>? createdItemIds;
+
+    final services = AppServices.fake(
+      hasVault: true,
+      unlocked: true,
+      initialVaultItems: [
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: '',
+          tags: const ['dev'],
+        ),
+        PasswordEntry(
+          title: 'GitHub MFA',
+          website: '',
+          username: 'mfa@example.com',
+          password: '',
+          notes: '',
+          tags: const ['mfa'],
+          totpSecret: 'JBSWY3DPEHPK3PXP',
+          isStandaloneTotp: true,
+        ),
+      ],
+      createLanSendSessionOverride:
+          ({
+            required itemIds,
+            required includeBlobs,
+            required includeHistory,
+            required sourceMasterPassword,
+            required senderName,
+          }) async {
+            createdItemIds = List<String>.from(itemIds);
+            return session;
+          },
+      cancelLanSendSessionOverride: () async {},
+    );
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeLanSend);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('lan-send-item-item-2')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('lan-send-item-item-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lan-send-create-session')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-send-source-master-password-field')),
+      'source-master',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('lan-send-confirm-password')));
+    await tester.pumpAndSettle();
+
+    expect(createdItemIds, ['item-2']);
+    expect(find.byKey(const ValueKey('lan-send-qr')), findsOneWidget);
+  });
+
+  testWidgets('send flow does not report record loading as network failure', (
+    tester,
+  ) async {
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      listItemsOverride: (_) async {
+        throw StateError('local list failed');
+      },
+      listTotpItemsOverride: () async => const [],
+      trackActivity: false,
+    );
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeLanSend);
+    await tester.pumpAndSettle();
+
+    const strings = AppStringsZh();
+    expect(find.text(strings.text('lanRecordsLoadFailed')), findsOneWidget);
+    expect(find.text(strings.text('lanNetworkUnavailable')), findsNothing);
+  });
+
+  testWidgets('send flow keeps extended auto-lock when cancel fails', (
+    tester,
+  ) async {
+    final session = LanTransferSession(
+      qrPayload: _validPayload(senderName: 'Office phone'),
+      expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+    );
+
+    final services = AppServices.fake(
+      hasVault: true,
+      unlocked: true,
+      initialVaultItems: [
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: '',
+          tags: const ['dev'],
+        ),
+      ],
+      createLanSendSessionOverride:
+          ({
+            required itemIds,
+            required includeBlobs,
+            required includeHistory,
+            required sourceMasterPassword,
+            required senderName,
+          }) async => session,
+      cancelLanSendSessionOverride: () async {
+        throw StateError('cancel failed');
+      },
+    );
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+    services.navigatorKey.currentState!.pushNamed(AppServices.routeLanSend);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lan-send-item-item-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lan-send-create-session')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('lan-send-source-master-password-field')),
+      'source-master',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('lan-send-confirm-password')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lan-send-cancel-session')));
+    await tester.pumpAndSettle();
+
+    expect(await services.getAutoLockTimeout(), const Duration(minutes: 5));
+    expect(find.byKey(const ValueKey('lan-send-qr')), findsOneWidget);
+    expect(
+      find.text(const AppStringsZh().text('lanSessionUnavailable')),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -391,7 +549,7 @@ void main() {
     expect(controller?.text, 'source-master');
 
     await tester.tap(
-      find.widgetWithText(TextButton, const AppStringsZh().text('cancel')),
+      find.widgetWithText(OutlinedButton, const AppStringsZh().text('cancel')),
     );
 
     expect(controller?.text, isEmpty);
@@ -441,7 +599,7 @@ void main() {
     await tester.pump();
 
     await tester.tap(
-      find.widgetWithText(TextButton, const AppStringsZh().text('cancel')),
+      find.widgetWithText(OutlinedButton, const AppStringsZh().text('cancel')),
     );
     await tester.pumpAndSettle();
 
@@ -504,7 +662,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('lan-receive-import-button')));
     await tester.pump();
 
-    Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+    Navigator.of(tester.element(find.byType(Dialog))).pop();
     await tester.pumpAndSettle();
 
     expect(capturedCancellationToken?.isCancelled, isTrue);

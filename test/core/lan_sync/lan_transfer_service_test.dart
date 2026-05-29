@@ -219,6 +219,68 @@ void main() {
     );
 
     test(
+      'receiveFromPayload skips existing standalone TOTP conflicts',
+      () async {
+        final source = await _buildHarness();
+        await source.vaultService.createVault(masterPassword: 'source-master');
+        await source.vaultService.unlock(masterPassword: 'source-master');
+        final conflictId = await source.vaultService.createItem(
+          PasswordEntry(
+            title: 'GitHub MFA',
+            website: '',
+            username: 'mfa@example.com',
+            password: '',
+            notes: '',
+            tags: const ['mfa'],
+            totpSecret: 'JBSWY3DPEHPK3PXP',
+            isStandaloneTotp: true,
+          ),
+        );
+
+        final target = await _buildHarness();
+        await target.vaultService.createVault(masterPassword: 'target-master');
+        await target.vaultService.unlock(masterPassword: 'target-master');
+        await target.vaultService.createItem(
+          PasswordEntry(
+            title: ' github mfa ',
+            website: '',
+            username: 'MFA@example.com',
+            password: '',
+            notes: 'local standalone token',
+            tags: const ['mfa'],
+            totpSecret: 'JBSWY3DPEHPK3PXP',
+            isStandaloneTotp: true,
+          ),
+        );
+
+        final session = await source.lanTransferService.createSendSession(
+          itemIds: [conflictId],
+          includeBlobs: false,
+          includeHistory: false,
+          sourceMasterPassword: 'source-master',
+          senderName: 'Source',
+          bindHost: '127.0.0.1',
+          advertisedHost: '127.0.0.1',
+        );
+        addTearDown(source.lanTransferService.cancelSendSession);
+
+        final result = await target.lanTransferService.receiveFromPayload(
+          payload: session.qrPayload,
+          sourceMasterPassword: 'source-master',
+        );
+
+        expect(result.importedCount, 0);
+        expect(result.skippedCount, 1);
+        expect(result.conflicts.single.title, 'GitHub MFA');
+        expect(
+          result.conflicts.single.reason,
+          LanTransferConflictReason.existingLocalEntry,
+        );
+        expect(await target.vaultService.listTotpItems(), hasLength(1));
+      },
+    );
+
+    test(
       'wrong source master password imports nothing and keeps target unchanged',
       () async {
         final source = await _buildHarness();

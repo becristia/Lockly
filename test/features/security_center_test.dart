@@ -150,7 +150,9 @@ void main() {
     expect(find.byKey(const ValueKey('lan-receive-route')), findsOneWidget);
   });
 
-  testWidgets('vault shell opens security center tab', (tester) async {
+  testWidgets('vault shell does not expose security center as a tab', (
+    tester,
+  ) async {
     final services = AppServices.fake(
       hasVault: true,
       unlocked: true,
@@ -165,10 +167,11 @@ void main() {
     await tester.pumpWidget(SecureBoxApp(services: services));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('vault-shell-security-tab')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('security-center-page')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('vault-shell-security-tab')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('security-center-page')), findsNothing);
   });
 }
 

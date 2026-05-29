@@ -7,14 +7,13 @@ void main() {
     // At timestamp 59000ms (just past the first 30s boundary), the TOTP should be calculable
     const testSecret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
 
-    test('generates 6-digit TOTP code string', () {
+    test('generates RFC-compatible 6-digit TOTP code string', () {
       final service = TotpService();
       final code = service.generate(
         base32Secret: testSecret,
         timestampMs: 59000,
       );
-      expect(code.length, 6);
-      expect(int.tryParse(code), isNotNull);
+      expect(code, '287082');
     });
 
     test('same inputs produce same code', () {
@@ -60,6 +59,64 @@ void main() {
       expect(result.secret, 'ABCDEFGH234567');
       expect(result.label, 'MyApp');
       expect(result.issuer, isNull);
+    });
+
+    test('parseOtpauthUrl rejects non-TOTP and unsupported parameters', () {
+      expect(
+        () => TotpService.parseOtpauthUrl(
+          'otpauth://hotp/MyApp?secret=ABCDEFGH234567&counter=1',
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => TotpService.parseOtpauthUrl(
+          'otpauth://totp/MyApp?secret=ABCDEFGH234567&algorithm=SHA256',
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => TotpService.parseOtpauthUrl(
+          'otpauth://totp/MyApp?secret=ABCDEFGH234567&digits=8',
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => TotpService.parseOtpauthUrl(
+          'otpauth://totp/MyApp?secret=ABCDEFGH234567&period=60',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('normalizeSecret uppercases Base32 and strips spaces and hyphens', () {
+      expect(
+        TotpService.normalizeSecret('jbsw y3dp-ehpk 3pxp'),
+        'JBSWY3DPEHPK3PXP',
+      );
+    });
+
+    test('normalizeSecret strips trailing Base32 padding', () {
+      expect(TotpService.normalizeSecret('mzxw6==='), 'MZXW6');
+    });
+
+    test('normalizeSecret extracts and normalizes otpauth URL secrets', () {
+      expect(
+        TotpService.normalizeSecret(
+          'otpauth://totp/Example:alice?secret=jbsw-y3dp ehpk3pxp&issuer=Example',
+        ),
+        'JBSWY3DPEHPK3PXP',
+      );
+    });
+
+    test('normalizeSecret rejects empty and malformed secrets predictably', () {
+      expect(() => TotpService.normalizeSecret(''), throwsFormatException);
+      expect(
+        () => TotpService.normalizeSecret('JBSWY3DPEHPK3PX0'),
+        throwsFormatException,
+      );
+      expect(() => TotpService.normalizeSecret('ABC'), throwsFormatException);
+      expect(TotpService.isValidSecret('JBSWY3DPEHPK3PXP'), isTrue);
+      expect(TotpService.isValidSecret('JBSWY3DPEHPK3PX0'), isFalse);
     });
 
     test('formatCode inserts space for 6-digit code', () {

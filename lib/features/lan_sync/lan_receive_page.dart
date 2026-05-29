@@ -11,6 +11,7 @@ import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/widgets/secure_dialog.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
@@ -369,9 +370,20 @@ class _SourceMasterPasswordDialogState
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
 
-    return AlertDialog(
-      title: Text(widget.title),
-      content: Column(
+    return SecureDialog(
+      icon: Icons.lock_outline_rounded,
+      title: widget.title,
+      actions: [
+        SecureDialogAction.primary(
+          key: const ValueKey('lan-receive-import-button'),
+          label: strings.text('import'),
+          icon: Icons.download_done_rounded,
+          onPressed: _import,
+          busy: _importing,
+        ),
+        SecureDialogAction.cancel(context, onPressed: _cancel),
+      ],
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -386,6 +398,9 @@ class _SourceMasterPasswordDialogState
             decoration: InputDecoration(
               labelText: strings.text('lanSourceMasterPassword'),
               suffixIcon: IconButton(
+                tooltip: _obscure
+                    ? strings.text('showMasterPassword')
+                    : strings.text('hideMasterPassword'),
                 onPressed: () => setState(() => _obscure = !_obscure),
                 icon: Icon(
                   _obscure
@@ -405,19 +420,6 @@ class _SourceMasterPasswordDialogState
           ],
         ],
       ),
-      actions: [
-        TextButton(onPressed: _cancel, child: Text(strings.text('cancel'))),
-        FilledButton(
-          key: const ValueKey('lan-receive-import-button'),
-          onPressed: _importing ? null : _import,
-          child: _importing
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(strings.text('import')),
-        ),
-      ],
     );
   }
 }

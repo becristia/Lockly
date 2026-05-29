@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/widgets/secure_dialog.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class TrashPage extends StatefulWidget {
@@ -65,25 +66,27 @@ class _TrashPageState extends State<TrashPage> {
   Future<bool> _confirmPermanentlyDelete(VaultListItem item) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppStrings.of(ctx).text('permanentDelete')),
-        content: Text(
-          '${AppStrings.of(ctx).text('permanentDeleteMessagePrefix')}${item.title}${AppStrings.of(ctx).text('permanentDeleteMessageSuffix')}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(AppStrings.of(ctx).text('cancel')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(
-              foregroundColor: SecureVisualColors.danger,
+      builder: (ctx) {
+        final strings = AppStrings.of(ctx);
+        return SecureDialog(
+          icon: Icons.delete_forever_rounded,
+          title: strings.text('permanentDelete'),
+          message:
+              '${strings.text('permanentDeleteMessagePrefix')}${item.title}${strings.text('permanentDeleteMessageSuffix')}',
+          destructive: true,
+          actions: [
+            SecureDialogAction.destructive(
+              label: strings.text('permanentDelete'),
+              icon: Icons.delete_forever_rounded,
+              onPressed: () => Navigator.of(ctx).pop(true),
             ),
-            child: Text(AppStrings.of(ctx).text('permanentDelete')),
-          ),
-        ],
-      ),
+            SecureDialogAction.cancel(
+              ctx,
+              onPressed: () => Navigator.of(ctx).pop(false),
+            ),
+          ],
+        );
+      },
     );
 
     if (confirmed != true || !mounted) return false;
@@ -109,25 +112,27 @@ class _TrashPageState extends State<TrashPage> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppStrings.of(ctx).text('emptyTrash')),
-        content: Text(
-          '${AppStrings.of(ctx).text('emptyTrashMessagePrefix')} ${_items.length} ${AppStrings.of(ctx).text('emptyTrashMessageSuffix')}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(AppStrings.of(ctx).text('cancel')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(
-              foregroundColor: SecureVisualColors.danger,
+      builder: (ctx) {
+        final strings = AppStrings.of(ctx);
+        return SecureDialog(
+          icon: Icons.delete_sweep_rounded,
+          title: strings.text('emptyTrash'),
+          message:
+              '${strings.text('emptyTrashMessagePrefix')} ${_items.length} ${strings.text('emptyTrashMessageSuffix')}',
+          destructive: true,
+          actions: [
+            SecureDialogAction.destructive(
+              label: strings.text('clearTrash'),
+              icon: Icons.delete_sweep_rounded,
+              onPressed: () => Navigator.of(ctx).pop(true),
             ),
-            child: Text(AppStrings.of(ctx).text('clearTrash')),
-          ),
-        ],
-      ),
+            SecureDialogAction.cancel(
+              ctx,
+              onPressed: () => Navigator.of(ctx).pop(false),
+            ),
+          ],
+        );
+      },
     );
 
     if (confirmed != true || !mounted) return;

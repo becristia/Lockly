@@ -8,6 +8,7 @@ import 'package:secure_box/data/models/passkey_record.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/vault_edit/vault_edit_page.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/widgets/secure_dialog.dart';
 
 const _maxAttachmentPreviewCharacters = 8000;
 
@@ -125,17 +126,21 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Text(AppStrings.of(context).text('deleteRecord')),
-          content: Text(AppStrings.of(context).text('deleteRecordMessage')),
+        final strings = AppStrings.of(context);
+        return SecureDialog(
+          icon: Icons.delete_forever_rounded,
+          title: strings.text('deleteRecord'),
+          message: strings.text('deleteRecordMessage'),
+          destructive: true,
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(AppStrings.of(context).text('cancel')),
-            ),
-            FilledButton(
+            SecureDialogAction.destructive(
+              label: strings.text('confirmDelete'),
+              icon: Icons.delete_forever_rounded,
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text(AppStrings.of(context).text('confirmDelete')),
+            ),
+            SecureDialogAction.cancel(
+              context,
+              onPressed: () => Navigator.of(context).pop(false),
             ),
           ],
         );
@@ -224,44 +229,62 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
 
   Future<String?> _promptMasterPasswordForExport() {
     final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
     var obscure = true;
+
+    void submit(BuildContext context) {
+      final form = formKey.currentState;
+      if (form == null || !form.validate()) {
+        return;
+      }
+      Navigator.of(context).pop(controller.text);
+    }
+
     return showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           final strings = AppStrings.of(context);
-          return AlertDialog(
-            icon: const Icon(Icons.lock_outline_rounded),
-            title: Text(strings.text('exportSinglePassword')),
-            content: TextField(
-              controller: controller,
-              obscureText: obscure,
-              enableSuggestions: false,
-              autocorrect: false,
-              decoration: InputDecoration(
-                labelText: strings.text('masterPassword'),
-                helperText: strings.text('reauthenticateExportSubtitle'),
-                suffixIcon: IconButton(
-                  onPressed: () => setDialogState(() => obscure = !obscure),
-                  icon: Icon(
-                    obscure
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
+          return SecureDialog(
+            icon: Icons.lock_outline_rounded,
+            title: strings.text('exportSinglePassword'),
+            actions: [
+              SecureDialogAction.primary(
+                label: strings.text('continue'),
+                icon: Icons.arrow_forward_rounded,
+                onPressed: () => submit(context),
+              ),
+              SecureDialogAction.cancel(context),
+            ],
+            child: Form(
+              key: formKey,
+              child: TextFormField(
+                controller: controller,
+                obscureText: obscure,
+                enableSuggestions: false,
+                autocorrect: false,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: strings.text('masterPassword'),
+                  helperText: strings.text('reauthenticateExportSubtitle'),
+                  suffixIcon: IconButton(
+                    tooltip: obscure
+                        ? strings.text('showMasterPassword')
+                        : strings.text('hideMasterPassword'),
+                    onPressed: () => setDialogState(() => obscure = !obscure),
+                    icon: Icon(
+                      obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
                   ),
                 ),
+                validator: (value) => (value == null || value.isEmpty)
+                    ? strings.text('requiredMasterPassword')
+                    : null,
+                onFieldSubmitted: (_) => submit(context),
               ),
-              onSubmitted: (value) => Navigator.of(context).pop(value),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(strings.text('cancel')),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(controller.text),
-                child: Text(strings.text('continue')),
-              ),
-            ],
           );
         },
       ),
@@ -612,6 +635,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     widget.services.recordActivity();
     final saved = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) {
         return _AddAttachmentDialog(
           onSave:
@@ -648,35 +672,29 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
           final text = decoded.length > _maxAttachmentPreviewCharacters
               ? '${decoded.substring(0, _maxAttachmentPreviewCharacters)}\n...'
               : decoded;
-          return AlertDialog(
-            title: Text(blob.displayName),
-            content: SizedBox(
+          return SecureDialog(
+            icon: Icons.insert_drive_file_outlined,
+            title: blob.displayName,
+            actions: [SecureDialogAction.close(context)],
+            child: SizedBox(
               width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _DialogMetadataRow(
-                      label: AppStrings.of(context).text('mediaType'),
-                      value: blob.mediaType,
-                    ),
-                    _DialogMetadataRow(
-                      label: AppStrings.of(context).text('size'),
-                      value: _formatAttachmentSize(blob.bytes.length),
-                    ),
-                    const SizedBox(height: 12),
-                    SelectableText(text),
-                  ],
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _DialogMetadataRow(
+                    label: AppStrings.of(context).text('mediaType'),
+                    value: blob.mediaType,
+                  ),
+                  _DialogMetadataRow(
+                    label: AppStrings.of(context).text('size'),
+                    value: _formatAttachmentSize(blob.bytes.length),
+                  ),
+                  const SizedBox(height: 12),
+                  SelectableText(text),
+                ],
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(AppStrings.of(context).text('close')),
-              ),
-            ],
           );
         },
       );
@@ -800,46 +818,47 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
   void _confirmRestore(Map<String, dynamic> record) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppStrings.of(ctx).text('restorePassword')),
-        content: Text(AppStrings.of(ctx).text('restorePasswordMessage')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(AppStrings.of(ctx).text('cancel')),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final strings = AppStrings.of(ctx);
-              final messenger = ScaffoldMessenger.of(context);
-              Navigator.pop(ctx);
-              setState(() => _isRestoring = true);
-              try {
-                await widget.services.restorePassword(
-                  widget.itemId,
-                  record['id'] as int,
-                );
-                if (!mounted) return;
-                await _loadItem();
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  SnackBar(content: Text(strings.text('passwordRestored'))),
-                );
-              } catch (_) {
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  SnackBar(
-                    content: Text(strings.text('restorePasswordFailed')),
-                  ),
-                );
-              } finally {
-                if (mounted) setState(() => _isRestoring = false);
-              }
-            },
-            child: Text(AppStrings.of(ctx).text('confirmRestore')),
-          ),
-        ],
-      ),
+      builder: (ctx) {
+        final strings = AppStrings.of(ctx);
+        return SecureDialog(
+          icon: Icons.restore_rounded,
+          title: strings.text('restorePassword'),
+          message: strings.text('restorePasswordMessage'),
+          actions: [
+            SecureDialogAction.primary(
+              label: strings.text('confirmRestore'),
+              icon: Icons.restore_rounded,
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                Navigator.pop(ctx);
+                setState(() => _isRestoring = true);
+                try {
+                  await widget.services.restorePassword(
+                    widget.itemId,
+                    record['id'] as int,
+                  );
+                  if (!mounted) return;
+                  await _loadItem();
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(content: Text(strings.text('passwordRestored'))),
+                  );
+                } catch (_) {
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(strings.text('restorePasswordFailed')),
+                    ),
+                  );
+                } finally {
+                  if (mounted) setState(() => _isRestoring = false);
+                }
+              },
+            ),
+            SecureDialogAction.cancel(ctx),
+          ],
+        );
+      },
     );
   }
 }
@@ -866,21 +885,20 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
       context: context,
       builder: (context) {
         final strings = AppStrings.of(context);
-        return AlertDialog(
-          icon: Icon(
-            Icons.warning_amber_rounded,
-            color: Theme.of(context).colorScheme.error,
-          ),
-          title: Text(strings.text('copyBackupConfirmTitle')),
-          content: Text(strings.text('copyBackupConfirmMessage')),
+        return SecureDialog(
+          icon: Icons.warning_amber_rounded,
+          title: strings.text('copyBackupConfirmTitle'),
+          message: strings.text('copyBackupConfirmMessage'),
+          destructive: true,
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(strings.text('cancel')),
-            ),
-            FilledButton(
+            SecureDialogAction.primary(
+              label: strings.text('copyBackup'),
+              icon: Icons.copy_rounded,
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text(strings.text('copyBackup')),
+            ),
+            SecureDialogAction.cancel(
+              context,
+              onPressed: () => Navigator.of(context).pop(false),
             ),
           ],
         );
@@ -929,10 +947,23 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
     final theme = Theme.of(context);
     final strings = AppStrings.of(context);
 
-    return AlertDialog(
-      icon: Icon(Icons.ios_share_outlined, color: theme.colorScheme.primary),
-      title: Text(strings.text('exportSinglePassword')),
-      content: SizedBox(
+    return SecureDialog(
+      icon: Icons.ios_share_outlined,
+      title: strings.text('exportSinglePassword'),
+      actions: [
+        SecureDialogAction.primary(
+          label: _copied ? strings.text('copied') : strings.text('copyBackup'),
+          icon: _copied ? Icons.check_rounded : Icons.copy_rounded,
+          onPressed: _copyBackupJson,
+        ),
+        SecureDialogAction.secondary(
+          label: strings.text('clearClipboardNow'),
+          icon: Icons.cleaning_services_outlined,
+          onPressed: _clearClipboardNow,
+        ),
+        SecureDialogAction.close(context),
+      ],
+      child: SizedBox(
         width: double.maxFinite,
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -965,24 +996,6 @@ class _SingleItemExportDialogState extends State<_SingleItemExportDialog> {
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(strings.text('close')),
-        ),
-        FilledButton.icon(
-          onPressed: _copyBackupJson,
-          icon: Icon(_copied ? Icons.check_rounded : Icons.copy_rounded),
-          label: Text(
-            _copied ? strings.text('copied') : strings.text('copyBackup'),
-          ),
-        ),
-        TextButton.icon(
-          onPressed: _clearClipboardNow,
-          icon: const Icon(Icons.cleaning_services_outlined),
-          label: Text(strings.text('clearClipboardNow')),
-        ),
-      ],
     );
   }
 }
@@ -1127,11 +1140,27 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
-    return AlertDialog(
-      title: Text(strings.text('addAttachment')),
-      content: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
+    return PopScope(
+      canPop: !_isSaving,
+      child: SecureDialog(
+        icon: Icons.attach_file_rounded,
+        title: strings.text('addAttachment'),
+        actions: [
+          SecureDialogAction.primary(
+            key: const ValueKey('attachment-save-button'),
+            label: strings.text('save'),
+            icon: Icons.save_outlined,
+            onPressed: _isSaving ? null : _save,
+            busy: _isSaving,
+          ),
+          SecureDialogAction.cancel(
+            context,
+            onPressed: () => Navigator.of(context).pop(false),
+            enabled: !_isSaving,
+          ),
+        ],
+        child: Form(
+          key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1187,23 +1216,6 @@ class _AddAttachmentDialogState extends State<_AddAttachmentDialog> {
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
-          child: Text(strings.text('cancel')),
-        ),
-        FilledButton(
-          key: const ValueKey('attachment-save-button'),
-          onPressed: _isSaving ? null : _save,
-          child: _isSaving
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(strings.text('save')),
-        ),
-      ],
     );
   }
 }

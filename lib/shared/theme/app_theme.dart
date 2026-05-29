@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const Color _trustBlue = Color(0xFF0369A1);
-  static const Color _signalTeal = Color(0xFF0F766E);
-  static const Color _securityGreen = Color(0xFF15803D);
-  static const Color _danger = Color(0xFFB42318);
-  static const Color _lightCanvas = Color(0xFFF6F7F9);
+  static const Color _trustBlue = Color(0xFF0284C7);
+  static const Color _signalCyan = Color(0xFF06B6D4);
+  static const Color _securityGreen = Color(0xFF16A34A);
+  static const Color _danger = Color(0xFFDC2626);
+  static const Color _lightCanvas = Color(0xFFFCFEFF);
   static const Color _lightSurface = Color(0xFFFFFFFF);
-  static const Color _lightInk = Color(0xFF111827);
-  static const Color _lightMuted = Color(0xFF5F6B7A);
-  static const Color _lightOutline = Color(0xFFD7DDE5);
+  static const Color _lightInk = Color(0xFF0F172A);
+  static const Color _lightMuted = Color(0xFF64748B);
+  static const Color _lightOutline = Color(0xFFE2EEF7);
   static const Color _darkCanvas = Color(0xFF111827);
   static const Color _darkSurface = Color(0xFF182230);
   static const Color _darkSurfaceHigh = Color(0xFF233044);
@@ -22,12 +22,12 @@ class AppTheme {
       brightness: Brightness.light,
       canvas: _lightCanvas,
       surface: _lightSurface,
-      surfaceHigh: const Color(0xFFECEFF3),
+      surfaceHigh: const Color(0xFFF0F9FF),
       ink: _lightInk,
       muted: _lightMuted,
       outline: _lightOutline,
       primary: _trustBlue,
-      secondary: _signalTeal,
+      secondary: _signalCyan,
       tertiary: _securityGreen,
       danger: _danger,
     );
@@ -227,10 +227,32 @@ class AppTheme {
         ),
       ),
       dividerTheme: DividerThemeData(color: outline, thickness: 1, space: 1),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surface,
+        elevation: 0,
+        shadowColor: brightness == Brightness.dark
+            ? Colors.black.withValues(alpha: 0.36)
+            : _lightInk.withValues(alpha: 0.07),
+        surfaceTintColor: secondary.withValues(alpha: 0.05),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: colorScheme.outlineVariant),
+        ),
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          color: colorScheme.onSurface,
+          fontWeight: FontWeight.w900,
+        ),
+        contentTextStyle: textTheme.bodyMedium?.copyWith(
+          color: colorScheme.onSurface,
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        clipBehavior: Clip.antiAlias,
+      ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: brightness == Brightness.dark
-            ? const Color(0xFFEAF6FC)
+            ? const Color(0xFFF0F9FF)
             : _lightInk,
         contentTextStyle: TextStyle(
           color: brightness == Brightness.dark ? _darkCanvas : Colors.white,

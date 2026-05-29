@@ -4,21 +4,37 @@ import 'package:secure_box/app/app.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/settings/settings_page.dart';
+import 'package:secure_box/shared/i18n/app_language.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 void main() {
-  test('app theme provides calm security ops tokens', () {
+  test('app theme provides brighter security ops tokens and dialogs', () {
     final theme = AppTheme.light();
     final shape = theme.cardTheme.shape! as RoundedRectangleBorder;
     final radius = shape.borderRadius as BorderRadius;
+    final dialogShape = theme.dialogTheme.shape! as RoundedRectangleBorder;
+    final dialogRadius = dialogShape.borderRadius as BorderRadius;
 
-    expect(theme.scaffoldBackgroundColor, const Color(0xFFF6F7F9));
-    expect(theme.colorScheme.primary, const Color(0xFF0369A1));
-    expect(theme.colorScheme.secondary, const Color(0xFF0F766E));
-    expect(theme.colorScheme.tertiary, const Color(0xFF15803D));
-    expect(theme.colorScheme.error, const Color(0xFFB42318));
+    expect(theme.scaffoldBackgroundColor, const Color(0xFFFCFEFF));
+    expect(theme.colorScheme.primary, const Color(0xFF0284C7));
+    expect(theme.colorScheme.secondary, const Color(0xFF06B6D4));
+    expect(theme.colorScheme.tertiary, const Color(0xFF16A34A));
+    expect(theme.colorScheme.error, const Color(0xFFDC2626));
+    expect(theme.colorScheme.surfaceContainerHighest, const Color(0xFFF0F9FF));
+    expect(SecureVisualColors.softSurface, const Color(0xFFFCFEFF));
+    expect(SecureVisualColors.paleBlue, const Color(0xFFF0F9FF));
     expect(radius.topLeft.x, 12);
+    expect(dialogRadius.topLeft.x, 20);
+    expect(dialogShape.side.color, theme.colorScheme.outlineVariant);
+    expect(
+      theme.dialogTheme.titleTextStyle?.color,
+      theme.colorScheme.onSurface,
+    );
+    expect(
+      theme.dialogTheme.contentTextStyle?.color,
+      theme.colorScheme.onSurface,
+    );
   });
 
   testWidgets('shared visual text follows dark theme surface contrast', (
@@ -134,6 +150,66 @@ void main() {
     );
   });
 
+  testWidgets('settings cards and segmented controls stretch consistently', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(body: SettingsPage(services: services)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scrollWidth = tester
+        .getSize(find.byType(SingleChildScrollView))
+        .width;
+    final languageButtonWidth = tester
+        .getSize(find.byType(SegmentedButton<AppLanguage>))
+        .width;
+    final themeButtonWidth = tester
+        .getSize(find.byType(SegmentedButton<ThemeMode>))
+        .width;
+
+    expect(languageButtonWidth, greaterThanOrEqualTo(scrollWidth * 0.90));
+    expect(themeButtonWidth, greaterThanOrEqualTo(scrollWidth * 0.90));
+  });
+
+  testWidgets('settings leaves vertical spacing before LAN exchange section', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(body: SettingsPage(services: services)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final tagsBottom = tester
+        .getBottomLeft(find.byKey(const ValueKey('settings-section-tags')))
+        .dy;
+    final lanTop = tester
+        .getTopLeft(find.byKey(const ValueKey('settings-section-lan-sync')))
+        .dy;
+
+    expect(lanTop - tagsBottom, greaterThanOrEqualTo(20));
+  });
+
   testWidgets('settings hides Android Autofill while feature is disabled', (
     tester,
   ) async {
@@ -168,6 +244,12 @@ void main() {
 
     expect(find.byType(NavigationRail), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
+    final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+    expect(rail.destinations, hasLength(4));
+    expect(
+      find.byKey(const ValueKey('vault-shell-security-tab')),
+      findsNothing,
+    );
   });
 
   testWidgets('generator presents generated password in a result panel', (

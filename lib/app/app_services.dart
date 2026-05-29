@@ -57,6 +57,7 @@ class AppServices {
     Future<bool> Function()? biometricEnabledOverride,
     Future<bool> Function()? biometricUnlockOverride,
     Future<List<VaultListItem>> Function(String query)? listItemsOverride,
+    Future<List<TotpListItem>> Function()? listTotpItemsOverride,
     Future<PasswordEntry> Function(String id)? getItemOverride,
     Future<String> Function(PasswordEntry entry)? createItemOverride,
     Future<void> Function(String id, PasswordEntry entry)? updateItemOverride,
@@ -122,6 +123,7 @@ class AppServices {
        _biometricEnabledOverride = biometricEnabledOverride,
        _biometricUnlockOverride = biometricUnlockOverride,
        _listItemsOverride = listItemsOverride,
+       _listTotpItemsOverride = listTotpItemsOverride,
        _getItemOverride = getItemOverride,
        _createItemOverride = createItemOverride,
        _updateItemOverride = updateItemOverride,
@@ -230,6 +232,7 @@ class AppServices {
   final Future<bool> Function()? _biometricEnabledOverride;
   final Future<bool> Function()? _biometricUnlockOverride;
   final Future<List<VaultListItem>> Function(String query)? _listItemsOverride;
+  final Future<List<TotpListItem>> Function()? _listTotpItemsOverride;
   final Future<PasswordEntry> Function(String id)? _getItemOverride;
   final Future<String> Function(PasswordEntry entry)? _createItemOverride;
   final Future<void> Function(String id, PasswordEntry entry)?
@@ -380,6 +383,7 @@ class AppServices {
         final items =
             fakeItems.entries
                 .where((entry) => entry.value.deletedAt == null)
+                .where((entry) => !entry.value.entry.isStandaloneTotp)
                 .where((entry) {
                   if (normalizedQuery.isEmpty) {
                     return true;
@@ -402,6 +406,31 @@ class AppServices {
                 )
                 .toList()
               ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        return List.unmodifiable(items);
+      },
+      listTotpItemsOverride: () async {
+        final items =
+            fakeItems.entries
+                .where((entry) => entry.value.deletedAt == null)
+                .where((entry) {
+                  final secret = entry.value.entry.totpSecret;
+                  return secret != null && secret.isNotEmpty;
+                })
+                .map(
+                  (entry) => TotpListItem(
+                    id: entry.key,
+                    title: entry.value.entry.title,
+                    username: entry.value.entry.username,
+                    totpSecret: entry.value.entry.totpSecret!,
+                    isStandalone: entry.value.entry.isStandaloneTotp,
+                  ),
+                )
+                .toList()
+              ..sort((a, b) {
+                final aUpdated = fakeItems[a.id]!.updatedAt;
+                final bUpdated = fakeItems[b.id]!.updatedAt;
+                return bUpdated.compareTo(aUpdated);
+              });
         return List.unmodifiable(items);
       },
       getItemOverride: (id) async {
@@ -729,6 +758,8 @@ class AppServices {
   }
 
   Future<List<TotpListItem>> listTotpItems() async {
+    final override = _listTotpItemsOverride;
+    if (override != null) return override();
     return _lockShellOnIntegrity(vaultService.listTotpItems);
   }
 

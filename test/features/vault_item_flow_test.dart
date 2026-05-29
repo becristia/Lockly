@@ -124,6 +124,14 @@ void main() {
       await tester.enterText(editFields.at(2), 'alice');
       await tester.enterText(editFields.at(3), 'local-password');
 
+      expect(find.byKey(const ValueKey('passkey-add-button')), findsNothing);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('advanced-info-section')),
+      );
+      await tester.tap(find.byKey(const ValueKey('advanced-info-section')));
+      await tester.pumpAndSettle();
+
       await tester.ensureVisible(
         find.byKey(const ValueKey('passkey-add-button')),
       );
@@ -390,7 +398,7 @@ void main() {
     expect(find.text('20 B'), findsWidgets);
     expect(find.text('plain recovery bytes'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, '关闭'));
+    await tester.tap(find.widgetWithText(OutlinedButton, '关闭'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('attachment-delete-blob-1')));
     await tester.pumpAndSettle();

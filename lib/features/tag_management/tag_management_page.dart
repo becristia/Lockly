@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/widgets/secure_dialog.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class TagManagementPage extends StatefulWidget {
@@ -79,90 +80,90 @@ class _TagManagementPageState extends State<TagManagementPage> {
 
   void _showRenameDialog(String oldTag) {
     final controller = TextEditingController(text: oldTag);
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppStrings.of(ctx).text('renameTag')),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          enableSuggestions: false,
-          autocorrect: false,
-          decoration: InputDecoration(
-            labelText: AppStrings.of(ctx).text('newTagName'),
+      builder: (ctx) {
+        final strings = AppStrings.of(ctx);
+        return SecureDialog(
+          icon: Icons.edit_rounded,
+          title: strings.text('renameTag'),
+          actions: [
+            SecureDialogAction.primary(
+              label: strings.text('confirm'),
+              icon: Icons.check_rounded,
+              onPressed: () async {
+                final navigator = Navigator.of(ctx);
+                final messenger = ScaffoldMessenger.of(ctx);
+                final newTag = controller.text.trim();
+                if (newTag.isEmpty || newTag == oldTag) {
+                  navigator.pop();
+                  return;
+                }
+                try {
+                  await widget.services.renameTag(oldTag, newTag);
+                  if (!mounted) return;
+                  navigator.pop();
+                  _load();
+                } catch (_) {
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(content: Text(strings.text('renameFailed'))),
+                  );
+                }
+              },
+            ),
+            SecureDialogAction.cancel(ctx),
+          ],
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            enableSuggestions: false,
+            autocorrect: false,
+            decoration: InputDecoration(labelText: strings.text('newTagName')),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(AppStrings.of(ctx).text('cancel')),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final strings = AppStrings.of(ctx);
-              final navigator = Navigator.of(ctx);
-              final messenger = ScaffoldMessenger.of(ctx);
-              final newTag = controller.text.trim();
-              if (newTag.isEmpty || newTag == oldTag) {
-                navigator.pop();
-                return;
-              }
-              try {
-                await widget.services.renameTag(oldTag, newTag);
-                if (!mounted) return;
-                navigator.pop();
-                _load();
-              } catch (_) {
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  SnackBar(content: Text(strings.text('renameFailed'))),
-                );
-              }
-            },
-            child: Text(AppStrings.of(ctx).text('confirm')),
-          ),
-        ],
-      ),
-    );
+        );
+      },
+    ).whenComplete(() {
+      controller.clear();
+      controller.dispose();
+    });
   }
 
   void _showDeleteDialog(String tag) {
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppStrings.of(ctx).text('deleteTag')),
-        content: Text(
-          '${AppStrings.of(ctx).text('deleteTagMessagePrefix')} "$tag" ${AppStrings.of(ctx).text('deleteTagMessageSuffix')}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(AppStrings.of(ctx).text('cancel')),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final strings = AppStrings.of(ctx);
-              final navigator = Navigator.of(ctx);
-              final messenger = ScaffoldMessenger.of(ctx);
-              try {
-                await widget.services.deleteTag(tag);
-                if (!mounted) return;
-                navigator.pop();
-                _load();
-              } catch (_) {
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  SnackBar(content: Text(strings.text('deleteFailed'))),
-                );
-              }
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
+      builder: (ctx) {
+        final strings = AppStrings.of(ctx);
+        return SecureDialog(
+          icon: Icons.label_off_rounded,
+          title: strings.text('deleteTag'),
+          message:
+              '${strings.text('deleteTagMessagePrefix')} "$tag" ${strings.text('deleteTagMessageSuffix')}',
+          destructive: true,
+          actions: [
+            SecureDialogAction.destructive(
+              label: strings.text('delete'),
+              icon: Icons.delete_outline_rounded,
+              onPressed: () async {
+                final navigator = Navigator.of(ctx);
+                final messenger = ScaffoldMessenger.of(ctx);
+                try {
+                  await widget.services.deleteTag(tag);
+                  if (!mounted) return;
+                  navigator.pop();
+                  _load();
+                } catch (_) {
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(content: Text(strings.text('deleteFailed'))),
+                  );
+                }
+              },
             ),
-            child: Text(AppStrings.of(ctx).text('delete')),
-          ),
-        ],
-      ),
+            SecureDialogAction.cancel(ctx),
+          ],
+        );
+      },
     );
   }
 }

@@ -101,6 +101,8 @@ void main() {
       'androidAutofill',
       'openAutofillSettings',
       'email',
+      'advancedInfo',
+      'advancedInfoSubtitle',
       'passkeys',
       'passkeyMetadata',
       'addPasskeyMetadata',
@@ -136,9 +138,30 @@ void main() {
     expect(strings.text('androidAutofill'), 'Android 自动填充');
     expect(strings.text('email'), '邮箱');
     expect(strings.text('passkeys'), '通行密钥');
-    expect(strings.text('passkeyMetadata'), '通行密钥元数据');
-    expect(strings.text('relyingPartyId'), '信赖方 ID');
+    expect(strings.text('advancedInfo'), '高级信息');
+    expect(strings.text('passkeyMetadata'), '通行密钥信息（可选）');
+    expect(strings.text('relyingPartyId'), '网站域名 ID');
     expect(strings.text('credentialIdHint'), 'base64url 格式的凭据 ID');
+  });
+
+  test('Chinese biometric prompts are fingerprint-focused and localized', () {
+    const strings = AppStringsZh();
+    final promptText = [
+      'useBiometric',
+      'biometricAuthTitle',
+      'biometricAuthSubtitle',
+      'biometricAuthReason',
+      'biometricPromptSubtitle',
+    ].map(strings.text).join('\n');
+
+    expect(promptText, contains('指纹'));
+    expect(promptText, contains('面容'));
+    expect(promptText, isNot(contains('Authenticate')));
+    expect(promptText, isNot(contains('Unlock Lockly')));
+    expect(strings.text('useBiometric'), '使用指纹/面容解锁');
+    expect(strings.text('biometricAuthTitle'), '指纹/面容解锁 Lockly');
+    expect(strings.text('biometricAuthSubtitle'), '使用系统生物识别解锁本地密码库');
+    expect(strings.text('biometricAuthReason'), '使用指纹或面容解锁 Lockly');
   });
 
   test('LAN import result count strings keep placeholder contract', () {

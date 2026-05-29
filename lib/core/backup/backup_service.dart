@@ -1359,8 +1359,8 @@ class BackupService {
     cancellationToken?.throwIfCancelled();
 
     final localKeys = <String>{};
-    final localItems = await vaultService.listItems();
-    for (final item in localItems) {
+    final localIdentities = await vaultService.listActiveItemIdentities();
+    for (final item in localIdentities) {
       localKeys.add(
         backupIdentityConflictKey(
           title: item.title,

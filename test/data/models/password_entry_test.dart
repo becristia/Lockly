@@ -34,6 +34,39 @@ void main() {
     },
   );
 
+  test('password entry defaults missing standalone TOTP marker to false', () {
+    final entry = PasswordEntry.fromJson({
+      'title': 'GitHub',
+      'website': 'https://github.com',
+      'username': 'user@example.com',
+      'password': 'secret-password',
+      'notes': 'recovery codes stored offline',
+      'tags': const ['dev', 'important'],
+    });
+
+    expect(entry.isStandaloneTotp, isFalse);
+    expect(entry.toJson().containsKey('isStandaloneTotp'), isFalse);
+  });
+
+  test('password entry includes standalone TOTP marker only when true', () {
+    final entry = PasswordEntry(
+      title: 'GitHub MFA',
+      website: '',
+      username: 'user@example.com',
+      password: '',
+      notes: '',
+      tags: const ['mfa'],
+      totpSecret: 'JBSWY3DPEHPK3PXP',
+      isStandaloneTotp: true,
+    );
+
+    final json = entry.toJson();
+    final decoded = PasswordEntry.fromJson(json);
+
+    expect(json['isStandaloneTotp'], isTrue);
+    expect(decoded.isStandaloneTotp, isTrue);
+  });
+
   test('password entry rejects missing required fields', () {
     expect(
       () => PasswordEntry.fromJson({

@@ -1,5 +1,8 @@
 #include "flutter_window.h"
 
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
+
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -33,6 +36,7 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  RegisterWindowMethodChannel();
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -50,6 +54,7 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   RemoveTrayIcon();
 
+  window_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -131,4 +136,36 @@ void FlutterWindow::RestoreFromTray(HWND window) {
   ShowWindow(window, SW_SHOWNORMAL);
   SetForegroundWindow(window);
   SetFocus(window);
+}
+
+void FlutterWindow::RegisterWindowMethodChannel() {
+  window_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "lockly/window",
+          &flutter::StandardMethodCodec::GetInstance());
+
+  window_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        HWND window = GetHandle();
+        if (!window) {
+          result->Error("window_unavailable", "Window handle is unavailable");
+          return;
+        }
+
+        if (call.method_name() == "minimize") {
+          ShowWindow(window, SW_MINIMIZE);
+          result->Success();
+          return;
+        }
+
+        if (call.method_name() == "close") {
+          PostMessage(window, WM_CLOSE, 0, 0);
+          result->Success();
+          return;
+        }
+
+        result->NotImplemented();
+      });
 }

@@ -258,17 +258,21 @@ void main() {
     );
   });
 
+  test('local auth fallback reason is localized for fingerprint unlock', () {
+    final authenticator = LocalAuthBiometricAuthenticator();
+
+    expect(authenticator.localizedReason, '使用指纹或面容解锁 Lockly');
+    expect(authenticator.localizedReason, isNot(contains('Authenticate')));
+  });
+
   test('secure storage store uses biometric Android options', () {
     final options = SecureStorageDekStore.defaultAndroidOptionsForTest;
     final params = options.toMap();
 
     expect(params['storageNamespace'], 'secure_box_biometric');
     expect(params['enforceBiometrics'], 'true');
-    expect(params['biometricPromptTitle'], 'Unlock Lockly');
-    expect(
-      params['biometricPromptSubtitle'],
-      'Authenticate to unlock your local vault',
-    );
+    expect(params['biometricPromptTitle'], '指纹/面容解锁 Lockly');
+    expect(params['biometricPromptSubtitle'], '使用系统生物识别解锁本地密码库');
     expect(params['migrateWithBackup'], 'false');
     expect(params['keyCipherAlgorithm'], 'AES_GCM_NoPadding');
     expect(params['storageCipherAlgorithm'], 'AES_GCM_NoPadding');
@@ -303,6 +307,24 @@ void main() {
         storage.lastAndroidOptions?.toMap()['biometricPromptTitle'],
         'Second prompt',
       );
+    },
+  );
+
+  test(
+    'secure storage store does not resolve Android options during construction',
+    () {
+      var providerCalls = 0;
+
+      expect(
+        () => SecureStorageDekStore(
+          androidOptionsProvider: () {
+            providerCalls += 1;
+            throw StateError('services not ready');
+          },
+        ),
+        returnsNormally,
+      );
+      expect(providerCalls, 0);
     },
   );
 

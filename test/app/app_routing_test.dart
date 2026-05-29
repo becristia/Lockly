@@ -93,7 +93,7 @@ void main() {
     expect(find.byType(SelectableText), findsNothing);
   });
 
-  testWidgets('security tab participates in unlocked shell navigation', (
+  testWidgets('unlocked shell exposes four primary tabs without security', (
     tester,
   ) async {
     final services = AppServices.fake(hasVault: true, unlocked: true);
@@ -101,10 +101,21 @@ void main() {
     await tester.pumpWidget(SecureBoxApp(services: services));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('vault-shell-security-tab')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('security-center-page')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vault-shell-vault-tab')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vault-shell-totp-tab')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('vault-shell-generator-tab')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('vault-shell-settings-tab')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('vault-shell-security-tab')),
+      findsNothing,
+    );
+    expect(find.byType(NavigationDestination), findsNWidgets(4));
 
     await tester.tap(find.byKey(const ValueKey('vault-shell-generator-tab')));
     await tester.pumpAndSettle();
@@ -113,7 +124,6 @@ void main() {
       find.byKey(const ValueKey('generator-generate-button')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('security-center-page')), findsNothing);
   });
 
   testWidgets('foreground interaction dismisses stale privacy cover', (

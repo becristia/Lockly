@@ -9,6 +9,7 @@ import 'package:secure_box/features/tag_management/tag_management_page.dart';
 import 'package:secure_box/shared/i18n/app_language.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/i18n/password_policy_strings.dart';
+import 'package:secure_box/shared/widgets/secure_dialog.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.services});
@@ -228,294 +229,303 @@ class _SettingsPageState extends State<SettingsPage> {
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 92),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              strings.settingsTitle,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontSize: 30,
-                height: 1.05,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 22),
-            SecureSection(
-              key: const ValueKey('settings-section-language'),
-              title: strings.languageTitle,
-              subtitle: strings.languageSubtitle,
-              icon: Icons.translate_rounded,
-              child: SecurePanel(
-                padding: const EdgeInsets.all(12),
-                child: SegmentedButton<AppLanguage>(
-                  segments: [
-                    ButtonSegment(
-                      value: AppLanguage.zh,
-                      label: Text(strings.text('zhLanguage')),
-                      icon: Icon(Icons.language_rounded),
-                    ),
-                    ButtonSegment(
-                      value: AppLanguage.en,
-                      label: Text(strings.text('enLanguage')),
-                      icon: Icon(Icons.language_rounded),
-                    ),
-                  ],
-                  selected: {widget.services.language},
-                  onSelectionChanged: (languages) {
-                    widget.services.recordActivity();
-                    widget.services.language = languages.first;
-                    setState(() {});
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-theme'),
-              title: strings.themeTitle,
-              subtitle: strings.themeSubtitle,
-              icon: Icons.palette_outlined,
-              child: SecurePanel(
-                padding: const EdgeInsets.all(12),
-                child: SegmentedButton<ThemeMode>(
-                  segments: [
-                    ButtonSegment(
-                      value: ThemeMode.light,
-                      label: Text(strings.themeLight),
-                      icon: const Icon(Icons.light_mode_outlined),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.dark,
-                      label: Text(strings.themeDark),
-                      icon: const Icon(Icons.dark_mode_outlined),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.system,
-                      label: Text(strings.themeSystem),
-                      icon: const Icon(Icons.settings_brightness_outlined),
-                    ),
-                  ],
-                  selected: {widget.services.themeMode},
-                  onSelectionChanged: (modes) {
-                    widget.services.recordActivity();
-                    widget.services.themeMode = modes.first;
-                    setState(() {});
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-unlock'),
-              title: strings.unlockSecurityTitle,
-              subtitle: strings.unlockSecuritySubtitle,
-              icon: Icons.verified_user_outlined,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    _ActionTile(
-                      icon: Icons.password_rounded,
-                      title: strings.changeMasterPassword,
-                      subtitle: strings.changeMasterPasswordSubtitle,
-                      onTap: _changeMasterPassword,
-                    ),
-                    const Divider(),
-                    SwitchListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                      ),
-                      secondary: const Icon(Icons.fingerprint_rounded),
-                      title: Text(strings.biometricTitle),
-                      subtitle: Text(strings.biometricSubtitle),
-                      value: _biometricEnabled,
-                      onChanged: _setBiometricEnabled,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-privacy'),
-              title: strings.privacyProtectionTitle,
-              subtitle: strings.privacyProtectionSubtitle,
-              icon: Icons.privacy_tip_outlined,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    _DurationTile(
-                      icon: Icons.lock_clock_rounded,
-                      title: strings.autoLockTitle,
-                      value: _autoLockTimeout,
-                      choices: _autoLockChoices,
-                      onChanged: _setAutoLockTimeout,
-                    ),
-                    const Divider(),
-                    _DurationTile(
-                      icon: Icons.content_paste_off_rounded,
-                      title: strings.clipboardCleanupTitle,
-                      value: _clipboardCleanupTimeout,
-                      choices: _clipboardChoices,
-                      onChanged: _setClipboardCleanupTimeout,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-health'),
-              title: strings.text('healthTitle'),
-              subtitle: strings.text('healthSubtitle'),
-              icon: Icons.health_and_safety_outlined,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                child: ListTile(
-                  leading: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: SecureVisualColors.blue.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(Icons.health_and_safety_outlined),
+        child: SizedBox(
+          width: double.infinity,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  strings.settingsTitle,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontSize: 30,
+                    height: 1.05,
+                    fontWeight: FontWeight.w900,
                   ),
-                  title: Text(strings.text('healthTitle')),
-                  subtitle: Text(strings.text('healthSubtitleShort')),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    widget.services.recordActivity();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            HealthPage(services: widget.services),
-                      ),
-                    );
-                  },
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-tags'),
-              title: strings.text('tagManagementTitle'),
-              subtitle: strings.text('tagManagementSubtitle'),
-              icon: Icons.sell_outlined,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                child: ListTile(
-                  leading: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: SecureVisualColors.blue.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(Icons.sell_outlined),
+              const SizedBox(height: 22),
+              SecureSection(
+                key: const ValueKey('settings-section-language'),
+                title: strings.languageTitle,
+                subtitle: strings.languageSubtitle,
+                icon: Icons.translate_rounded,
+                child: SecurePanel(
+                  padding: const EdgeInsets.all(12),
+                  child: SegmentedButton<AppLanguage>(
+                    expandedInsets: EdgeInsets.zero,
+                    segments: [
+                      ButtonSegment(
+                        value: AppLanguage.zh,
+                        label: Text(strings.text('zhLanguage')),
+                        icon: Icon(Icons.language_rounded),
+                      ),
+                      ButtonSegment(
+                        value: AppLanguage.en,
+                        label: Text(strings.text('enLanguage')),
+                        icon: Icon(Icons.language_rounded),
+                      ),
+                    ],
+                    selected: {widget.services.language},
+                    onSelectionChanged: (languages) {
+                      widget.services.recordActivity();
+                      widget.services.language = languages.first;
+                      setState(() {});
+                    },
                   ),
-                  title: Text(strings.text('tagManagementTitle')),
-                  subtitle: Text(strings.text('tagManagementSubtitleShort')),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    widget.services.recordActivity();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            TagManagementPage(services: widget.services),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-theme'),
+                title: strings.themeTitle,
+                subtitle: strings.themeSubtitle,
+                icon: Icons.palette_outlined,
+                child: SecurePanel(
+                  padding: const EdgeInsets.all(12),
+                  child: SegmentedButton<ThemeMode>(
+                    expandedInsets: EdgeInsets.zero,
+                    segments: [
+                      ButtonSegment(
+                        value: ThemeMode.light,
+                        label: Text(strings.themeLight),
+                        icon: const Icon(Icons.light_mode_outlined),
                       ),
-                    );
-                  },
+                      ButtonSegment(
+                        value: ThemeMode.dark,
+                        label: Text(strings.themeDark),
+                        icon: const Icon(Icons.dark_mode_outlined),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.system,
+                        label: Text(strings.themeSystem),
+                        icon: const Icon(Icons.settings_brightness_outlined),
+                      ),
+                    ],
+                    selected: {widget.services.themeMode},
+                    onSelectionChanged: (modes) {
+                      widget.services.recordActivity();
+                      widget.services.themeMode = modes.first;
+                      setState(() {});
+                    },
+                  ),
                 ),
               ),
-            ),
-            SecureSection(
-              key: const ValueKey('settings-section-lan-sync'),
-              title: strings.text('lanExchangeTitle'),
-              subtitle: strings.text('lanExchangeSubtitle'),
-              icon: Icons.lan_outlined,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    _ActionTile(
-                      key: const ValueKey('settings-lan-send'),
-                      icon: Icons.qr_code_2_rounded,
-                      title: strings.text('lanSendData'),
-                      subtitle: strings.text('lanSendDataSubtitle'),
-                      onTap: () {
-                        widget.services.recordActivity();
-                        Navigator.of(
-                          context,
-                        ).pushNamed(AppServices.routeLanSend);
-                      },
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      key: const ValueKey('settings-lan-receive'),
-                      icon: Icons.qr_code_scanner_rounded,
-                      title: strings.text('lanReceiveData'),
-                      subtitle: strings.text('lanReceiveDataSubtitle'),
-                      onTap: () {
-                        widget.services.recordActivity();
-                        Navigator.of(
-                          context,
-                        ).pushNamed(AppServices.routeLanReceive);
-                      },
-                    ),
-                  ],
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-unlock'),
+                title: strings.unlockSecurityTitle,
+                subtitle: strings.unlockSecuritySubtitle,
+                icon: Icons.verified_user_outlined,
+                child: SecurePanel(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      _ActionTile(
+                        icon: Icons.password_rounded,
+                        title: strings.changeMasterPassword,
+                        subtitle: strings.changeMasterPasswordSubtitle,
+                        onTap: _changeMasterPassword,
+                      ),
+                      const Divider(),
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                        ),
+                        secondary: const Icon(Icons.fingerprint_rounded),
+                        title: Text(strings.biometricTitle),
+                        subtitle: Text(strings.biometricSubtitle),
+                        value: _biometricEnabled,
+                        onChanged: _setBiometricEnabled,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-backup'),
-              title: strings.text('encryptedBackup'),
-              subtitle: strings.text('encryptedBackupSubtitle'),
-              icon: Icons.inventory_2_outlined,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    _ActionTile(
-                      icon: Icons.file_upload_outlined,
-                      title: strings.text('exportEncryptedBackup'),
-                      subtitle: strings.text('exportEncryptedBackupSubtitle'),
-                      onTap: _exportBackup,
-                    ),
-                    const Divider(),
-                    _ActionTile(
-                      icon: Icons.move_up_rounded,
-                      title: strings.text('migrationImport'),
-                      subtitle: strings.text('migrationImportSubtitle'),
-                      onTap: _importBackup,
-                    ),
-                  ],
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-privacy'),
+                title: strings.privacyProtectionTitle,
+                subtitle: strings.privacyProtectionSubtitle,
+                icon: Icons.privacy_tip_outlined,
+                child: SecurePanel(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      _DurationTile(
+                        icon: Icons.lock_clock_rounded,
+                        title: strings.autoLockTitle,
+                        value: _autoLockTimeout,
+                        choices: _autoLockChoices,
+                        onChanged: _setAutoLockTimeout,
+                      ),
+                      const Divider(),
+                      _DurationTile(
+                        icon: Icons.content_paste_off_rounded,
+                        title: strings.clipboardCleanupTitle,
+                        value: _clipboardCleanupTimeout,
+                        choices: _clipboardChoices,
+                        onChanged: _setClipboardCleanupTimeout,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            SecureSection(
-              key: const ValueKey('settings-section-danger'),
-              title: strings.text('dangerZone'),
-              subtitle: strings.text('dangerZoneSubtitle'),
-              icon: Icons.warning_amber_rounded,
-              child: SecurePanel(
-                padding: EdgeInsets.zero,
-                borderColor: Theme.of(
-                  context,
-                ).colorScheme.error.withValues(alpha: 0.35),
-                child: _ActionTile(
-                  icon: Icons.delete_outline_rounded,
-                  title: strings.text('clearLocalVaultTitle'),
-                  subtitle: strings.text('clearLocalVaultSubtitle'),
-                  destructive: true,
-                  onTap: _clearLocalVault,
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-health'),
+                title: strings.text('healthTitle'),
+                subtitle: strings.text('healthSubtitle'),
+                icon: Icons.health_and_safety_outlined,
+                child: SecurePanel(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: SecureVisualColors.blue.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.health_and_safety_outlined),
+                    ),
+                    title: Text(strings.text('healthTitle')),
+                    subtitle: Text(strings.text('healthSubtitleShort')),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      widget.services.recordActivity();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              HealthPage(services: widget.services),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-tags'),
+                title: strings.text('tagManagementTitle'),
+                subtitle: strings.text('tagManagementSubtitle'),
+                icon: Icons.sell_outlined,
+                child: SecurePanel(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: SecureVisualColors.blue.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.sell_outlined),
+                    ),
+                    title: Text(strings.text('tagManagementTitle')),
+                    subtitle: Text(strings.text('tagManagementSubtitleShort')),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      widget.services.recordActivity();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              TagManagementPage(services: widget.services),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-lan-sync'),
+                title: strings.text('lanExchangeTitle'),
+                subtitle: strings.text('lanExchangeSubtitle'),
+                icon: Icons.lan_outlined,
+                child: SecurePanel(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      _ActionTile(
+                        key: const ValueKey('settings-lan-send'),
+                        icon: Icons.qr_code_2_rounded,
+                        title: strings.text('lanSendData'),
+                        subtitle: strings.text('lanSendDataSubtitle'),
+                        onTap: () {
+                          widget.services.recordActivity();
+                          Navigator.of(
+                            context,
+                          ).pushNamed(AppServices.routeLanSend);
+                        },
+                      ),
+                      const Divider(),
+                      _ActionTile(
+                        key: const ValueKey('settings-lan-receive'),
+                        icon: Icons.qr_code_scanner_rounded,
+                        title: strings.text('lanReceiveData'),
+                        subtitle: strings.text('lanReceiveDataSubtitle'),
+                        onTap: () {
+                          widget.services.recordActivity();
+                          Navigator.of(
+                            context,
+                          ).pushNamed(AppServices.routeLanReceive);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-backup'),
+                title: strings.text('encryptedBackup'),
+                subtitle: strings.text('encryptedBackupSubtitle'),
+                icon: Icons.inventory_2_outlined,
+                child: SecurePanel(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      _ActionTile(
+                        icon: Icons.file_upload_outlined,
+                        title: strings.text('exportEncryptedBackup'),
+                        subtitle: strings.text('exportEncryptedBackupSubtitle'),
+                        onTap: _exportBackup,
+                      ),
+                      const Divider(),
+                      _ActionTile(
+                        icon: Icons.move_up_rounded,
+                        title: strings.text('migrationImport'),
+                        subtitle: strings.text('migrationImportSubtitle'),
+                        onTap: _importBackup,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SecureSection(
+                key: const ValueKey('settings-section-danger'),
+                title: strings.text('dangerZone'),
+                subtitle: strings.text('dangerZoneSubtitle'),
+                icon: Icons.warning_amber_rounded,
+                child: SecurePanel(
+                  padding: EdgeInsets.zero,
+                  borderColor: Theme.of(
+                    context,
+                  ).colorScheme.error.withValues(alpha: 0.35),
+                  child: _ActionTile(
+                    icon: Icons.delete_outline_rounded,
+                    title: strings.text('clearLocalVaultTitle'),
+                    subtitle: strings.text('clearLocalVaultSubtitle'),
+                    destructive: true,
+                    onTap: _clearLocalVault,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -524,6 +534,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<bool?> _showMasterPasswordChangeDialog(BuildContext context) async {
     return showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) =>
           _MasterPasswordChangeDialog(services: widget.services),
     );
@@ -593,64 +604,31 @@ class _ReplicaConfirmationDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final strings = AppStrings.of(context);
-    final color = destructive
-        ? SecureVisualColors.danger
-        : Theme.of(context).colorScheme.primary;
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 22),
-      backgroundColor: Colors.transparent,
-      child: SecureGlassCard(
-        borderRadius: 28,
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SecureIconBadge(
-              icon: destructive
-                  ? Icons.delete_outline_rounded
-                  : Icons.verified_user_outlined,
-              color: color,
-              size: 82,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: color,
-                  foregroundColor: Colors.white,
-                ),
-                child: Text(confirmLabel),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text(strings.text('cancel')),
-              ),
-            ),
-          ],
+    return SecureDialog(
+      icon: destructive
+          ? Icons.delete_outline_rounded
+          : Icons.verified_user_outlined,
+      title: title,
+      message: message,
+      destructive: destructive,
+      actions: [
+        if (destructive)
+          SecureDialogAction.destructive(
+            label: confirmLabel,
+            icon: Icons.delete_outline_rounded,
+            onPressed: () => Navigator.of(context).pop(true),
+          )
+        else
+          SecureDialogAction.primary(
+            label: confirmLabel,
+            icon: Icons.check_rounded,
+            onPressed: () => Navigator.of(context).pop(true),
+          ),
+        SecureDialogAction.cancel(
+          context,
+          onPressed: () => Navigator.of(context).pop(false),
         ),
-      ),
+      ],
     );
   }
 }
@@ -693,132 +671,113 @@ class _MasterPasswordChangeDialogState
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-      backgroundColor: Colors.transparent,
-      child: SingleChildScrollView(
-        child: SecureGlassCard(
-          borderRadius: 28,
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    onPressed: _isSaving
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
+    return PopScope(
+      canPop: !_isSaving,
+      child: SecureDialog(
+        icon: Icons.key_rounded,
+        title: strings.changeMasterPassword,
+        message: strings.text('changeMasterPasswordAdvice'),
+        actions: [
+          SecureDialogAction.primary(
+            label: strings.text('save'),
+            icon: Icons.save_outlined,
+            onPressed: _isSaving ? null : _submit,
+            busy: _isSaving,
+          ),
+          SecureDialogAction.cancel(
+            context,
+            onPressed: () => Navigator.of(context).pop(),
+            enabled: !_isSaving,
+          ),
+        ],
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _oldPasswordController,
+                decoration: InputDecoration(
+                  labelText: strings.text('currentMasterPassword'),
+                  suffixIcon: IconButton(
+                    tooltip: _oldObscured
+                        ? strings.text('showMasterPassword')
+                        : strings.text('hideMasterPassword'),
+                    onPressed: () =>
+                        setState(() => _oldObscured = !_oldObscured),
+                    icon: Icon(
+                      _oldObscured
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
                   ),
                 ),
-                const SecureIconBadge(icon: Icons.key_rounded, size: 76),
-                const SizedBox(height: 18),
+                obscureText: _oldObscured,
+                enableSuggestions: false,
+                autocorrect: false,
+                validator: (value) =>
+                    _SettingsPageState._requiredPassword(value, strings),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _newPasswordController,
+                decoration: InputDecoration(
+                  labelText: strings.text('newMasterPassword'),
+                  suffixIcon: IconButton(
+                    tooltip: _newObscured
+                        ? strings.text('showMasterPassword')
+                        : strings.text('hideMasterPassword'),
+                    onPressed: () =>
+                        setState(() => _newObscured = !_newObscured),
+                    icon: Icon(
+                      _newObscured
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
+                obscureText: _newObscured,
+                enableSuggestions: false,
+                autocorrect: false,
+                validator: (value) =>
+                    _SettingsPageState._validateNewPassword(value, strings),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _confirmPasswordController,
+                decoration: InputDecoration(
+                  labelText: strings.text('confirmNewMasterPassword'),
+                  suffixIcon: IconButton(
+                    tooltip: _confirmObscured
+                        ? strings.text('showMasterPassword')
+                        : strings.text('hideMasterPassword'),
+                    onPressed: () =>
+                        setState(() => _confirmObscured = !_confirmObscured),
+                    icon: Icon(
+                      _confirmObscured
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
+                obscureText: _confirmObscured,
+                enableSuggestions: false,
+                autocorrect: false,
+                validator: (value) {
+                  if (value != _newPasswordController.text) {
+                    return strings.text('passwordMismatch');
+                  }
+                  return null;
+                },
+              ),
+              if (_errorText != null) ...[
+                const SizedBox(height: 12),
                 Text(
-                  strings.changeMasterPassword,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  strings.text('changeMasterPasswordAdvice'),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: _oldPasswordController,
-                  decoration: InputDecoration(
-                    labelText: strings.text('currentMasterPassword'),
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _oldObscured = !_oldObscured),
-                      icon: Icon(
-                        _oldObscured
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                    ),
-                  ),
-                  obscureText: _oldObscured,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  validator: (value) =>
-                      _SettingsPageState._requiredPassword(value, strings),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _newPasswordController,
-                  decoration: InputDecoration(
-                    labelText: strings.text('newMasterPassword'),
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _newObscured = !_newObscured),
-                      icon: Icon(
-                        _newObscured
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                    ),
-                  ),
-                  obscureText: _newObscured,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  validator: (value) =>
-                      _SettingsPageState._validateNewPassword(value, strings),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _confirmPasswordController,
-                  decoration: InputDecoration(
-                    labelText: strings.text('confirmNewMasterPassword'),
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _confirmObscured = !_confirmObscured),
-                      icon: Icon(
-                        _confirmObscured
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                      ),
-                    ),
-                  ),
-                  obscureText: _confirmObscured,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  validator: (value) {
-                    if (value != _newPasswordController.text) {
-                      return strings.text('passwordMismatch');
-                    }
-                    return null;
-                  },
-                ),
-                if (_errorText != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _errorText!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 22),
-                SecureGradientButton(
-                  onPressed: _isSaving ? null : _submit,
-                  label: strings.text('save'),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: _isSaving
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    child: Text(strings.text('cancel')),
-                  ),
+                  _errorText!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -897,94 +856,67 @@ class _MasterPasswordPromptDialogState
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-      backgroundColor: Colors.transparent,
-      child: SecureGlassCard(
-        borderRadius: 28,
-        padding: const EdgeInsets.all(28),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SecureIconBadge(icon: widget.icon, size: 82),
-              const SizedBox(height: 22),
-              Text(
-                widget.title,
-                style: Theme.of(context).textTheme.headlineSmall,
+    return SecureDialog(
+      icon: widget.icon,
+      title: widget.title,
+      message: widget.subtitle,
+      actions: [
+        SecureDialogAction.primary(
+          label: widget.submitLabel,
+          icon: Icons.lock_open_rounded,
+          onPressed: _submit,
+        ),
+        SecureDialogAction.cancel(context),
+      ],
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _controller,
+              decoration: InputDecoration(
+                labelText: strings.text('masterPassword'),
+                suffixIcon: IconButton(
+                  tooltip: _obscureMasterPassword
+                      ? strings.text('showMasterPassword')
+                      : strings.text('hideMasterPassword'),
+                  onPressed: () {
+                    setState(
+                      () => _obscureMasterPassword = !_obscureMasterPassword,
+                    );
+                  },
+                  icon: Icon(
+                    _obscureMasterPassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                ),
               ),
-              if (widget.subtitle != null) ...[
-                const SizedBox(height: 10),
+              obscureText: _obscureMasterPassword,
+              enableSuggestions: false,
+              autocorrect: false,
+              validator: (value) =>
+                  _SettingsPageState._requiredPassword(value, strings),
+              onFieldSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.lock_outline_rounded,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 6),
                 Text(
-                  widget.subtitle!,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  strings.text('localOnlyInfo'),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _controller,
-                decoration: InputDecoration(
-                  labelText: strings.text('masterPassword'),
-                  suffixIcon: IconButton(
-                    tooltip: _obscureMasterPassword
-                        ? strings.text('showMasterPassword')
-                        : strings.text('hideMasterPassword'),
-                    onPressed: () {
-                      setState(
-                        () => _obscureMasterPassword = !_obscureMasterPassword,
-                      );
-                    },
-                    icon: Icon(
-                      _obscureMasterPassword
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                    ),
-                  ),
-                ),
-                obscureText: _obscureMasterPassword,
-                enableSuggestions: false,
-                autocorrect: false,
-                validator: (value) =>
-                    _SettingsPageState._requiredPassword(value, strings),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: Text(strings.text('cancel')),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: SecureGradientButton(
-                      onPressed: _submit,
-                      label: widget.submitLabel,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.lock_outline_rounded,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    strings.text('localOnlyInfo'),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1064,67 +996,49 @@ class _BackupExportDialogState extends State<_BackupExportDialog> {
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-      backgroundColor: Colors.transparent,
-      child: SecureGlassCard(
-        borderRadius: 28,
-        padding: const EdgeInsets.all(24),
+    final theme = Theme.of(context);
+    return SecureDialog(
+      icon: Icons.file_upload_outlined,
+      title: strings.text('backupExportTitle'),
+      message: strings.text('backupExportSubtitle'),
+      actions: [
+        SecureDialogAction.primary(
+          label: _copied ? strings.text('copied') : strings.text('copyBackup'),
+          icon: _copied ? Icons.check_rounded : Icons.copy_rounded,
+          onPressed: _copyBackupJson,
+        ),
+        SecureDialogAction.secondary(
+          label: strings.text('clearClipboardNow'),
+          icon: Icons.cleaning_services_outlined,
+          onPressed: _clearClipboardNow,
+        ),
+        SecureDialogAction.close(context),
+      ],
+      child: SizedBox(
+        width: double.infinity,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SecureIconBadge(icon: Icons.file_upload_outlined, size: 76),
-            const SizedBox(height: 18),
-            Text(
-              strings.text('backupExportTitle'),
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              strings.text('backupExportSubtitle'),
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            SecureGlassCard(
-              padding: const EdgeInsets.all(14),
-              borderRadius: 16,
-              shadow: false,
-              color: Theme.of(
-                context,
-              ).colorScheme.surface.withValues(alpha: 0.72),
-              borderColor: Theme.of(context).colorScheme.outlineVariant,
-              child: Text(
-                strings
-                    .text('backupPreparedNoPreview')
-                    .replaceFirst(
-                      '{bytes}',
-                      widget.backupJson.length.toString(),
-                    ),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.64,
+                ),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
               ),
-            ),
-            const SizedBox(height: 20),
-            SecureGradientButton(
-              onPressed: _copyBackupJson,
-              icon: _copied ? Icons.check_rounded : Icons.copy_rounded,
-              label: _copied
-                  ? strings.text('copied')
-                  : strings.text('copyBackup'),
-            ),
-            const SizedBox(height: 10),
-            TextButton.icon(
-              onPressed: _clearClipboardNow,
-              icon: const Icon(Icons.cleaning_services_outlined),
-              label: Text(strings.text('clearClipboardNow')),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(strings.text('close')),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  strings
+                      .text('backupPreparedNoPreview')
+                      .replaceFirst(
+                        '{bytes}',
+                        widget.backupJson.length.toString(),
+                      ),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
               ),
             ),
           ],

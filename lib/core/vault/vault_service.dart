@@ -94,11 +94,13 @@ class TotpListItem {
     required this.title,
     required this.username,
     required this.totpSecret,
+    this.isStandalone = false,
   });
   final String id;
   final String title;
   final String username;
   final String totpSecret;
+  final bool isStandalone;
 }
 
 class VaultBlobListItem {
@@ -1364,6 +1366,9 @@ class VaultService {
 
     for (final item in items) {
       final entry = await _decryptItem(item);
+      if (entry.isStandaloneTotp) {
+        continue;
+      }
       if (normalizedQuery.isNotEmpty &&
           !_matchesQuery(entry: entry, query: normalizedQuery)) {
         continue;
@@ -1382,6 +1387,27 @@ class VaultService {
     }
 
     return List.unmodifiable(results);
+  }
+
+  Future<List<VaultItemImportIdentity>> listActiveItemIdentities() async {
+    _ensureUnlocked();
+    await _verifyCurrentManifestWithActiveSession();
+    final items = await repository.itemsDao.activeItems();
+    final identities = <VaultItemImportIdentity>[];
+
+    for (final item in items) {
+      final entry = await _decryptItem(item);
+      identities.add(
+        VaultItemImportIdentity(
+          id: item.id,
+          title: entry.title,
+          website: entry.website,
+          username: entry.username,
+        ),
+      );
+    }
+
+    return List.unmodifiable(identities);
   }
 
   Future<String> addBlob({
@@ -1761,6 +1787,8 @@ class VaultService {
             notes: currentEntry.notes,
             tags: currentEntry.tags,
             totpSecret: currentEntry.totpSecret,
+            passkey: currentEntry.passkey,
+            isStandaloneTotp: currentEntry.isStandaloneTotp,
           );
 
           final updatedItem = await _encryptEntryWithDek(
@@ -1784,7 +1812,7 @@ class VaultService {
     }
   }
 
-  Future<Map<String, String?>> _decryptItemForHealth(
+  Future<Map<String, String?>?> _decryptItemForHealth(
     EncryptedVaultItem item,
     Uint8List dek,
   ) async {
@@ -1803,6 +1831,9 @@ class VaultService {
         throw const VaultIntegrityException('Health item payload is malformed');
       }
       final entry = PasswordEntry.fromJson(Map<String, Object?>.from(decoded));
+      if (entry.isStandaloneTotp) {
+        return null;
+      }
       return {
         'id': item.id,
         'title': entry.title,
@@ -1830,7 +1861,10 @@ class VaultService {
         final results = <Map<String, String?>>[];
         for (final item in activeItems) {
           try {
-            results.add(await _decryptItemForHealth(item, dek));
+            final result = await _decryptItemForHealth(item, dek);
+            if (result != null) {
+              results.add(result);
+            }
           } on VaultIntegrityException {
             rethrow;
           } on Object {
@@ -1887,6 +1921,7 @@ class VaultService {
                 title: entry.title,
                 username: entry.username,
                 totpSecret: entry.totpSecret!,
+                isStandalone: entry.isStandaloneTotp,
               ),
             );
           } on VaultIntegrityException {
@@ -1997,6 +2032,8 @@ class VaultService {
               notes: entry.notes,
               tags: newTags,
               totpSecret: entry.totpSecret,
+              passkey: entry.passkey,
+              isStandaloneTotp: entry.isStandaloneTotp,
             );
             final updatedItem = await _encryptEntryWithDek(
               dek: dek,
@@ -2059,6 +2096,8 @@ class VaultService {
               notes: entry.notes,
               tags: newTags,
               totpSecret: entry.totpSecret,
+              passkey: entry.passkey,
+              isStandaloneTotp: entry.isStandaloneTotp,
             );
             final updatedItem = await _encryptEntryWithDek(
               dek: dek,

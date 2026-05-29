@@ -25,7 +25,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Size size(430, 860);
+  Win32Window::Size size(392, 784);
   Win32Window::Point origin(
       (::GetSystemMetrics(SM_CXSCREEN) - size.width) / 2,
       (::GetSystemMetrics(SM_CYSCREEN) - size.height) / 2);

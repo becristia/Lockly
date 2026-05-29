@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <windowsx.h>
 
 #include "resource.h"
 
@@ -25,6 +26,16 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
   L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+
+constexpr UINT_PTR kTopRightAutoHideTimerId = 0x4c01;
+constexpr UINT kAutoHidePollMs = 50;
+constexpr ULONGLONG kAutoHideDelayMs = 700;
+constexpr ULONGLONG kSlideAnimationMs = 180;
+constexpr int kHiddenGripWidth = 6;
+constexpr int kRevealHotZoneWidth = 18;
+constexpr int kRightDockSnapThreshold = 96;
+constexpr int kDragHandleHeight = 34;
+constexpr int kChromeButtonStripWidth = 96;
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -134,8 +145,10 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  constexpr DWORD kFramelessWindowStyle =
+      WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
   HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+      window_class, title.c_str(), kFramelessWindowStyle,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
@@ -150,6 +163,8 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
+  AlignToTopRightWorkArea();
+  StartTopRightAutoHideTimer();
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 
@@ -179,7 +194,40 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_NCHITTEST: {
+      const LRESULT hit = DefWindowProc(hwnd, message, wparam, lparam);
+      if (hit != HTCLIENT) {
+        return hit;
+      }
+
+      RECT window_rect;
+      if (!GetWindowRect(hwnd, &window_rect)) {
+        return hit;
+      }
+
+      const POINT cursor = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      const bool is_drag_zone =
+          cursor.y >= window_rect.top &&
+          cursor.y < window_rect.top + kDragHandleHeight &&
+          cursor.x >= window_rect.left &&
+          cursor.x < window_rect.right - kChromeButtonStripWidth;
+      return is_drag_zone ? HTCAPTION : hit;
+    }
+
+    case WM_TIMER:
+      if (wparam == kTopRightAutoHideTimerId) {
+        ApplyEdgeSlideAnimation();
+        HandleTopRightAutoHideTimer();
+        return 0;
+      }
+      break;
+
+    case WM_EXITSIZEMOVE:
+      HandleTopRightDockAfterMove();
+      return 0;
+
     case WM_DESTROY:
+      StopTopRightAutoHideTimer();
       window_handle_ = nullptr;
       Destroy();
       if (quit_on_close_) {
@@ -222,6 +270,7 @@ Win32Window::MessageHandler(HWND hwnd,
 }
 
 void Win32Window::Destroy() {
+  StopTopRightAutoHideTimer();
   OnDestroy();
 
   if (window_handle_) {
@@ -261,6 +310,292 @@ HWND Win32Window::GetHandle() {
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
+}
+
+void Win32Window::AlignToTopRightWorkArea() {
+  if (!window_handle_) {
+    return;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return;
+  }
+
+  MONITORINFO monitor_info;
+  if (!GetCurrentMonitorInfo(&monitor_info)) {
+    return;
+  }
+
+  const int window_width = window_rect.right - window_rect.left;
+  const int x = monitor_info.rcWork.right - window_width;
+  const int y = monitor_info.rcWork.top;
+  SetWindowPos(window_handle_, nullptr, x, y, 0, 0,
+               SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  is_auto_hidden_ = false;
+  is_right_docked_ = true;
+  is_sliding_ = false;
+  slide_target_hidden_ = false;
+  dock_top_ = y;
+  cursor_left_window_at_ = 0;
+}
+
+void Win32Window::StartTopRightAutoHideTimer() {
+  if (!window_handle_) {
+    return;
+  }
+
+  SetTimer(window_handle_, kTopRightAutoHideTimerId, kAutoHidePollMs, nullptr);
+}
+
+void Win32Window::StopTopRightAutoHideTimer() {
+  if (window_handle_) {
+    KillTimer(window_handle_, kTopRightAutoHideTimerId);
+  }
+}
+
+void Win32Window::HandleTopRightAutoHideTimer() {
+  if (!window_handle_ || IsIconic(window_handle_) || is_sliding_) {
+    return;
+  }
+
+  POINT cursor;
+  if (!GetCursorPos(&cursor)) {
+    return;
+  }
+
+  if (is_auto_hidden_) {
+    if (IsCursorInRevealHotZone(cursor)) {
+      RevealFromRightEdge();
+    }
+    return;
+  }
+
+  if (!is_right_docked_) {
+    return;
+  }
+
+  if (IsCursorInsideWindow(cursor)) {
+    cursor_left_window_at_ = 0;
+    return;
+  }
+
+  const ULONGLONG now = GetTickCount64();
+  if (cursor_left_window_at_ == 0) {
+    cursor_left_window_at_ = now;
+    return;
+  }
+
+  if (now - cursor_left_window_at_ >= kAutoHideDelayMs) {
+    HideToRightEdge();
+  }
+}
+
+void Win32Window::HandleTopRightDockAfterMove() {
+  if (!window_handle_) {
+    return;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return;
+  }
+
+  MONITORINFO monitor_info;
+  if (!GetCurrentMonitorInfo(&monitor_info)) {
+    return;
+  }
+
+  const int distance_to_right =
+      monitor_info.rcWork.right > window_rect.right
+          ? monitor_info.rcWork.right - window_rect.right
+          : window_rect.right - monitor_info.rcWork.right;
+  if (distance_to_right > kRightDockSnapThreshold) {
+    is_auto_hidden_ = false;
+    is_right_docked_ = false;
+    is_sliding_ = false;
+    slide_target_hidden_ = false;
+    cursor_left_window_at_ = 0;
+    return;
+  }
+
+  dock_top_ = ClampedDockTop(window_rect, monitor_info);
+  SetWindowPos(window_handle_, nullptr, DockedRightX(window_rect, monitor_info),
+               dock_top_, 0, 0,
+               SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  is_auto_hidden_ = false;
+  is_right_docked_ = true;
+  is_sliding_ = false;
+  slide_target_hidden_ = false;
+  cursor_left_window_at_ = 0;
+}
+
+void Win32Window::HideToRightEdge() {
+  if (!window_handle_) {
+    return;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return;
+  }
+
+  MONITORINFO monitor_info;
+  if (!GetCurrentMonitorInfo(&monitor_info)) {
+    return;
+  }
+
+  dock_top_ = ClampedDockTop(window_rect, monitor_info);
+  StartEdgeSlideAnimation(HiddenRightX(monitor_info), true);
+  cursor_left_window_at_ = 0;
+}
+
+void Win32Window::RevealFromRightEdge() {
+  if (!window_handle_) {
+    return;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return;
+  }
+
+  MONITORINFO monitor_info;
+  if (!GetCurrentMonitorInfo(&monitor_info)) {
+    return;
+  }
+
+  dock_top_ = ClampedDockTop(window_rect, monitor_info);
+  StartEdgeSlideAnimation(DockedRightX(window_rect, monitor_info), false);
+  cursor_left_window_at_ = 0;
+}
+
+void Win32Window::StartEdgeSlideAnimation(int target_x, bool target_hidden) {
+  if (!window_handle_) {
+    return;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return;
+  }
+
+  slide_start_x_ = window_rect.left;
+  slide_target_x_ = target_x;
+  slide_target_hidden_ = target_hidden;
+  slide_started_at_ = GetTickCount64();
+  is_sliding_ = true;
+  SetTimer(window_handle_, kTopRightAutoHideTimerId, kAutoHidePollMs, nullptr);
+}
+
+void Win32Window::ApplyEdgeSlideAnimation() {
+  if (!window_handle_ || !is_sliding_) {
+    return;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    is_sliding_ = false;
+    return;
+  }
+
+  const ULONGLONG elapsed = GetTickCount64() - slide_started_at_;
+  int next_x = slide_target_x_;
+  if (elapsed < kSlideAnimationMs) {
+    next_x = slide_start_x_ +
+             static_cast<int>((slide_target_x_ - slide_start_x_) *
+                              static_cast<LONGLONG>(elapsed) /
+                              static_cast<LONGLONG>(kSlideAnimationMs));
+  }
+
+  HWND z_order = slide_target_hidden_ ? nullptr : HWND_TOP;
+  UINT flags = SWP_NOSIZE | SWP_NOACTIVATE;
+  if (slide_target_hidden_) {
+    flags |= SWP_NOZORDER;
+  }
+  SetWindowPos(window_handle_, z_order, next_x, dock_top_, 0, 0, flags);
+
+  if (elapsed >= kSlideAnimationMs) {
+    is_sliding_ = false;
+    is_auto_hidden_ = slide_target_hidden_;
+    is_right_docked_ = true;
+    cursor_left_window_at_ = 0;
+  }
+}
+
+int Win32Window::DockedRightX(const RECT& window_rect,
+                              const MONITORINFO& monitor_info) const {
+  const int window_width = window_rect.right - window_rect.left;
+  return monitor_info.rcWork.right - window_width;
+}
+
+int Win32Window::HiddenRightX(const MONITORINFO& monitor_info) const {
+  return monitor_info.rcWork.right - kHiddenGripWidth;
+}
+
+int Win32Window::ClampedDockTop(const RECT& window_rect,
+                                const MONITORINFO& monitor_info) const {
+  const int window_height = window_rect.bottom - window_rect.top;
+  const int lowest_top =
+      monitor_info.rcWork.bottom - window_height > monitor_info.rcWork.top
+          ? monitor_info.rcWork.bottom - window_height
+          : monitor_info.rcWork.top;
+  if (window_rect.top < monitor_info.rcWork.top) {
+    return monitor_info.rcWork.top;
+  }
+  if (window_rect.top > lowest_top) {
+    return lowest_top;
+  }
+  return window_rect.top;
+}
+
+bool Win32Window::GetCurrentMonitorInfo(MONITORINFO* monitor_info) const {
+  if (!window_handle_ || monitor_info == nullptr) {
+    return false;
+  }
+
+  monitor_info->cbSize = sizeof(MONITORINFO);
+  HMONITOR monitor = MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST);
+  return monitor != nullptr && GetMonitorInfo(monitor, monitor_info);
+}
+
+bool Win32Window::IsCursorInsideWindow(const POINT& cursor) const {
+  if (!window_handle_) {
+    return false;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return false;
+  }
+
+  return cursor.x >= window_rect.left && cursor.x < window_rect.right &&
+         cursor.y >= window_rect.top && cursor.y < window_rect.bottom;
+}
+
+bool Win32Window::IsCursorInRevealHotZone(const POINT& cursor) const {
+  if (!window_handle_) {
+    return false;
+  }
+
+  RECT window_rect;
+  if (!GetWindowRect(window_handle_, &window_rect)) {
+    return false;
+  }
+
+  MONITORINFO monitor_info;
+  if (!GetCurrentMonitorInfo(&monitor_info)) {
+    return false;
+  }
+
+  const int window_height = window_rect.bottom - window_rect.top;
+  const int reveal_bottom =
+      dock_top_ + window_height < monitor_info.rcWork.bottom
+          ? dock_top_ + window_height
+          : monitor_info.rcWork.bottom;
+  return cursor.x >= monitor_info.rcWork.right - kRevealHotZoneWidth &&
+         cursor.x < monitor_info.rcWork.right &&
+         cursor.y >= dock_top_ && cursor.y < reveal_bottom;
 }
 
 bool Win32Window::OnCreate() {

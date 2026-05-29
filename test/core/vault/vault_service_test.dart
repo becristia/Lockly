@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/biometric/biometric_service.dart';
 import 'package:secure_box/core/crypto/crypto_service.dart';
 import 'package:secure_box/core/crypto/encoding.dart';
@@ -1398,6 +1399,178 @@ void main() {
       expect(remainingItems.map((item) => item.id), [githubId]);
     },
   );
+
+  test('listItems skips standalone TOTP entries', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+
+    final passwordId = await service.createItem(_entry(title: 'GitHub'));
+    await service.createItem(
+      _entry(
+        title: 'GitHub MFA',
+        password: '',
+        tags: const ['mfa'],
+        totpSecret: 'JBSWY3DPEHPK3PXP',
+        isStandaloneTotp: true,
+      ),
+    );
+
+    final items = await service.listItems();
+
+    expect(items.map((item) => item.id), [passwordId]);
+  });
+
+  test('analyzePasswordHealth skips standalone TOTP entries', () async {
+    final service = await buildService();
+    await service.createVault(masterPassword: 'master-passphrase');
+    await service.unlock(masterPassword: 'master-passphrase');
+    await service.createItem(
+      _entry(
+        title: 'GitHub MFA',
+        password: '',
+        tags: const ['mfa'],
+        totpSecret: 'JBSWY3DPEHPK3PXP',
+        isStandaloneTotp: true,
+      ),
+    );
+
+    final report = await service.analyzePasswordHealth(
+      healthService: PasswordHealthService(),
+    );
+
+    expect(report.totalItems, 0);
+    expect(report.findings, isEmpty);
+  });
+
+  test(
+    'listTotpItems includes linked and standalone entries with flags',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      await service.createItem(
+        _entry(title: 'GitHub', totpSecret: 'JBSWY3DPEHPK3PXP'),
+      );
+      await service.createItem(
+        _entry(
+          title: 'GitHub MFA',
+          password: '',
+          tags: const ['mfa'],
+          totpSecret: 'JBSWY3DPEHPK3PXP',
+          isStandaloneTotp: true,
+        ),
+      );
+
+      final items = await service.listTotpItems();
+      final linked = items.singleWhere((item) => item.title == 'GitHub');
+      final standalone = items.singleWhere(
+        (item) => item.title == 'GitHub MFA',
+      );
+
+      expect(linked.isStandalone, isFalse);
+      expect(standalone.isStandalone, isTrue);
+      expect(items.map((item) => item.totpSecret), everyElement(isNotEmpty));
+    },
+  );
+
+  test(
+    'tag rewrites preserve standalone marker and passkey metadata',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(
+        _entry(
+          title: 'GitHub MFA',
+          password: '',
+          tags: const ['mfa', 'old'],
+          totpSecret: 'JBSWY3DPEHPK3PXP',
+          isStandaloneTotp: true,
+          passkey: _testPasskey,
+        ),
+      );
+
+      await service.renameTag('old', 'new');
+      var entry = await service.getItem(id);
+      expect(entry.isStandaloneTotp, isTrue);
+      expect(entry.passkey!.credentialId, _testPasskey.credentialId);
+      expect(entry.tags, contains('new'));
+
+      await service.deleteTag('new');
+      entry = await service.getItem(id);
+      expect(entry.isStandaloneTotp, isTrue);
+      expect(entry.passkey!.credentialId, _testPasskey.credentialId);
+      expect(entry.tags, isNot(contains('new')));
+    },
+  );
+
+  test(
+    'restorePassword preserves standalone marker and passkey metadata',
+    () async {
+      final service = await buildService();
+      await service.createVault(masterPassword: 'master-passphrase');
+      await service.unlock(masterPassword: 'master-passphrase');
+      final id = await service.createItem(
+        _entry(
+          title: 'GitHub MFA',
+          password: 'old-password-123A!',
+          tags: const ['mfa'],
+          totpSecret: 'JBSWY3DPEHPK3PXP',
+          isStandaloneTotp: true,
+          passkey: _testPasskey,
+        ),
+      );
+      await service.updateItem(
+        id,
+        _entry(
+          title: 'GitHub MFA',
+          password: 'new-password-123A!',
+          tags: const ['mfa'],
+          totpSecret: 'JBSWY3DPEHPK3PXP',
+          isStandaloneTotp: true,
+          passkey: _testPasskey,
+        ),
+      );
+      final history = await service.listPasswordHistory(id);
+
+      await service.restorePassword(id, history.single['id'] as int);
+
+      final entry = await service.getItem(id);
+      expect(entry.password, 'old-password-123A!');
+      expect(entry.isStandaloneTotp, isTrue);
+      expect(entry.passkey!.credentialId, _testPasskey.credentialId);
+    },
+  );
+
+  test(
+    'fake AppServices listTotpItems reads linked and standalone seed items',
+    () async {
+      final services = AppServices.fake(
+        hasVault: true,
+        unlocked: true,
+        initialVaultItems: [
+          _entry(title: 'GitHub', totpSecret: 'JBSWY3DPEHPK3PXP'),
+          _entry(
+            title: 'GitHub MFA',
+            password: '',
+            tags: const ['mfa'],
+            totpSecret: 'JBSWY3DPEHPK3PXP',
+            isStandaloneTotp: true,
+          ),
+        ],
+      );
+
+      final items = await services.listTotpItems();
+      final linked = items.singleWhere((item) => item.title == 'GitHub');
+      final standalone = items.singleWhere(
+        (item) => item.title == 'GitHub MFA',
+      );
+
+      expect(linked.isStandalone, isFalse);
+      expect(standalone.isStandalone, isTrue);
+    },
+  );
 }
 
 BiometricService _memoryBiometricService() {
@@ -1470,11 +1643,23 @@ VaultManifest _tamperManifestMac(VaultManifest manifest) {
   return manifest.copyWith(mac: _tamperBase64(manifest.mac));
 }
 
+const _testPasskey = PasskeyRecord(
+  relyingPartyId: 'github.com',
+  credentialId: 'credential-id',
+  userHandle: 'user-handle',
+  displayName: 'Alice',
+  publicKeyAlgorithm: 'ES256',
+  platform: 'android',
+  platformReady: false,
+);
+
 PasswordEntry _entry({
   String title = 'GitHub',
   String password = 'secret-password',
   List<String> tags = const ['dev'],
   String? totpSecret,
+  bool isStandaloneTotp = false,
+  PasskeyRecord? passkey,
 }) {
   return PasswordEntry(
     title: title,
@@ -1484,6 +1669,8 @@ PasswordEntry _entry({
     notes: 'private note',
     tags: tags,
     totpSecret: totpSecret,
+    isStandaloneTotp: isStandaloneTotp,
+    passkey: passkey,
   );
 }
 

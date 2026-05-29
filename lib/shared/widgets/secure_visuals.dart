@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 
 class SecureVisualColors {
-  static const navy = Color(0xFF111827);
-  static const text = Color(0xFF111827);
-  static const muted = Color(0xFF5F6B7A);
-  static const blue = Color(0xFF0369A1);
-  static const cyan = Color(0xFF0F766E);
-  static const paleBlue = Color(0xFFE8F3FA);
+  static const navy = Color(0xFF0F172A);
+  static const text = Color(0xFF0F172A);
+  static const muted = Color(0xFF64748B);
+  static const blue = Color(0xFF0284C7);
+  static const cyan = Color(0xFF06B6D4);
+  static const paleBlue = Color(0xFFF0F9FF);
   static const card = Color(0xFFFFFFFF);
-  static const line = Color(0xFFD7DDE5);
-  static const danger = Color(0xFFB42318);
-  static const success = Color(0xFF15803D);
+  static const line = Color(0xFFE2EEF7);
+  static const danger = Color(0xFFDC2626);
+  static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFB7791F);
-  static const softSurface = Color(0xFFF6F7F9);
+  static const softSurface = Color(0xFFFCFEFF);
   static const amberSurface = Color(0xFFFFF7E6);
   static const dangerSurface = Color(0xFFFFF1F0);
   static const successSurface = Color(0xFFEAF7EE);
@@ -94,7 +94,7 @@ class _SecureBackgroundMark extends StatelessWidget {
         child: Icon(
           icon,
           size: size,
-          color: SecureVisualColors.blue.withValues(alpha: 0.045),
+          color: SecureVisualColors.blue.withValues(alpha: 0.032),
         ),
       ),
     );
@@ -131,9 +131,9 @@ class SecureGlassCard extends StatelessWidget {
         boxShadow: shadow
             ? [
                 BoxShadow(
-                  color: SecureVisualColors.navy.withValues(alpha: 0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
+                  color: SecureVisualColors.navy.withValues(alpha: 0.035),
+                  blurRadius: 18,
+                  offset: const Offset(0, 7),
                 ),
               ]
             : null,

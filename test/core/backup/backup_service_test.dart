@@ -1069,6 +1069,63 @@ void main() {
   );
 
   test(
+    'conflict-aware import skips existing standalone TOTP identities',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final conflictId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub MFA',
+          website: '',
+          username: 'mfa@example.com',
+          password: '',
+          notes: '',
+          tags: const ['mfa'],
+          totpSecret: 'JBSWY3DPEHPK3PXP',
+          isStandaloneTotp: true,
+        ),
+      );
+      final backup = await source.backupService.exportSelectedItemsBackup(
+        itemIds: [conflictId],
+        includeBlobs: false,
+        includeHistory: false,
+      );
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      await target.vaultService.createItem(
+        PasswordEntry(
+          title: ' github mfa ',
+          website: '',
+          username: 'MFA@example.com',
+          password: '',
+          notes: 'local standalone token',
+          tags: const ['mfa'],
+          totpSecret: 'JBSWY3DPEHPK3PXP',
+          isStandaloneTotp: true,
+        ),
+      );
+
+      final result = await target.backupService
+          .importBackupSkippingIdentityConflicts(
+            json: backup.toJson(),
+            masterPassword: 'source-master',
+          );
+
+      expect(result.importedCount, 0);
+      expect(result.skippedCount, 1);
+      expect(result.conflicts.single.itemId, conflictId);
+      expect(
+        result.conflicts.single.reason,
+        BackupImportConflictReason.existingLocalEntry,
+      );
+      expect(await target.vaultService.listTotpItems(), hasLength(1));
+    },
+  );
+
+  test(
     'conflict-aware import skips duplicate incoming package identities after the first accepted item',
     () async {
       final source = await _buildHarness();

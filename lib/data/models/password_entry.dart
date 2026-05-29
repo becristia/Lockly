@@ -10,6 +10,7 @@ class PasswordEntry {
     required List<String> tags,
     this.totpSecret,
     this.passkey,
+    this.isStandaloneTotp = false,
   }) : tags = List.unmodifiable(tags);
 
   final String title;
@@ -20,6 +21,7 @@ class PasswordEntry {
   final List<String> tags;
   final String? totpSecret; // Base32 encoded TOTP key, null if not set
   final PasskeyRecord? passkey;
+  final bool isStandaloneTotp;
 
   Map<String, Object?> toJson() => {
     'title': title,
@@ -30,6 +32,7 @@ class PasswordEntry {
     'tags': List<String>.unmodifiable(tags),
     if (totpSecret != null) 'totpSecret': totpSecret,
     if (passkey != null) 'passkey': passkey!.toJson(),
+    if (isStandaloneTotp) 'isStandaloneTotp': true,
   };
 
   factory PasswordEntry.fromJson(Map<String, Object?> json) {
@@ -45,6 +48,9 @@ class PasswordEntry {
       passkey: passkeyJson == null
           ? null
           : PasskeyRecord.fromJson(_readRequiredObject(json, 'passkey')),
+      isStandaloneTotp:
+          _readOptionalBool(json, 'isStandaloneTotp') ||
+          _readOptionalBool(json, 'standaloneTotp'),
     );
   }
 
@@ -96,6 +102,18 @@ class PasswordEntry {
     final value = json[field];
     if (value is! Map<String, Object?>) {
       throw FormatException('Invalid "$field": expected an object');
+    }
+    return value;
+  }
+
+  static bool _readOptionalBool(Map<String, Object?> json, String field) {
+    if (!json.containsKey(field)) {
+      return false;
+    }
+
+    final value = json[field];
+    if (value is! bool) {
+      throw FormatException('Invalid "$field": expected a boolean');
     }
     return value;
   }

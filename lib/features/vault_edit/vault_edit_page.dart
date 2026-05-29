@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
+import 'package:secure_box/core/password_generator/totp_service.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/data/models/passkey_record.dart';
@@ -7,6 +8,7 @@ import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/features/password_generator/password_generator_page.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/activity_text_form_field.dart';
+import 'package:secure_box/shared/widgets/secure_dialog.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
 class VaultEditPage extends StatefulWidget {
@@ -36,6 +38,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
 
   String? _totpSecret;
   PasskeyRecord? _passkeyRecord;
+  bool _isStandaloneTotp = false;
 
   bool _isLoading = false;
   bool _isSaving = false;
@@ -73,6 +76,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
     _tagsController.dispose();
     _totpSecret = null;
     _passkeyRecord = null;
+    _isStandaloneTotp = false;
     super.dispose();
   }
 
@@ -95,6 +99,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       _tagsController.text = entry.tags.join(', ');
       _totpSecret = entry.totpSecret;
       _passkeyRecord = entry.passkey;
+      _isStandaloneTotp = entry.isStandaloneTotp;
       setState(() => _isLoading = false);
     } on VaultItemNotFoundException {
       if (!mounted) {
@@ -136,6 +141,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
       tags: _parseTags(_tagsController.text),
       totpSecret: _totpSecret,
       passkey: _passkeyRecord,
+      isStandaloneTotp: _isStandaloneTotp,
     );
 
     try {
@@ -405,7 +411,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                       ),
                     ],
                     const SizedBox(height: 14),
-                    _buildPasskeySection(theme),
+                    _buildAdvancedSection(theme),
                     const SizedBox(height: 14),
                     ActivityTextFormField(
                       controller: _notesController,
@@ -513,10 +519,7 @@ class _VaultEditPageState extends State<VaultEditPage> {
                     ),
                     TextButton.icon(
                       key: const ValueKey('passkey-remove-button'),
-                      onPressed: () {
-                        widget.services.recordActivity();
-                        setState(() => _passkeyRecord = null);
-                      },
+                      onPressed: _removePasskeyRecord,
                       icon: const Icon(Icons.delete_outline_rounded, size: 18),
                       label: Text(strings.text('remove')),
                     ),
@@ -526,6 +529,21 @@ class _VaultEditPageState extends State<VaultEditPage> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildAdvancedSection(ThemeData theme) {
+    final strings = AppStrings.of(context);
+    return ExpansionTile(
+      key: const ValueKey('advanced-info-section'),
+      initiallyExpanded: _passkeyRecord != null,
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.tune_rounded),
+      title: Text(strings.text('advancedInfo')),
+      subtitle: Text(strings.text('advancedInfoSubtitle')),
+      onExpansionChanged: (_) => widget.services.recordActivity(),
+      children: [const SizedBox(height: 8), _buildPasskeySection(theme)],
     );
   }
 
@@ -544,43 +562,99 @@ class _VaultEditPageState extends State<VaultEditPage> {
     setState(() => _passkeyRecord = record);
   }
 
-  void _showManualTotpInput() {
-    final controller = TextEditingController();
-    showDialog(
+  Future<void> _removePasskeyRecord() async {
+    widget.services.recordActivity();
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppStrings.of(ctx).text('enterTotpSecret')),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          enableSuggestions: false,
-          autocorrect: false,
-          decoration: InputDecoration(
-            hintText: AppStrings.of(ctx).text('totpSecretHint'),
-            helperText: AppStrings.of(ctx).text('totpSecretHelper'),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(AppStrings.of(ctx).text('cancel')),
-          ),
-          FilledButton(
-            onPressed: () {
-              final raw = controller.text.toUpperCase().replaceAll(
-                RegExp(r'[^A-Z2-7]'),
-                '',
-              );
-              if (raw.isNotEmpty) {
-                setState(() => _totpSecret = raw);
-              }
-              Navigator.pop(ctx);
-            },
-            child: Text(AppStrings.of(ctx).text('confirm')),
-          ),
-        ],
-      ),
+      builder: (ctx) {
+        final strings = AppStrings.of(ctx);
+        return SecureDialog(
+          icon: Icons.delete_outline_rounded,
+          title: strings.text('passkeyRemoveConfirmTitle'),
+          message: strings.text('passkeyRemoveConfirmMessage'),
+          destructive: true,
+          actions: [
+            SecureDialogAction.destructive(
+              label: strings.text('remove'),
+              icon: Icons.delete_outline_rounded,
+              onPressed: () => Navigator.of(ctx).pop(true),
+            ),
+            SecureDialogAction.cancel(
+              ctx,
+              onPressed: () => Navigator.of(ctx).pop(false),
+            ),
+          ],
+        );
+      },
     );
+    if (confirmed == true && mounted) {
+      widget.services.recordActivity();
+      setState(() => _passkeyRecord = null);
+    }
+  }
+
+  Future<void> _showManualTotpInput() async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    String? validateSecret(String? value) {
+      try {
+        TotpService.normalizeSecret(value ?? '');
+        return null;
+      } on FormatException {
+        return AppStrings.of(context).text('totpSecretInvalid');
+      }
+    }
+
+    void submit(BuildContext ctx) {
+      final form = formKey.currentState;
+      if (form == null || !form.validate()) {
+        return;
+      }
+      Navigator.of(ctx).pop(TotpService.normalizeSecret(controller.text));
+    }
+
+    final normalizedSecret =
+        await showDialog<String>(
+          context: context,
+          builder: (ctx) {
+            final strings = AppStrings.of(ctx);
+            return SecureDialog(
+              icon: Icons.password_rounded,
+              title: strings.text('enterTotpSecret'),
+              actions: [
+                SecureDialogAction.primary(
+                  label: strings.text('confirm'),
+                  icon: Icons.check_rounded,
+                  onPressed: () => submit(ctx),
+                ),
+                SecureDialogAction.cancel(ctx),
+              ],
+              child: Form(
+                key: formKey,
+                child: TextFormField(
+                  controller: controller,
+                  autofocus: true,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    hintText: strings.text('totpSecretHint'),
+                    helperText: strings.text('totpSecretHelper'),
+                  ),
+                  textInputAction: TextInputAction.done,
+                  validator: validateSecret,
+                  onFieldSubmitted: (_) => submit(ctx),
+                ),
+              ),
+            );
+          },
+        ).whenComplete(() {
+          controller.clear();
+          controller.dispose();
+        });
+    if (normalizedSecret != null && mounted) {
+      setState(() => _totpSecret = normalizedSecret);
+    }
   }
 
   void _scanQrCode() {
@@ -648,6 +722,12 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
 
   @override
   void dispose() {
+    _relyingPartyIdController.clear();
+    _credentialIdController.clear();
+    _userHandleController.clear();
+    _displayNameController.clear();
+    _algorithmController.clear();
+    _platformController.clear();
     _relyingPartyIdController.dispose();
     _credentialIdController.dispose();
     _userHandleController.dispose();
@@ -660,120 +740,117 @@ class _PasskeyRecordDialogState extends State<_PasskeyRecordDialog> {
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
-    return AlertDialog(
-      title: Text(strings.text('passkeyMetadata')),
-      content: SizedBox(
+    return SecureDialog(
+      icon: Icons.key_rounded,
+      title: strings.text('passkeyMetadata'),
+      actions: [
+        SecureDialogAction.primary(
+          key: const ValueKey('passkey-save-button'),
+          label: strings.text('save'),
+          icon: Icons.check_rounded,
+          onPressed: _save,
+        ),
+        SecureDialogAction.cancel(context),
+      ],
+      child: SizedBox(
         width: 420,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  key: const ValueKey('passkey-rp-id-input'),
-                  controller: _relyingPartyIdController,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.text('relyingPartyId'),
-                    hintText: strings.text('exampleDomain'),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: _required,
-                  onChanged: (_) => widget.onActivity(),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                key: const ValueKey('passkey-rp-id-input'),
+                controller: _relyingPartyIdController,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('relyingPartyId'),
+                  hintText: strings.text('exampleDomain'),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('passkey-credential-id-input'),
-                  controller: _credentialIdController,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.text('credentialId'),
-                    hintText: strings.text('credentialIdHint'),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  validator: _required,
-                  onChanged: (_) => widget.onActivity(),
+                textInputAction: TextInputAction.next,
+                validator: _required,
+                onChanged: (_) => widget.onActivity(),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('passkey-credential-id-input'),
+                controller: _credentialIdController,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('credentialId'),
+                  hintText: strings.text('credentialIdHint'),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('passkey-user-handle-input'),
-                  controller: _userHandleController,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.text('userHandle'),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  onChanged: (_) => widget.onActivity(),
+                textInputAction: TextInputAction.next,
+                validator: _required,
+                onChanged: (_) => widget.onActivity(),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('passkey-user-handle-input'),
+                controller: _userHandleController,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('userHandle'),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('passkey-display-name-input'),
-                  controller: _displayNameController,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.text('displayName'),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  onChanged: (_) => widget.onActivity(),
+                textInputAction: TextInputAction.next,
+                onChanged: (_) => widget.onActivity(),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('passkey-display-name-input'),
+                controller: _displayNameController,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('displayName'),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('passkey-algorithm-input'),
-                  controller: _algorithmController,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.text('publicKeyAlgorithm'),
-                    hintText: strings.text('algorithmHint'),
-                  ),
-                  textInputAction: TextInputAction.next,
-                  onChanged: (_) => widget.onActivity(),
+                textInputAction: TextInputAction.next,
+                onChanged: (_) => widget.onActivity(),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('passkey-algorithm-input'),
+                controller: _algorithmController,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('publicKeyAlgorithm'),
+                  hintText: strings.text('algorithmHint'),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const ValueKey('passkey-platform-input'),
-                  controller: _platformController,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: strings.text('platform'),
-                    hintText: strings.text('platformHint'),
-                  ),
-                  textInputAction: TextInputAction.done,
-                  onChanged: (_) => widget.onActivity(),
+                textInputAction: TextInputAction.next,
+                onChanged: (_) => widget.onActivity(),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('passkey-platform-input'),
+                controller: _platformController,
+                enableSuggestions: false,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: strings.text('platform'),
+                  hintText: strings.text('platformHint'),
                 ),
-                const SizedBox(height: 6),
-                SwitchListTile(
-                  key: const ValueKey('passkey-platform-ready-toggle'),
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(strings.text('platformApiReady')),
-                  value: _platformReady,
-                  onChanged: (value) {
-                    widget.onActivity();
-                    setState(() => _platformReady = value);
-                  },
-                ),
-              ],
-            ),
+                textInputAction: TextInputAction.done,
+                onChanged: (_) => widget.onActivity(),
+              ),
+              const SizedBox(height: 6),
+              SwitchListTile(
+                key: const ValueKey('passkey-platform-ready-toggle'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(strings.text('platformApiReady')),
+                value: _platformReady,
+                onChanged: (value) {
+                  widget.onActivity();
+                  setState(() => _platformReady = value);
+                },
+              ),
+            ],
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(strings.text('cancel')),
-        ),
-        FilledButton(
-          key: const ValueKey('passkey-save-button'),
-          onPressed: _save,
-          child: Text(strings.text('save')),
-        ),
-      ],
     );
   }
 

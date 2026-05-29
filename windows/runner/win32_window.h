@@ -90,7 +90,34 @@ class Win32Window {
   // Update the window frame's theme to match the system theme.
   static void UpdateTheme(HWND const window);
 
+  void AlignToTopRightWorkArea();
+  void StartTopRightAutoHideTimer();
+  void StopTopRightAutoHideTimer();
+  void HandleTopRightAutoHideTimer();
+  void HandleTopRightDockAfterMove();
+  void HideToRightEdge();
+  void RevealFromRightEdge();
+  void StartEdgeSlideAnimation(int target_x, bool target_hidden);
+  void ApplyEdgeSlideAnimation();
+  int DockedRightX(const RECT& window_rect,
+                   const MONITORINFO& monitor_info) const;
+  int HiddenRightX(const MONITORINFO& monitor_info) const;
+  int ClampedDockTop(const RECT& window_rect,
+                     const MONITORINFO& monitor_info) const;
+  bool GetCurrentMonitorInfo(MONITORINFO* monitor_info) const;
+  bool IsCursorInsideWindow(const POINT& cursor) const;
+  bool IsCursorInRevealHotZone(const POINT& cursor) const;
+
   bool quit_on_close_ = false;
+  bool is_auto_hidden_ = false;
+  bool is_right_docked_ = false;
+  bool is_sliding_ = false;
+  bool slide_target_hidden_ = false;
+  int dock_top_ = 0;
+  int slide_start_x_ = 0;
+  int slide_target_x_ = 0;
+  ULONGLONG slide_started_at_ = 0;
+  ULONGLONG cursor_left_window_at_ = 0;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

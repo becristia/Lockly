@@ -8,6 +8,7 @@ import 'package:secure_box/core/vault/vault_manifest_service.dart';
 import 'package:secure_box/core/vault/vault_service.dart';
 import 'package:secure_box/core/vault/vault_session.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
+import 'package:secure_box/shared/widgets/secure_dialog.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 
@@ -21,6 +22,8 @@ class LanSendPage extends StatefulWidget {
 }
 
 class _LanSendPageState extends State<LanSendPage> {
+  static const _minimumSessionAutoLockTimeout = Duration(minutes: 5);
+
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
 
@@ -32,6 +35,8 @@ class _LanSendPageState extends State<LanSendPage> {
   String? _errorKey;
   LanTransferSession? _session;
   Timer? _countdownTimer;
+  Duration? _autoLockTimeoutBeforeSession;
+  Future<void>? _autoLockExtensionFuture;
 
   @override
   void initState() {
@@ -43,7 +48,7 @@ class _LanSendPageState extends State<LanSendPage> {
   void dispose() {
     _countdownTimer?.cancel();
     if (_session != null || _creating) {
-      _cancelLanSendSessionBestEffort();
+      unawaited(_cleanupLanSendSessionBestEffort());
     }
     _searchController.dispose();
     super.dispose();
@@ -55,12 +60,30 @@ class _LanSendPageState extends State<LanSendPage> {
       _errorKey = null;
     });
     try {
-      final items = await widget.services.listVaultItems();
+      final vaultItems = await widget.services.listVaultItems();
+      final totpItems = await widget.services.listTotpItems();
       if (!mounted) {
         return;
       }
+      final standaloneLabel = AppStrings.of(
+        context,
+      ).text('totpStandaloneLabel');
+      final standaloneTotpItems = totpItems
+          .where((item) => item.isStandalone)
+          .map(
+            (item) => VaultListItem(
+              id: item.id,
+              title: item.title,
+              website: standaloneLabel,
+              username: item.username,
+              tags: const ['mfa'],
+              createdAt: 0,
+              updatedAt: 0,
+            ),
+          )
+          .toList(growable: false);
       setState(() {
-        _items = items;
+        _items = [...vaultItems, ...standaloneTotpItems];
         _loading = false;
       });
     } on VaultLockedException {
@@ -88,7 +111,7 @@ class _LanSendPageState extends State<LanSendPage> {
       setState(() {
         _items = const <VaultListItem>[];
         _loading = false;
-        _errorKey = 'lanNetworkUnavailable';
+        _errorKey = 'lanRecordsLoadFailed';
       });
     }
   }
@@ -114,15 +137,19 @@ class _LanSendPageState extends State<LanSendPage> {
         senderName: AppStrings.of(context).appName,
       );
       if (!mounted) {
-        _cancelLanSendSessionBestEffort();
+        unawaited(_cleanupLanSendSessionBestEffort());
+        return;
+      }
+      await _extendAutoLockForActiveSession();
+      if (!mounted) {
+        await _cleanupLanSendSessionBestEffort();
         return;
       }
       _countdownTimer?.cancel();
-      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) {
-          setState(() {});
-        }
-      });
+      _countdownTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _onSessionTick(),
+      );
       setState(() {
         _session = session;
         _creating = false;
@@ -162,6 +189,86 @@ class _LanSendPageState extends State<LanSendPage> {
     }
   }
 
+  Future<void> _extendAutoLockForActiveSession() {
+    final existing = _autoLockExtensionFuture;
+    if (existing != null) {
+      return existing;
+    }
+    final future = _extendAutoLockForActiveSessionInternal();
+    _autoLockExtensionFuture = future;
+    return future;
+  }
+
+  Future<void> _extendAutoLockForActiveSessionInternal() async {
+    try {
+      if (_autoLockTimeoutBeforeSession != null) {
+        return;
+      }
+      final timeout = await widget.services.getAutoLockTimeout();
+      if (timeout < _minimumSessionAutoLockTimeout) {
+        _autoLockTimeoutBeforeSession = timeout;
+        await widget.services.setAutoLockTimeout(
+          _minimumSessionAutoLockTimeout,
+        );
+      }
+    } catch (_) {
+      // Transfer data stays encrypted; auto-lock extension is best-effort UI
+      // support and should not invalidate an already-created LAN session.
+    }
+  }
+
+  Future<void> _restoreAutoLockAfterSession() async {
+    final extensionFuture = _autoLockExtensionFuture;
+    if (extensionFuture != null) {
+      try {
+        await extensionFuture;
+      } catch (_) {
+        // Extension is best-effort; still try to restore if it partially ran.
+      }
+    }
+    final previousTimeout = _autoLockTimeoutBeforeSession;
+    if (previousTimeout == null) {
+      _autoLockExtensionFuture = null;
+      return;
+    }
+    try {
+      final currentTimeout = await widget.services.getAutoLockTimeout();
+      if (currentTimeout == _minimumSessionAutoLockTimeout) {
+        await widget.services.setAutoLockTimeout(previousTimeout);
+      }
+      _autoLockTimeoutBeforeSession = null;
+      _autoLockExtensionFuture = null;
+    } catch (_) {
+      // Keep the original timeout cached so another cleanup path can retry.
+    }
+  }
+
+  void _onSessionTick() {
+    if (!mounted) {
+      return;
+    }
+    final session = _session;
+    if (session != null &&
+        !DateTime.now().toUtc().isBefore(session.expiresAt.toUtc())) {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+      unawaited(_expireSession());
+      return;
+    }
+    setState(() {});
+  }
+
+  Future<void> _expireSession() async {
+    await _cleanupLanSendSessionBestEffort();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _session = null;
+      _creating = false;
+    });
+  }
+
   Future<String?> _promptSourceMasterPassword() {
     return showDialog<String>(
       context: context,
@@ -175,9 +282,8 @@ class _LanSendPageState extends State<LanSendPage> {
       _creating = true;
       _errorKey = null;
     });
-    try {
-      await widget.services.cancelLanSendSession();
-    } catch (_) {
+    final cancelled = await _cancelLanSendSessionIgnoringErrors();
+    if (!cancelled) {
       if (!mounted) {
         return;
       }
@@ -187,6 +293,7 @@ class _LanSendPageState extends State<LanSendPage> {
       });
       return;
     }
+    await _restoreAutoLockAfterSession();
     if (!mounted) {
       return;
     }
@@ -198,11 +305,17 @@ class _LanSendPageState extends State<LanSendPage> {
     });
   }
 
-  void _cancelLanSendSessionBestEffort() {
+  Future<void> _cleanupLanSendSessionBestEffort() async {
+    await _cancelLanSendSessionIgnoringErrors();
+    await _restoreAutoLockAfterSession();
+  }
+
+  Future<bool> _cancelLanSendSessionIgnoringErrors() async {
     try {
-      unawaited(widget.services.cancelLanSendSession());
+      await widget.services.cancelLanSendSession();
+      return true;
     } catch (_) {
-      // Best-effort cleanup; fakes may not provide a LAN service.
+      return false;
     }
   }
 
@@ -445,6 +558,7 @@ class _LanSendPageState extends State<LanSendPage> {
         ],
         const SizedBox(height: 18),
         OutlinedButton.icon(
+          key: const ValueKey('lan-send-cancel-session'),
           onPressed: _creating ? null : _cancelSession,
           icon: const Icon(Icons.close_rounded),
           label: Text(
@@ -506,9 +620,19 @@ class _LanSendSourcePasswordDialogState
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
 
-    return AlertDialog(
-      title: Text(strings.text('lanSourceMasterPassword')),
-      content: TextFormField(
+    return SecureDialog(
+      icon: Icons.lock_outline_rounded,
+      title: strings.text('lanSourceMasterPassword'),
+      actions: [
+        SecureDialogAction.primary(
+          key: const ValueKey('lan-send-confirm-password'),
+          label: strings.text('lanCreateQr'),
+          icon: Icons.qr_code_2_rounded,
+          onPressed: _controller.text.isEmpty ? null : _confirm,
+        ),
+        SecureDialogAction.cancel(context, onPressed: _cancel),
+      ],
+      child: TextFormField(
         key: const ValueKey('lan-send-source-master-password-field'),
         controller: _controller,
         obscureText: _obscure,
@@ -518,6 +642,9 @@ class _LanSendSourcePasswordDialogState
         decoration: InputDecoration(
           labelText: strings.text('lanSourceMasterPassword'),
           suffixIcon: IconButton(
+            tooltip: _obscure
+                ? strings.text('showMasterPassword')
+                : strings.text('hideMasterPassword'),
             onPressed: () => setState(() => _obscure = !_obscure),
             icon: Icon(
               _obscure
@@ -533,14 +660,6 @@ class _LanSendSourcePasswordDialogState
           }
         },
       ),
-      actions: [
-        TextButton(onPressed: _cancel, child: Text(strings.text('cancel'))),
-        FilledButton(
-          key: const ValueKey('lan-send-confirm-password'),
-          onPressed: _controller.text.isEmpty ? null : _confirm,
-          child: Text(strings.text('lanCreateQr')),
-        ),
-      ],
     );
   }
 }
