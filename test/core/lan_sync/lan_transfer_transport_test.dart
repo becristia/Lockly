@@ -36,6 +36,7 @@ void main() {
 
         final session = await server.start(
           packageBytes: plaintext,
+          packagePassword: crypto.randomToken(),
           selectedCount: 1,
           senderName: 'Sender',
           ttl: const Duration(minutes: 5),
@@ -55,6 +56,7 @@ void main() {
 
       final session = await server.start(
         packageBytes: plaintext,
+        packagePassword: crypto.randomToken(),
         selectedCount: 1,
         senderName: 'Sender',
         ttl: const Duration(minutes: 5),
@@ -91,6 +93,7 @@ void main() {
       final largePackage = Uint8List(8 * 1024 * 1024);
       final session = await server.start(
         packageBytes: largePackage,
+        packagePassword: crypto.randomToken(),
         selectedCount: 1,
         senderName: 'Sender',
         ttl: const Duration(minutes: 5),
@@ -120,6 +123,7 @@ void main() {
       final server = LanTransferServer(crypto: crypto);
       final session = await server.start(
         packageBytes: packageBytes('{"items":["secret"]}'),
+        packagePassword: crypto.randomToken(),
         selectedCount: 1,
         senderName: 'Sender',
         bindHost: '127.0.0.1',
@@ -133,6 +137,7 @@ void main() {
         sessionId: session.qrPayload.sessionId,
         token: crypto.randomToken(),
         transferKey: session.qrPayload.transferKey,
+        packagePassword: session.qrPayload.packagePassword,
         packageSha256: session.qrPayload.packageSha256,
         selectedCount: session.qrPayload.selectedCount,
         expiresAt: session.qrPayload.expiresAt,
@@ -150,6 +155,7 @@ void main() {
       final server = LanTransferServer(crypto: crypto);
       final session = await server.start(
         packageBytes: packageBytes('{"items":[]}'),
+        packagePassword: crypto.randomToken(),
         selectedCount: 1,
         senderName: 'Sender',
         ttl: const Duration(milliseconds: 25),
@@ -171,6 +177,7 @@ void main() {
       final server = LanTransferServer(crypto: crypto);
       final session = await server.start(
         packageBytes: packageBytes('{"items":[]}'),
+        packagePassword: crypto.randomToken(),
         selectedCount: 1,
         senderName: 'Sender',
         ttl: const Duration(milliseconds: 25),
@@ -195,6 +202,7 @@ void main() {
       final server = LanTransferServer(crypto: serverCrypto);
       final session = await server.start(
         packageBytes: packageBytes('{"items":["one"]}'),
+        packagePassword: serverCrypto.randomToken(),
         selectedCount: 1,
         senderName: 'Sender',
         bindHost: '127.0.0.1',
@@ -208,6 +216,7 @@ void main() {
         sessionId: session.qrPayload.sessionId,
         token: session.qrPayload.token,
         transferKey: session.qrPayload.transferKey,
+        packagePassword: session.qrPayload.packagePassword,
         packageSha256:
             'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         selectedCount: session.qrPayload.selectedCount,
@@ -244,6 +253,7 @@ void main() {
         sessionId: 'session-1',
         token: token,
         transferKey: crypto.encodeTransferKey(key),
+        packagePassword: crypto.randomToken(),
         packageSha256:
             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         selectedCount: 1,
@@ -414,6 +424,7 @@ void main() {
       await expectLater(
         server.start(
           packageBytes: packageBytes('{"items":["one"]}'),
+          packagePassword: crypto.randomToken(),
           selectedCount: 0,
           senderName: 'Sender',
           bindHost: '127.0.0.1',
@@ -425,6 +436,7 @@ void main() {
 
       final validSession = await server.start(
         packageBytes: packageBytes('{"items":["two"]}'),
+        packagePassword: crypto.randomToken(),
         selectedCount: 1,
         senderName: 'Sender',
         bindHost: '127.0.0.1',
@@ -451,6 +463,7 @@ LanTransferQrPayload _validPayloadForServer(
     sessionId: 'session-1',
     token: crypto.randomToken(),
     transferKey: crypto.encodeTransferKey(key),
+    packagePassword: crypto.randomToken(),
     packageSha256:
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     selectedCount: 1,

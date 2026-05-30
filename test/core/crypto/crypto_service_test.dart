@@ -94,6 +94,19 @@ void main() {
     );
   });
 
+  test('rejects pbkdf2 params above the supported iteration ceiling', () async {
+    final kdf = KdfService();
+
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: Uint8List.fromList(List<int>.filled(16, 7)),
+        params: KdfParams.pbkdf2(iterations: 2000001),
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('rejects pbkdf2 params with an empty salt', () async {
     final kdf = KdfService();
 
@@ -345,6 +358,30 @@ void main() {
         password: 'master-password',
         salt: salt,
         params: KdfParams.argon2id(bits: 128),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: salt,
+        params: KdfParams.argon2id(memoryKiB: 262145),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: salt,
+        params: KdfParams.argon2id(iterations: 7),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => kdf.deriveKey(
+        password: 'master-password',
+        salt: salt,
+        params: KdfParams.argon2id(parallelism: 5),
       ),
       throwsArgumentError,
     );

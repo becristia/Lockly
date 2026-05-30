@@ -130,9 +130,12 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey('security-center-local-exchange-send')),
+    final sendAction = find.byKey(
+      const ValueKey('security-center-local-exchange-send'),
     );
+    await Scrollable.ensureVisible(tester.element(sendAction));
+    await tester.pumpAndSettle();
+    await tester.tapAt(tester.getTopLeft(sendAction) + const Offset(40, 20));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('lan-send-route')), findsOneWidget);
@@ -142,17 +145,18 @@ void main() {
     ).pop();
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('security-center-local-exchange-receive')),
+    final receiveAction = find.byKey(
+      const ValueKey('security-center-local-exchange-receive'),
     );
+    await Scrollable.ensureVisible(tester.element(receiveAction));
+    await tester.pumpAndSettle();
+    await tester.tapAt(tester.getTopLeft(receiveAction) + const Offset(40, 20));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('lan-receive-route')), findsOneWidget);
   });
 
-  testWidgets('vault shell does not expose security center as a tab', (
-    tester,
-  ) async {
+  testWidgets('vault shell exposes security center as a tab', (tester) async {
     final services = AppServices.fake(
       hasVault: true,
       unlocked: true,
@@ -169,9 +173,11 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('vault-shell-security-tab')),
-      findsNothing,
+      findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('security-center-page')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('vault-shell-security-tab')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('security-center-page')), findsOneWidget);
   });
 }
 

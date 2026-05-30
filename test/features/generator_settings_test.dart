@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -22,7 +23,10 @@ import 'package:secure_box/data/db/vault_manifest_dao.dart';
 import 'package:secure_box/data/db/vault_meta_dao.dart';
 import 'package:secure_box/data/models/password_entry.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
+import 'package:secure_box/features/migration/backup_export_wizard_page.dart';
 import 'package:secure_box/features/migration/migration_wizard_page.dart';
+import 'package:secure_box/features/security_center/security_center_page.dart';
+import 'package:secure_box/shared/i18n/app_strings_zh.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -240,6 +244,90 @@ void main() {
     expect(find.text('迁移导入'), findsOneWidget);
   });
 
+  testWidgets('security center opens backup export workflow', (tester) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('vault-shell-security-tab')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('security-center-page')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('security-center-export-backup')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('security-center-migration-import')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('security-center-export-backup')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('backup-export-wizard-page')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('security center opens migration import workflow', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SecurityCenterPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('security-center-migration-import')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('migration-wizard-page')), findsOneWidget);
+  });
+
+  testWidgets('security center shows migration import completion feedback', (
+    tester,
+  ) async {
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      importBackupOverride: (backupJson, masterPassword) async => 2,
+      trackActivity: false,
+    );
+    addTearDown(services.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SecurityCenterPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('security-center-migration-import')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-json-input')),
+      '{"version":2,"items":[]}',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-backup-password-input')),
+      'backup-master',
+    );
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('2 ${const AppStringsZh().text('import')}'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'migration wizard previews CSV without rendering secrets and imports rows',
     (tester) async {
@@ -404,6 +492,65 @@ void main() {
     expect(find.textContaining('backup-master'), findsNothing);
   });
 
+  testWidgets('migration wizard validates required Lockly JSON fields', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(
+      MaterialApp(home: MigrationWizardPage(services: services)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pump();
+
+    expect(find.text('请粘贴加密备份 JSON'), findsOneWidget);
+    expect(find.text('请输入备份主密码'), findsOneWidget);
+  });
+
+  testWidgets('migration wizard blocks system back while import is running', (
+    tester,
+  ) async {
+    final importCompleter = Completer<int>();
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      importBackupOverride: (backupJson, masterPassword) =>
+          importCompleter.future,
+      trackActivity: false,
+    );
+    addTearDown(services.dispose);
+
+    await _pumpPushedPage(
+      tester,
+      (context) => MigrationWizardPage(services: services),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-json-input')),
+      '{"version":2,"items":[]}',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('migration-backup-password-input')),
+      'backup-master',
+    );
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pump();
+
+    final didPop = await tester
+        .state<NavigatorState>(find.byType(Navigator))
+        .maybePop();
+    await tester.pump();
+
+    expect(didPop, isTrue);
+    expect(find.byKey(const ValueKey('migration-wizard-page')), findsOneWidget);
+
+    importCompleter.complete(1);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('migration-wizard-page')), findsNothing);
+  });
+
   testWidgets('migration wizard imports Lockly JSON in non-overwrite mode', (
     tester,
   ) async {
@@ -431,48 +578,112 @@ void main() {
     expect(services.importedMode, BackupImportMode.skip);
   });
 
-  testWidgets('backup export dialog can copy encrypted backup json', (
+  testWidgets(
+    'backup export wizard summarizes and copies encrypted backup json',
+    (tester) async {
+      String? clipboardText;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              final data = Map<Object?, Object?>.from(call.arguments as Map);
+              clipboardText = data['text'] as String?;
+            }
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+
+      final services = AppServices.fake(hasVault: true, unlocked: true);
+
+      await tester.pumpWidget(SecureBoxApp(services: services));
+      await tester.pumpAndSettle();
+
+      services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
+      await tester.pumpAndSettle();
+
+      final exportIcon = find.byIcon(Icons.file_upload_outlined).first;
+      await tester.scrollUntilVisible(exportIcon, 120);
+      await tester.tap(exportIcon);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('backup-export-wizard-page')),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('backup-export-master-password-input')),
+        'master-password',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('backup-export-prepare-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('backup-export-ready-summary')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('"version"'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('backup-export-copy-button')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('backup-export-copy-button')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(FilledButton).last);
+      await tester.pump();
+
+      expect(clipboardText, contains('"version"'));
+    },
+  );
+
+  testWidgets('backup export wizard blocks system back while preparing', (
     tester,
   ) async {
-    String? clipboardText;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-          if (call.method == 'Clipboard.setData') {
-            final data = Map<Object?, Object?>.from(call.arguments as Map);
-            clipboardText = data['text'] as String?;
-          }
-          return null;
-        });
-    addTearDown(
-      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null),
+    final exportCompleter = Completer<String>();
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      verifyMasterPasswordOverride: (masterPassword) async {},
+      exportBackupOverride: () => exportCompleter.future,
+      trackActivity: false,
+    );
+    addTearDown(services.dispose);
+
+    await _pumpPushedPage(
+      tester,
+      (context) => BackupExportWizardPage(services: services),
     );
 
-    final services = AppServices.fake(hasVault: true, unlocked: true);
-
-    await tester.pumpWidget(SecureBoxApp(services: services));
-    await tester.pumpAndSettle();
-
-    services.navigatorKey.currentState!.pushNamed(AppServices.routeSettings);
-    await tester.pumpAndSettle();
-
-    final exportIcon = find.byIcon(Icons.file_upload_outlined).first;
-    await tester.scrollUntilVisible(exportIcon, 120);
-    await tester.tap(exportIcon);
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextFormField).last, 'master-password');
-    await tester.tap(find.byType(FilledButton).last);
-    await tester.pumpAndSettle();
-
-    expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.copy_rounded));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byType(FilledButton).last);
+    await tester.enterText(
+      find.byKey(const ValueKey('backup-export-master-password-input')),
+      'master-password',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('backup-export-prepare-button')),
+    );
     await tester.pump();
 
-    expect(clipboardText, contains('"version"'));
+    final didPop = await tester
+        .state<NavigatorState>(find.byType(Navigator))
+        .maybePop();
+    await tester.pump();
+
+    expect(didPop, isTrue);
+    expect(
+      find.byKey(const ValueKey('backup-export-wizard-page')),
+      findsOneWidget,
+    );
+
+    exportCompleter.complete('{"version":1,"items":[]}');
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('backup-export-ready-summary')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('successful master password change closes dialog cleanly', (
@@ -786,6 +997,26 @@ void main() {
     expect(harness.services.shellState.value, AppShellState.locked);
     expect(harness.vaultService.isUnlocked, isFalse);
   });
+}
+
+Future<void> _pumpPushedPage(WidgetTester tester, WidgetBuilder builder) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          key: const ValueKey('open-pushed-page'),
+          onPressed: () {
+            Navigator.of(
+              context,
+            ).push<void>(MaterialPageRoute(builder: builder));
+          },
+          child: const Text('open'),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.byKey(const ValueKey('open-pushed-page')));
+  await tester.pumpAndSettle();
 }
 
 Future<_BiometricHarness> _buildBiometricHarness() async {

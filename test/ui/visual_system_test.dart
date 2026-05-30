@@ -229,6 +229,43 @@ void main() {
     expect(find.byKey(const ValueKey('settings-open-autofill')), findsNothing);
   });
 
+  testWidgets('settings load failure shows retry state', (tester) async {
+    var shouldFail = true;
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      trackActivity: false,
+      biometricEnabledOverride: () async {
+        if (shouldFail) {
+          throw StateError('settings unavailable');
+        }
+        return true;
+      },
+      autoLockTimeoutOverride: () async => const Duration(minutes: 5),
+      clipboardCleanupTimeoutOverride: () async => const Duration(minutes: 1),
+    );
+    addTearDown(services.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(body: SettingsPage(services: services)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settings-load-error')), findsOneWidget);
+    expect(find.text('设置加载失败，请重试。'), findsOneWidget);
+
+    shouldFail = false;
+    await tester.tap(find.byKey(const ValueKey('settings-load-retry')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settings-load-error')), findsNothing);
+    expect(find.text('5 分钟'), findsOneWidget);
+    expect(find.text('1 分钟'), findsOneWidget);
+  });
+
   testWidgets('vault shell uses side navigation on desktop width', (
     tester,
   ) async {
@@ -245,11 +282,8 @@ void main() {
     expect(find.byType(NavigationRail), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
     final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
-    expect(rail.destinations, hasLength(4));
-    expect(
-      find.byKey(const ValueKey('vault-shell-security-tab')),
-      findsNothing,
-    );
+    expect(rail.destinations, hasLength(5));
+    expect(find.text('安全中心'), findsOneWidget);
   });
 
   testWidgets('generator presents generated password in a result panel', (

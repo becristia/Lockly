@@ -96,7 +96,6 @@ class AppServices {
     Future<void> Function()? cancelLanSendSessionOverride,
     Future<LanTransferImportResult> Function({
       required LanTransferQrPayload payload,
-      required String sourceMasterPassword,
       required CancellationToken? cancellationToken,
     })?
     receiveLanTransferOverride,
@@ -275,7 +274,6 @@ class AppServices {
   final Future<void> Function()? _cancelLanSendSessionOverride;
   final Future<LanTransferImportResult> Function({
     required LanTransferQrPayload payload,
-    required String sourceMasterPassword,
     required CancellationToken? cancellationToken,
   })?
   _receiveLanTransferOverride;
@@ -299,7 +297,6 @@ class AppServices {
   bool _isDisposed = false;
   int _languagePreferenceRevision = 0;
   int _fakeCreateVaultCalls = 0;
-  String? _fakeLastCreateVaultPassword;
   bool? _fakeLastCreateVaultBiometricEnabled;
   int _fakeUnlockCalls = 0;
   int _fakeBiometricUnlockCalls = 0;
@@ -325,7 +322,6 @@ class AppServices {
     Future<void> Function()? cancelLanSendSessionOverride,
     Future<LanTransferImportResult> Function({
       required LanTransferQrPayload payload,
-      required String sourceMasterPassword,
       required CancellationToken? cancellationToken,
     })?
     receiveLanTransferOverride,
@@ -361,9 +357,8 @@ class AppServices {
       initialShellState: hasVault
           ? (unlocked ? AppShellState.unlocked : AppShellState.locked)
           : AppShellState.setupRequired,
-      createVaultOverride: (masterPassword, enableBiometric) async {
+      createVaultOverride: (_, enableBiometric) async {
         fakeServices!._fakeCreateVaultCalls += 1;
-        fakeServices._fakeLastCreateVaultPassword = masterPassword;
         fakeServices._fakeLastCreateVaultBiometricEnabled = enableBiometric;
         return enableBiometric
             ? BiometricSetupResult.enabled
@@ -559,7 +554,7 @@ class AppServices {
 
   int get fakeCreateVaultCalls => _fakeCreateVaultCalls;
 
-  String? get fakeLastCreateVaultPassword => _fakeLastCreateVaultPassword;
+  String? get fakeLastCreateVaultPassword => null;
 
   bool? get fakeLastCreateVaultBiometricEnabled =>
       _fakeLastCreateVaultBiometricEnabled;
@@ -972,6 +967,7 @@ class AppServices {
     required bool includeBlobs,
     required bool includeHistory,
     required String sourceMasterPassword,
+    required String lanPackagePassword,
   }) async {
     final backup = await _lockShellOnIntegrity(
       () => backupService.exportLanTransferBackup(
@@ -979,6 +975,7 @@ class AppServices {
         includeBlobs: includeBlobs,
         includeHistory: includeHistory,
         sourceMasterPassword: sourceMasterPassword,
+        lanPackagePassword: lanPackagePassword,
       ),
     );
     return const JsonEncoder.withIndent('  ').convert(backup.toJson());
@@ -990,6 +987,12 @@ class AppServices {
 
   Future<int> importPlaintextCsv(String csvText) async {
     final entries = PlaintextCsvImporter.parseEntries(csvText);
+    if (_createItemOverride == null) {
+      final ids = await _lockShellOnIntegrity(
+        () => vaultService.createItems(entries),
+      );
+      return ids.length;
+    }
     final createdIds = <String>[];
     try {
       for (final entry in entries) {
@@ -1043,7 +1046,7 @@ class AppServices {
 
   Future<ConflictAwareBackupImportResult> importLanTransferBackupJson({
     required String backupJson,
-    required String sourceMasterPassword,
+    required String lanPackagePassword,
   }) async {
     if (backupJson.length > maxImportedBackupJsonBytes) {
       throw const FormatException('Backup JSON is too large to import safely');
@@ -1056,7 +1059,7 @@ class AppServices {
     final result = await _lockShellOnIntegrity(
       () => backupService.importBackupSkippingIdentityConflicts(
         json: Map<String, Object?>.from(decoded),
-        masterPassword: sourceMasterPassword,
+        masterPassword: lanPackagePassword,
       ),
     );
     _hasVault = true;
@@ -1097,22 +1100,16 @@ class AppServices {
 
   Future<LanTransferImportResult> receiveLanTransfer({
     required LanTransferQrPayload payload,
-    required String sourceMasterPassword,
     CancellationToken? cancellationToken,
   }) async {
     final override = _receiveLanTransferOverride;
     if (override != null) {
-      return override(
-        payload: payload,
-        sourceMasterPassword: sourceMasterPassword,
-        cancellationToken: cancellationToken,
-      );
+      return override(payload: payload, cancellationToken: cancellationToken);
     }
 
     return _lockShellOnIntegrity(
       () => lanTransferService.receiveFromPayload(
         payload: payload,
-        sourceMasterPassword: sourceMasterPassword,
         cancellationToken: cancellationToken,
       ),
     );

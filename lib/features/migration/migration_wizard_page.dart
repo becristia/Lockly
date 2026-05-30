@@ -17,6 +17,7 @@ class MigrationWizardPage extends StatefulWidget {
 }
 
 class _MigrationWizardPageState extends State<MigrationWizardPage> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _sourceController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -57,6 +58,10 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
   }
 
   Future<void> _import() async {
+    if (_source == _MigrationSource.locklyJson &&
+        !(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
     widget.services.recordActivity();
     setState(() {
       _busy = true;
@@ -102,147 +107,173 @@ class _MigrationWizardPageState extends State<MigrationWizardPage> {
     final isCsv = _source == _MigrationSource.csv;
     final report = _csvReport;
     final canImport = !_busy && (!isCsv || report != null);
-    return SecureVisualBackground(
-      key: const ValueKey('migration-wizard-page'),
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-      child: ListView(
-        children: [
-          SecureReplicaHeader(
-            title: strings.text('migrationImport'),
-            subtitle: strings.text('migrationLocalSubtitle'),
-            leading: IconButton(
-              onPressed: _busy ? null : () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.arrow_back_rounded),
+    return PopScope(
+      canPop: !_busy,
+      child: SecureVisualBackground(
+        key: const ValueKey('migration-wizard-page'),
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+        child: ListView(
+          children: [
+            SecureReplicaHeader(
+              title: strings.text('migrationImport'),
+              subtitle: strings.text('migrationLocalSubtitle'),
+              leading: IconButton(
+                onPressed: _busy
+                    ? null
+                    : () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          SecureGlassCard(
-            borderRadius: 20,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SegmentedButton<_MigrationSource>(
-                  segments: [
-                    ButtonSegment(
-                      value: _MigrationSource.locklyJson,
-                      icon: const Icon(Icons.lock_outline_rounded),
-                      label: Text(strings.text('locklyJson')),
-                    ),
-                    ButtonSegment(
-                      value: _MigrationSource.csv,
-                      icon: const Icon(Icons.table_chart_outlined),
-                      label: Text(strings.text('csv')),
-                    ),
-                  ],
-                  selected: {_source},
-                  onSelectionChanged: _busy
-                      ? null
-                      : (selection) {
-                          setState(() {
-                            _source = selection.single;
-                            _preparedCsvText = null;
-                            _csvReport = null;
-                            _error = null;
-                          });
-                          _sourceController.clear();
-                          _passwordController.clear();
-                        },
-                ),
-                const SizedBox(height: 14),
-                if (isCsv) ...[
-                  SecureStatusSurface(
-                    color: SecureVisualColors.warning,
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          Icons.warning_amber_rounded,
-                          size: 20,
-                          color: SecureVisualColors.warning,
+            const SizedBox(height: 12),
+            SecureGlassCard(
+              borderRadius: 20,
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SegmentedButton<_MigrationSource>(
+                      segments: [
+                        ButtonSegment(
+                          value: _MigrationSource.locklyJson,
+                          icon: const Icon(Icons.lock_outline_rounded),
+                          label: Text(strings.text('locklyJson')),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            strings.text('plaintextCsvWarning'),
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
+                        ButtonSegment(
+                          value: _MigrationSource.csv,
+                          icon: const Icon(Icons.table_chart_outlined),
+                          label: Text(strings.text('csv')),
                         ),
                       ],
+                      selected: {_source},
+                      onSelectionChanged: _busy
+                          ? null
+                          : (selection) {
+                              setState(() {
+                                _source = selection.single;
+                                _preparedCsvText = null;
+                                _csvReport = null;
+                                _error = null;
+                              });
+                              _sourceController.clear();
+                              _passwordController.clear();
+                            },
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                TextField(
-                  key: ValueKey(
-                    isCsv ? 'migration-csv-input' : 'migration-json-input',
-                  ),
-                  controller: _sourceController,
-                  onChanged: isCsv ? (_) => _clearCsvPreview() : null,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  minLines: 6,
-                  maxLines: 9,
-                  decoration: InputDecoration(
-                    labelText: isCsv
-                        ? strings.text('plaintextCsvExport')
-                        : strings.text('encryptedBackupJson'),
-                    prefixIcon: const Icon(Icons.data_object_rounded),
-                  ),
+                    const SizedBox(height: 14),
+                    if (isCsv) ...[
+                      SecureStatusSurface(
+                        color: SecureVisualColors.warning,
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.warning_amber_rounded,
+                              size: 20,
+                              color: SecureVisualColors.warning,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                strings.text('plaintextCsvWarning'),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    TextFormField(
+                      key: ValueKey(
+                        isCsv ? 'migration-csv-input' : 'migration-json-input',
+                      ),
+                      controller: _sourceController,
+                      onChanged: isCsv ? (_) => _clearCsvPreview() : null,
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      minLines: 6,
+                      maxLines: 9,
+                      decoration: InputDecoration(
+                        labelText: isCsv
+                            ? strings.text('plaintextCsvExport')
+                            : strings.text('encryptedBackupJson'),
+                        prefixIcon: const Icon(Icons.data_object_rounded),
+                      ),
+                      validator: isCsv
+                          ? null
+                          : (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return strings.text(
+                                  'requiredEncryptedBackupJson',
+                                );
+                              }
+                              return null;
+                            },
+                    ),
+                    if (!isCsv) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const ValueKey('migration-backup-password-input'),
+                        controller: _passwordController,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: InputDecoration(
+                          labelText: strings.text('backupMasterPassword'),
+                          prefixIcon: const Icon(Icons.lock_outline_rounded),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return strings.text('requiredBackupMasterPassword');
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    if (isCsv)
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _previewCsv,
+                        icon: const Icon(Icons.visibility_outlined),
+                        label: Text(strings.text('preview')),
+                      ),
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      onPressed: canImport ? _import : null,
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.file_download_outlined),
+                      label: Text(
+                        _busy
+                            ? strings.text('importing')
+                            : strings.text('import'),
+                      ),
+                    ),
+                    if (report != null) ...[
+                      const SizedBox(height: 12),
+                      _CsvPreview(report: report),
+                    ],
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                if (!isCsv) ...[
-                  const SizedBox(height: 12),
-                  TextField(
-                    key: const ValueKey('migration-backup-password-input'),
-                    controller: _passwordController,
-                    obscureText: true,
-                    enableSuggestions: false,
-                    autocorrect: false,
-                    decoration: InputDecoration(
-                      labelText: strings.text('backupMasterPassword'),
-                      prefixIcon: const Icon(Icons.lock_outline_rounded),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 14),
-                if (isCsv)
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _previewCsv,
-                    icon: const Icon(Icons.visibility_outlined),
-                    label: Text(strings.text('preview')),
-                  ),
-                const SizedBox(height: 14),
-                FilledButton.icon(
-                  onPressed: canImport ? _import : null,
-                  icon: _busy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.file_download_outlined),
-                  label: Text(
-                    _busy ? strings.text('importing') : strings.text('import'),
-                  ),
-                ),
-                if (report != null) ...[
-                  const SizedBox(height: 12),
-                  _CsvPreview(report: report),
-                ],
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

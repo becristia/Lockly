@@ -131,7 +131,7 @@ void main() {
       expect(smokeScript, contains(r'"/DIR=$installDir"'));
     });
 
-    test('Windows runner pins to top-right and auto hides to right edge', () {
+    test('Windows runner does not auto hide on startup by default', () {
       final header = File('windows/runner/win32_window.h').readAsStringSync();
       final runner = File('windows/runner/win32_window.cpp').readAsStringSync();
       final flutterWindow = File(
@@ -140,7 +140,7 @@ void main() {
       final main = File('windows/runner/main.cpp').readAsStringSync();
 
       expect(header, contains('AlignToTopRightWorkArea'));
-      expect(header, contains('StartTopRightAutoHideTimer'));
+      expect(header, contains('SetTopRightAutoHideEnabled'));
       expect(header, contains('HandleTopRightAutoHideTimer'));
       expect(header, contains('HideToRightEdge'));
       expect(header, contains('RevealFromRightEdge'));
@@ -157,7 +157,7 @@ void main() {
       expect(header, contains('slide_target_hidden_'));
 
       expect(runner, contains('kTopRightAutoHideTimerId'));
-      expect(runner, contains('kAutoHidePollMs = 50'));
+      expect(runner, contains('kAutoHidePollMs = 250'));
       expect(runner, contains('kAutoHideDelayMs = 700'));
       expect(runner, contains('kSlideAnimationMs = 180'));
       expect(runner, contains('kHiddenGripWidth = 6'));
@@ -176,19 +176,17 @@ void main() {
       expect(runner, contains('HTCAPTION'));
       expect(runner, contains('if (!is_right_docked_)'));
       expect(runner, contains('AlignToTopRightWorkArea();'));
-      expect(runner, contains('StartTopRightAutoHideTimer();'));
+      final showBody = RegExp(
+        r'bool Win32Window::Show\(\) \{([\s\S]*?)\n\}',
+      ).firstMatch(runner)!.group(1)!;
+      expect(showBody, isNot(contains('SetTimer')));
+      expect(runner, contains('top_right_auto_hide_enabled_'));
       expect(runner, contains('HandleTopRightDockAfterMove();'));
       expect(runner, contains('ApplyEdgeSlideAnimation();'));
       expect(runner, contains('StartEdgeSlideAnimation(HiddenRightX('));
       expect(runner, contains('StartEdgeSlideAnimation(DockedRightX('));
-      expect(
-        runner,
-        contains('monitor_info.rcWork.right - window_width'),
-      );
-      expect(
-        runner,
-        contains('monitor_info.rcWork.right - kHiddenGripWidth'),
-      );
+      expect(runner, contains('monitor_info.rcWork.right - window_width'));
+      expect(runner, contains('monitor_info.rcWork.right - kHiddenGripWidth'));
       expect(runner, contains('dock_top_'));
       expect(runner, contains('SWP_NOACTIVATE'));
       expect(runner, contains('WS_POPUP'));
@@ -199,6 +197,10 @@ void main() {
       expect(flutterWindow, contains('lockly/window'));
       expect(flutterWindow, contains('minimize'));
       expect(flutterWindow, contains('close'));
+      expect(flutterWindow, contains('Minimize to tray'));
+      expect(flutterWindow, contains('Restore'));
+      expect(flutterWindow, contains('Exit'));
+      expect(flutterWindow, contains('TrackPopupMenu'));
       expect(flutterWindow, contains('SW_MINIMIZE'));
       expect(flutterWindow, contains('WM_CLOSE'));
 

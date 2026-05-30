@@ -29,6 +29,7 @@ class FlutterWindow : public Win32Window {
   void AddTrayIcon(HWND window);
   void RemoveTrayIcon();
   void RestoreFromTray(HWND window);
+  void ShowTrayMenu(HWND window);
   void RegisterWindowMethodChannel();
 
   // The project to run.

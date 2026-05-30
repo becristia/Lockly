@@ -98,14 +98,14 @@ void main() {
     expect(createdItemIds, ['item-1']);
     expect(createdIncludeBlobs, isTrue);
     expect(createdIncludeHistory, isFalse);
-    expect(await services.getAutoLockTimeout(), const Duration(minutes: 5));
+    expect(services.autoLockService.timeout, const Duration(minutes: 5));
     expect(find.byKey(const ValueKey('lan-send-qr')), findsOneWidget);
     expect(find.textContaining('secret-password'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('lan-send-cancel-session')));
     await tester.pumpAndSettle();
 
-    expect(await services.getAutoLockTimeout(), const Duration(minutes: 2));
+    expect(services.autoLockService.timeout, const Duration(minutes: 2));
   });
 
   testWidgets('LAN send can select standalone MFA entries', (tester) async {
@@ -251,7 +251,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('lan-send-cancel-session')));
     await tester.pumpAndSettle();
 
-    expect(await services.getAutoLockTimeout(), const Duration(minutes: 5));
+    expect(services.autoLockService.timeout, const Duration(minutes: 5));
     expect(find.byKey(const ValueKey('lan-send-qr')), findsOneWidget);
     expect(
       find.text(const AppStringsZh().text('lanSessionUnavailable')),
@@ -461,21 +461,17 @@ void main() {
   );
 
   testWidgets(
-    'receive flow imports accepted entries and hides source password',
+    'receive flow imports accepted entries without asking for source password',
     (tester) async {
       final payload = _validPayload(senderName: 'Source device');
-      String? capturedSourcePassword;
+      var receiveCalled = false;
 
       final services = AppServices.fake(
         hasVault: true,
         unlocked: true,
         receiveLanTransferOverride:
-            ({
-              required payload,
-              required sourceMasterPassword,
-              required cancellationToken,
-            }) async {
-              capturedSourcePassword = sourceMasterPassword;
+            ({required payload, required cancellationToken}) async {
+              receiveCalled = true;
               return const LanTransferImportResult(
                 importedCount: 1,
                 skippedCount: 1,
@@ -507,21 +503,26 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(
+      final pasteField = tester.widget<TextFormField>(
+        find.byKey(const ValueKey('lan-receive-paste-field')),
+      );
+      expect(pasteField.controller?.text, isEmpty);
+      expect(find.textContaining(payload.transferKey), findsNothing);
+      expect(
         find.byKey(const ValueKey('lan-source-master-password-field')),
-        'source-master',
+        findsNothing,
       );
       await tester.tap(find.byKey(const ValueKey('lan-receive-import-button')));
       await tester.pumpAndSettle();
 
-      expect(capturedSourcePassword, 'source-master');
+      expect(receiveCalled, isTrue);
       expect(find.textContaining('source-master'), findsNothing);
       expect(find.byKey(const ValueKey('lan-import-result')), findsOneWidget);
       expect(find.text('GitHub'), findsOneWidget);
     },
   );
 
-  testWidgets('receive password prompt clears source password on cancel', (
+  testWidgets('receive confirmation dialog clears pending payload on cancel', (
     tester,
   ) async {
     final payload = _validPayload(senderName: 'Source device');
@@ -541,23 +542,20 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final passwordField = find.byKey(
-      const ValueKey('lan-source-master-password-field'),
-    );
-    await tester.enterText(passwordField, 'source-master');
-    final controller = tester.widget<TextFormField>(passwordField).controller;
-    expect(controller?.text, 'source-master');
-
     await tester.tap(
       find.widgetWithText(OutlinedButton, const AppStringsZh().text('cancel')),
     );
 
-    expect(controller?.text, isEmpty);
     await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('lan-source-master-password-field')),
+      findsNothing,
+    );
+    expect(find.text('Source device'), findsNothing);
     expect(find.textContaining('source-master'), findsNothing);
   });
 
-  testWidgets('receive password prompt can be cancelled while importing', (
+  testWidgets('receive confirmation can be cancelled while importing', (
     tester,
   ) async {
     final payload = _validPayload(senderName: 'Source device');
@@ -567,11 +565,7 @@ void main() {
       hasVault: true,
       unlocked: true,
       receiveLanTransferOverride:
-          ({
-            required payload,
-            required sourceMasterPassword,
-            required cancellationToken,
-          }) {
+          ({required payload, required cancellationToken}) {
             capturedCancellationToken = cancellationToken;
             return importCompleter.future;
           },
@@ -591,10 +585,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const ValueKey('lan-source-master-password-field')),
-      'source-master',
-    );
     await tester.tap(find.byKey(const ValueKey('lan-receive-import-button')));
     await tester.pump();
 
@@ -621,7 +611,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('receive password prompt cancels import when dismissed by back', (
+  testWidgets('receive confirmation cancels import when dismissed by back', (
     tester,
   ) async {
     final payload = _validPayload(senderName: 'Source device');
@@ -631,11 +621,7 @@ void main() {
       hasVault: true,
       unlocked: true,
       receiveLanTransferOverride:
-          ({
-            required payload,
-            required sourceMasterPassword,
-            required cancellationToken,
-          }) {
+          ({required payload, required cancellationToken}) {
             capturedCancellationToken = cancellationToken;
             return importCompleter.future;
           },
@@ -655,10 +641,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const ValueKey('lan-source-master-password-field')),
-      'source-master',
-    );
     await tester.tap(find.byKey(const ValueKey('lan-receive-import-button')));
     await tester.pump();
 
@@ -691,6 +673,9 @@ LanTransferQrPayload _validPayload({required String senderName}) {
     token: encodeLanTransferBase64UrlNoPadding(Uint8List(32)),
     transferKey: encodeLanTransferBase64UrlNoPadding(
       Uint8List.fromList(List<int>.filled(32, 1)),
+    ),
+    packagePassword: encodeLanTransferBase64UrlNoPadding(
+      Uint8List.fromList(List<int>.filled(32, 2)),
     ),
     packageSha256:
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',

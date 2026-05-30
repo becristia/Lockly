@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:secure_box/core/backup/backup_service.dart';
 import 'package:secure_box/core/cancellation/cancellation_token.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_client.dart';
+import 'package:secure_box/core/lan_sync/lan_transfer_crypto.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_models.dart';
 import 'package:secure_box/core/lan_sync/lan_transfer_server.dart';
 
@@ -12,13 +13,16 @@ class LanTransferService {
     required BackupService backupService,
     required LanTransferServer server,
     required LanTransferClient client,
+    required LanTransferCrypto crypto,
   }) : _backupService = backupService,
        _server = server,
-       _client = client;
+       _client = client,
+       _crypto = crypto;
 
   final BackupService _backupService;
   final LanTransferServer _server;
   final LanTransferClient _client;
+  final LanTransferCrypto _crypto;
 
   Future<LanTransferSession> createSendSession({
     required List<String> itemIds,
@@ -30,11 +34,13 @@ class LanTransferService {
     String bindHost = '0.0.0.0',
     String? advertisedHost,
   }) async {
+    final lanPackagePassword = _crypto.randomToken();
     final backup = await _backupService.exportLanTransferBackup(
       itemIds: itemIds,
       includeBlobs: includeBlobs,
       includeHistory: includeHistory,
       sourceMasterPassword: sourceMasterPassword,
+      lanPackagePassword: lanPackagePassword,
     );
     final jsonText = const JsonEncoder.withIndent(
       '  ',
@@ -48,6 +54,7 @@ class LanTransferService {
       packageBytes: bytes,
       selectedCount: itemIds.toSet().length,
       senderName: senderName,
+      packagePassword: lanPackagePassword,
       ttl: ttl,
       bindHost: bindHost,
       advertisedHost: advertisedHost,
@@ -56,7 +63,6 @@ class LanTransferService {
 
   Future<LanTransferImportResult> receiveFromPayload({
     required LanTransferQrPayload payload,
-    required String sourceMasterPassword,
     CancellationToken? cancellationToken,
   }) async {
     cancellationToken?.throwIfCancelled();
@@ -77,7 +83,7 @@ class LanTransferService {
     cancellationToken?.throwIfCancelled();
     final result = await _backupService.importBackupSkippingIdentityConflicts(
       json: Map<String, Object?>.from(decoded),
-      masterPassword: sourceMasterPassword,
+      masterPassword: payload.packagePassword,
       cancellationToken: cancellationToken,
     );
     return _mapImportResult(result);

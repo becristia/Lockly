@@ -36,6 +36,10 @@ class SettingsDao {
     return value;
   }
 
+  Future<void> deleteValue(String key) async {
+    await _db.delete('settings', where: 'key = ?', whereArgs: [key]);
+  }
+
   Future<void> deleteAll() async {
     await _db.delete('settings');
   }

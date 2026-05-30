@@ -24,6 +24,7 @@ class LanTransferQrPayload {
     required this.sessionId,
     required this.token,
     required this.transferKey,
+    required this.packagePassword,
     required this.packageSha256,
     required this.selectedCount,
     required this.expiresAt,
@@ -35,6 +36,7 @@ class LanTransferQrPayload {
   final String sessionId;
   final String token;
   final String transferKey;
+  final String packagePassword;
   final String packageSha256;
   final int selectedCount;
   final DateTime expiresAt;
@@ -49,6 +51,7 @@ class LanTransferQrPayload {
       'sessionId': sessionId,
       'token': token,
       'transferKey': transferKey,
+      'packagePassword': packagePassword,
       'packageSha256': packageSha256,
       'selectedCount': selectedCount,
       'expiresAt': expiresAt.toUtc().toIso8601String(),
@@ -88,6 +91,7 @@ class LanTransferQrPayload {
       sessionId: _requiredString(decoded, 'sessionId'),
       token: _requiredString(decoded, 'token'),
       transferKey: _requiredString(decoded, 'transferKey'),
+      packagePassword: _requiredString(decoded, 'packagePassword'),
       packageSha256: _requiredString(decoded, 'packageSha256'),
       selectedCount: _requiredInt(decoded, 'selectedCount'),
       expiresAt: _requiredDateTime(decoded, 'expiresAt'),
@@ -135,6 +139,17 @@ class LanTransferQrPayload {
     decodeLanTransferBase64UrlNoPadding(
       transferKey,
       fieldName: 'Transfer key',
+      expectedEncodedLength: lanTransferSecretEncodedLength,
+      expectedByteLength: lanTransferSecretByteLength,
+    );
+    if (packagePassword.trim().isEmpty) {
+      throw const LanTransferFormatException(
+        'Package password must not be blank',
+      );
+    }
+    decodeLanTransferBase64UrlNoPadding(
+      packagePassword,
+      fieldName: 'Package password',
       expectedEncodedLength: lanTransferSecretEncodedLength,
       expectedByteLength: lanTransferSecretByteLength,
     );
@@ -314,6 +329,7 @@ const _qrPayloadKeys = <String>{
   'sessionId',
   'token',
   'transferKey',
+  'packagePassword',
   'packageSha256',
   'selectedCount',
   'expiresAt',

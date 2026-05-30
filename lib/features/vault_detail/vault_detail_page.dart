@@ -623,7 +623,7 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
               return _AttachmentRow(
                 attachment: attachment,
                 onOpen: () => _openAttachment(attachment.blobId),
-                onDelete: () => _deleteAttachment(attachment.blobId),
+                onDelete: () => _deleteAttachment(attachment),
               );
             }),
         ],
@@ -708,10 +708,39 @@ class _VaultDetailPageState extends State<VaultDetailPage> {
     }
   }
 
-  Future<void> _deleteAttachment(String blobId) async {
+  Future<void> _deleteAttachment(VaultBlobListItem attachment) async {
     widget.services.recordActivity();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final strings = AppStrings.of(context);
+        return SecureDialog(
+          icon: Icons.delete_forever_rounded,
+          title: strings.text('deleteAttachment'),
+          message: strings
+              .text('deleteAttachmentMessage')
+              .replaceFirst('{name}', attachment.displayName),
+          destructive: true,
+          actions: [
+            SecureDialogAction.destructive(
+              label: strings.text('confirmDelete'),
+              icon: Icons.delete_forever_rounded,
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+            SecureDialogAction.cancel(
+              context,
+              onPressed: () => Navigator.of(context).pop(false),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) {
+      return;
+    }
+
     try {
-      await widget.services.deleteVaultBlob(blobId);
+      await widget.services.deleteVaultBlob(attachment.blobId);
       if (!mounted) return;
       await _loadAttachments();
     } catch (_) {

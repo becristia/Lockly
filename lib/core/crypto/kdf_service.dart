@@ -6,9 +6,13 @@ import 'package:cryptography/cryptography.dart';
 import 'package:hashlib/hashlib.dart' as hashlib;
 
 const int _minimumPbkdf2Iterations = 100000;
+const int _maximumPbkdf2Iterations = 2000000;
 const int _minimumArgon2MemoryKiB = 1024;
+const int _maximumArgon2MemoryKiB = 262144;
 const int _minimumArgon2Iterations = 2;
+const int _maximumArgon2Iterations = 6;
 const int _minimumArgon2Parallelism = 1;
+const int _maximumArgon2Parallelism = 4;
 const int _requiredDerivedKeyBits = 256;
 const int _minimumSaltLength = 16;
 
@@ -135,6 +139,13 @@ class KdfService {
         'PBKDF2 iterations must be at least $_minimumPbkdf2Iterations for this MVP',
       );
     }
+    if (params.iterations > _maximumPbkdf2Iterations) {
+      throw ArgumentError.value(
+        params.iterations,
+        'params.iterations',
+        'PBKDF2 iterations must be at most $_maximumPbkdf2Iterations',
+      );
+    }
     _validateCommonSaltAndBits(salt: salt, bits: params.bits);
     final algorithm = Pbkdf2(
       macAlgorithm: Hmac.sha256(),
@@ -163,6 +174,13 @@ class KdfService {
         'Argon2id memoryKiB must be at least $_minimumArgon2MemoryKiB',
       );
     }
+    if (memoryKiB > _maximumArgon2MemoryKiB) {
+      throw ArgumentError.value(
+        memoryKiB,
+        'params.memoryKiB',
+        'Argon2id memoryKiB must be at most $_maximumArgon2MemoryKiB',
+      );
+    }
     if (params.iterations < _minimumArgon2Iterations) {
       throw ArgumentError.value(
         params.iterations,
@@ -170,11 +188,25 @@ class KdfService {
         'Argon2id iterations must be at least $_minimumArgon2Iterations',
       );
     }
+    if (params.iterations > _maximumArgon2Iterations) {
+      throw ArgumentError.value(
+        params.iterations,
+        'params.iterations',
+        'Argon2id iterations must be at most $_maximumArgon2Iterations',
+      );
+    }
     if (parallelism == null || parallelism < _minimumArgon2Parallelism) {
       throw ArgumentError.value(
         parallelism,
         'params.parallelism',
         'Argon2id parallelism must be at least $_minimumArgon2Parallelism',
+      );
+    }
+    if (parallelism > _maximumArgon2Parallelism) {
+      throw ArgumentError.value(
+        parallelism,
+        'params.parallelism',
+        'Argon2id parallelism must be at most $_maximumArgon2Parallelism',
       );
     }
 

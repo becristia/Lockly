@@ -403,6 +403,20 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('attachment-delete-blob-1')));
     await tester.pumpAndSettle();
 
+    expect(find.text('删除附件'), findsOneWidget);
+    expect(find.text('删除附件“recovery-codes.txt”？此操作不可撤销。'), findsOneWidget);
+    expect(find.text('recovery-codes.txt'), findsWidgets);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '取消'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('recovery-codes.txt'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('attachment-delete-blob-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '确认删除'));
+    await tester.pumpAndSettle();
+
     expect(find.text('没有附件'), findsOneWidget);
     expect(find.text('recovery-codes.txt'), findsNothing);
     expect(find.text('plain recovery bytes'), findsNothing);

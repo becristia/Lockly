@@ -36,7 +36,7 @@ void main() {
 
   group('LanTransferService', () {
     test(
-      'LAN transfer backup uses an independent password-wrapped envelope',
+      'LAN transfer backup is wrapped by one-time package key, not source master password',
       () async {
         final source = await _buildHarness();
         await source.vaultService.createVault(masterPassword: 'source-master');
@@ -59,6 +59,7 @@ void main() {
           includeBlobs: false,
           includeHistory: false,
           sourceMasterPassword: 'source-master',
+          lanPackagePassword: 'lan-package-secret',
         );
         final json = backup.toJson();
         final encoded = jsonEncode(json);
@@ -87,9 +88,16 @@ void main() {
         final target = await _buildHarness();
         await target.vaultService.createVault(masterPassword: 'target-master');
         await target.vaultService.unlock(masterPassword: 'target-master');
+        await expectLater(
+          target.backupService.importBackupSkippingIdentityConflicts(
+            json: json,
+            masterPassword: 'source-master',
+          ),
+          throwsA(isA<VaultUnlockException>()),
+        );
         await target.backupService.importBackupSkippingIdentityConflicts(
           json: json,
-          masterPassword: 'source-master',
+          masterPassword: 'lan-package-secret',
         );
         target.vaultService.lock();
         await target.vaultService.unlock(masterPassword: 'target-master');
@@ -170,7 +178,6 @@ void main() {
 
         final result = await target.lanTransferService.receiveFromPayload(
           payload: session.qrPayload,
-          sourceMasterPassword: 'source-master',
         );
 
         expect(result.importedCount, 1);
@@ -266,7 +273,6 @@ void main() {
 
         final result = await target.lanTransferService.receiveFromPayload(
           payload: session.qrPayload,
-          sourceMasterPassword: 'source-master',
         );
 
         expect(result.importedCount, 0);
@@ -281,7 +287,7 @@ void main() {
     );
 
     test(
-      'wrong source master password imports nothing and keeps target unchanged',
+      'wrong LAN package password imports nothing and keeps target unchanged',
       () async {
         final source = await _buildHarness();
         await source.vaultService.createVault(masterPassword: 'source-master');
@@ -322,10 +328,13 @@ void main() {
         );
         addTearDown(source.lanTransferService.cancelSendSession);
 
+        final wrongPackagePassword = _transferCrypto().randomToken();
         await expectLater(
           target.lanTransferService.receiveFromPayload(
-            payload: session.qrPayload,
-            sourceMasterPassword: 'wrong-master',
+            payload: _withPackagePassword(
+              session.qrPayload,
+              wrongPackagePassword,
+            ),
           ),
           throwsA(isA<VaultUnlockException>()),
         );
@@ -370,7 +379,6 @@ void main() {
       await expectLater(
         target.lanTransferService.receiveFromPayload(
           payload: session.qrPayload,
-          sourceMasterPassword: 'source-master',
           cancellationToken: token,
         ),
         throwsA(isA<OperationCancelledException>()),
@@ -410,7 +418,6 @@ void main() {
       await expectLater(
         target.lanTransferService.receiveFromPayload(
           payload: session.qrPayload,
-          sourceMasterPassword: 'source-master',
         ),
         throwsA(isA<LanTransferUnavailableException>()),
       );
@@ -457,7 +464,6 @@ void main() {
 
       final result = await target.lanTransferService.receiveFromPayload(
         payload: session.qrPayload,
-        sourceMasterPassword: 'source-master',
       );
 
       expect(result.importedCount, 1);
@@ -525,6 +531,7 @@ void main() {
           sessionId: 'session',
           token: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           transferKey: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+          packagePassword: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
           packageSha256:
               'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           selectedCount: 1,
@@ -554,14 +561,9 @@ void main() {
               return session;
             },
         receiveLanTransferOverride:
-            ({
-              required payload,
-              required sourceMasterPassword,
-              required cancellationToken,
-            }) async {
+            ({required payload, required cancellationToken}) async {
               receiveCalled = true;
               expect(payload, session.qrPayload);
-              expect(sourceMasterPassword, 'source-master');
               return const LanTransferImportResult(
                 importedCount: 1,
                 skippedCount: 0,
@@ -580,7 +582,6 @@ void main() {
       );
       final result = await services.receiveLanTransfer(
         payload: session.qrPayload,
-        sourceMasterPassword: 'source-master',
       );
 
       expect(createCalled, isTrue);
@@ -610,7 +611,6 @@ void main() {
         );
         final result = await services.receiveLanTransfer(
           payload: session.qrPayload,
-          sourceMasterPassword: 'source-master',
         );
         await services.cancelLanSendSession();
 
@@ -720,6 +720,7 @@ Future<_LanTransferHarness> _buildHarness() async {
     backupService: backupService,
     server: LanTransferServer(crypto: lanTransferCrypto),
     client: LanTransferClient(crypto: lanTransferCrypto),
+    crypto: lanTransferCrypto,
   );
   addTearDown(lanTransferService.cancelSendSession);
 
@@ -728,6 +729,24 @@ Future<_LanTransferHarness> _buildHarness() async {
     vaultService: vaultService,
     backupService: backupService,
     lanTransferService: lanTransferService,
+  );
+}
+
+LanTransferQrPayload _withPackagePassword(
+  LanTransferQrPayload payload,
+  String packagePassword,
+) {
+  return LanTransferQrPayload(
+    host: payload.host,
+    port: payload.port,
+    sessionId: payload.sessionId,
+    token: payload.token,
+    transferKey: payload.transferKey,
+    packagePassword: packagePassword,
+    packageSha256: payload.packageSha256,
+    selectedCount: payload.selectedCount,
+    expiresAt: payload.expiresAt,
+    senderName: payload.senderName,
   );
 }
 
@@ -783,10 +802,7 @@ Future<void> _expectLanPayloadUnavailable({
   required LanTransferQrPayload payload,
 }) async {
   await expectLater(
-    target.lanTransferService.receiveFromPayload(
-      payload: payload,
-      sourceMasterPassword: 'source-master',
-    ),
+    target.lanTransferService.receiveFromPayload(payload: payload),
     throwsA(isA<LanTransferUnavailableException>()),
   );
 }
@@ -850,10 +866,16 @@ class _AppServicesLanSessionHarness {
 
 class _LocalhostLanTransferService extends LanTransferService {
   _LocalhostLanTransferService(BackupService backupService)
-    : super(
+    : this._(backupService, _transferCrypto());
+
+  _LocalhostLanTransferService._(
+    BackupService backupService,
+    LanTransferCrypto crypto,
+  ) : super(
         backupService: backupService,
-        server: LanTransferServer(crypto: _transferCrypto()),
-        client: LanTransferClient(crypto: _transferCrypto()),
+        server: LanTransferServer(crypto: crypto),
+        client: LanTransferClient(crypto: crypto),
+        crypto: crypto,
       );
 
   @override
@@ -890,10 +912,16 @@ class _RealHttpOverrides extends HttpOverrides {
 
 class _RecordingLanTransferService extends LanTransferService {
   _RecordingLanTransferService(BackupService backupService)
-    : super(
+    : this._(backupService, _transferCrypto());
+
+  _RecordingLanTransferService._(
+    BackupService backupService,
+    LanTransferCrypto crypto,
+  ) : super(
         backupService: backupService,
-        server: LanTransferServer(crypto: _transferCrypto()),
-        client: LanTransferClient(crypto: _transferCrypto()),
+        server: LanTransferServer(crypto: crypto),
+        client: LanTransferClient(crypto: crypto),
+        crypto: crypto,
       );
 
   bool createCalled = false;
@@ -924,6 +952,7 @@ class _RecordingLanTransferService extends LanTransferService {
         sessionId: 'session',
         token: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         transferKey: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+        packagePassword: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
         packageSha256:
             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         selectedCount: 1,
@@ -937,11 +966,9 @@ class _RecordingLanTransferService extends LanTransferService {
   @override
   Future<LanTransferImportResult> receiveFromPayload({
     required LanTransferQrPayload payload,
-    required String sourceMasterPassword,
     CancellationToken? cancellationToken,
   }) async {
     receiveCalled = true;
-    expect(sourceMasterPassword, 'source-master');
     return const LanTransferImportResult(
       importedCount: 1,
       skippedCount: 0,

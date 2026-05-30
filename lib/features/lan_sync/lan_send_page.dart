@@ -207,7 +207,7 @@ class _LanSendPageState extends State<LanSendPage> {
       final timeout = await widget.services.getAutoLockTimeout();
       if (timeout < _minimumSessionAutoLockTimeout) {
         _autoLockTimeoutBeforeSession = timeout;
-        await widget.services.setAutoLockTimeout(
+        widget.services.autoLockService.updateTimeout(
           _minimumSessionAutoLockTimeout,
         );
       }
@@ -232,10 +232,7 @@ class _LanSendPageState extends State<LanSendPage> {
       return;
     }
     try {
-      final currentTimeout = await widget.services.getAutoLockTimeout();
-      if (currentTimeout == _minimumSessionAutoLockTimeout) {
-        await widget.services.setAutoLockTimeout(previousTimeout);
-      }
+      widget.services.autoLockService.updateTimeout(previousTimeout);
       _autoLockTimeoutBeforeSession = null;
       _autoLockExtensionFuture = null;
     } catch (_) {

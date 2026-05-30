@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/master_password_policy.dart';
+import 'package:secure_box/features/migration/backup_export_wizard_page.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
 import 'package:secure_box/features/migration/migration_wizard_page.dart';
@@ -37,6 +38,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _biometricEnabled = false;
   Duration _autoLockTimeout = const Duration(minutes: 2);
   Duration _clipboardCleanupTimeout = const Duration(seconds: 30);
+  bool _isLoadingSettings = true;
+  String? _settingsLoadError;
 
   @override
   void initState() {
@@ -45,18 +48,35 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadSettings() async {
-    final biometricEnabled = await widget.services.isBiometricUnlockEnabled();
-    final autoLockTimeout = await widget.services.getAutoLockTimeout();
-    final clipboardCleanupTimeout = await widget.services
-        .getClipboardCleanupTimeout();
-    if (!mounted) {
-      return;
-    }
     setState(() {
-      _biometricEnabled = biometricEnabled;
-      _autoLockTimeout = autoLockTimeout;
-      _clipboardCleanupTimeout = clipboardCleanupTimeout;
+      _isLoadingSettings = true;
+      _settingsLoadError = null;
     });
+
+    try {
+      final biometricEnabled = await widget.services.isBiometricUnlockEnabled();
+      final autoLockTimeout = await widget.services.getAutoLockTimeout();
+      final clipboardCleanupTimeout = await widget.services
+          .getClipboardCleanupTimeout();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _biometricEnabled = biometricEnabled;
+        _autoLockTimeout = autoLockTimeout;
+        _clipboardCleanupTimeout = clipboardCleanupTimeout;
+        _isLoadingSettings = false;
+        _settingsLoadError = null;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingSettings = false;
+        _settingsLoadError = AppStrings.of(context).text('settingsLoadFailed');
+      });
+    }
   }
 
   Future<void> _changeMasterPassword() async {
@@ -134,36 +154,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _exportBackup() async {
     widget.services.recordActivity();
-    final masterPassword = await _showMasterPasswordPrompt(
-      title: AppStrings.of(context).text('backupExportTitle'),
-      submitLabel: AppStrings.of(context).text('exportEncryptedBackup'),
-      subtitle: AppStrings.of(context).text('reauthenticateExportSubtitle'),
-      icon: Icons.file_upload_outlined,
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => BackupExportWizardPage(services: widget.services),
+      ),
     );
-    if (masterPassword == null) {
-      return;
-    }
-    try {
-      await widget.services.verifyMasterPassword(masterPassword);
-      final backupJson = await widget.services.exportEncryptedBackupJson();
-      if (!mounted) {
-        return;
-      }
-      await showDialog<void>(
-        context: context,
-        builder: (context) => _BackupExportDialog(
-          services: widget.services,
-          backupJson: backupJson,
-        ),
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppStrings.of(context).text('exportFailed'))),
-      );
-    }
   }
 
   Future<void> _importBackup() async {
@@ -246,6 +241,42 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               const SizedBox(height: 22),
+              if (_settingsLoadError != null) ...[
+                SecurePanel(
+                  key: const ValueKey('settings-load-error'),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(_settingsLoadError!)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        key: const ValueKey('settings-load-retry'),
+                        onPressed: _isLoadingSettings ? null : _loadSettings,
+                        icon: _isLoadingSettings
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh_rounded),
+                        label: Text(strings.retry),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
               SecureSection(
                 key: const ValueKey('settings-section-language'),
                 title: strings.languageTitle,
@@ -929,122 +960,6 @@ class _MasterPasswordPromptDialogState
     }
     FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(context).pop(_controller.text);
-  }
-}
-
-class _BackupExportDialog extends StatefulWidget {
-  const _BackupExportDialog({required this.services, required this.backupJson});
-
-  final AppServices services;
-  final String backupJson;
-
-  @override
-  State<_BackupExportDialog> createState() => _BackupExportDialogState();
-}
-
-class _BackupExportDialogState extends State<_BackupExportDialog> {
-  bool _copied = false;
-
-  Future<void> _copyBackupJson() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => _ReplicaConfirmationDialog(
-        title: AppStrings.of(context).text('copyBackupConfirmTitle'),
-        message: AppStrings.of(context).text('copyBackupConfirmMessage'),
-        confirmLabel: AppStrings.of(context).text('copyBackup'),
-        destructive: true,
-      ),
-    );
-    if (confirmed != true) {
-      return;
-    }
-    final copied = await widget.services.copySensitiveTemporary(
-      widget.backupJson,
-      clearAfter: const Duration(seconds: 30),
-    );
-    if (!mounted) {
-      return;
-    }
-    setState(() => _copied = copied);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          copied
-              ? AppStrings.of(context).text('backupCopied')
-              : AppStrings.of(context).copyFailed,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _clearClipboardNow() async {
-    final cleared = await widget.services.clearSensitiveClipboardNow();
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          cleared
-              ? AppStrings.of(context).text('clipboardCleared')
-              : AppStrings.of(context).text('clipboardClearNoPendingSecret'),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = AppStrings.of(context);
-    final theme = Theme.of(context);
-    return SecureDialog(
-      icon: Icons.file_upload_outlined,
-      title: strings.text('backupExportTitle'),
-      message: strings.text('backupExportSubtitle'),
-      actions: [
-        SecureDialogAction.primary(
-          label: _copied ? strings.text('copied') : strings.text('copyBackup'),
-          icon: _copied ? Icons.check_rounded : Icons.copy_rounded,
-          onPressed: _copyBackupJson,
-        ),
-        SecureDialogAction.secondary(
-          label: strings.text('clearClipboardNow'),
-          icon: Icons.cleaning_services_outlined,
-          onPressed: _clearClipboardNow,
-        ),
-        SecureDialogAction.close(context),
-      ],
-      child: SizedBox(
-        width: double.infinity,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.64,
-                ),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  strings
-                      .text('backupPreparedNoPreview')
-                      .replaceFirst(
-                        '{bytes}',
-                        widget.backupJson.length.toString(),
-                      ),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

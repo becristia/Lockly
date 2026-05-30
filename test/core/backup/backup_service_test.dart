@@ -680,6 +680,32 @@ void main() {
     },
   );
 
+  test('AppServices imports plaintext CSV as one manifest mutation', () async {
+    final harness = await _buildHarness();
+    await harness.vaultService.createVault(masterPassword: 'master');
+    await harness.vaultService.unlock(masterPassword: 'master');
+    final services = AppServices(
+      hasVault: true,
+      initialShellState: AppShellState.unlocked,
+      trackActivity: false,
+      vaultService: harness.vaultService,
+    );
+    addTearDown(services.dispose);
+
+    final before = await harness.repository.manifestDao.get();
+    final count = await services.importPlaintextCsv(
+      'title,website,username,password\n'
+      'GitHub,https://github.com,user@example.com,secret\n'
+      'Docs,https://docs.example,docs@example.com,docs-secret\n',
+    );
+    final after = await harness.repository.manifestDao.get();
+
+    expect(count, 2);
+    expect(after!.counter, before!.counter + 1);
+    final items = await services.listVaultItems();
+    expect(items.map((item) => item.title), containsAll(['GitHub', 'Docs']));
+  });
+
   test(
     'v2 import rejects tampered item ciphertext before writing target data',
     () async {
@@ -2131,6 +2157,7 @@ void main() {
         includeBlobs: false,
         includeHistory: false,
         sourceMasterPassword: 'source-master',
+        lanPackagePassword: 'lan-package-secret',
       );
       final decoded = jsonDecode(backupJson) as Map<String, Object?>;
 
@@ -2160,7 +2187,7 @@ void main() {
 
       final result = await targetServices.importLanTransferBackupJson(
         backupJson: backupJson,
-        sourceMasterPassword: 'source-master',
+        lanPackagePassword: 'lan-package-secret',
       );
 
       expect(result.importedCount, 1);
@@ -2189,7 +2216,7 @@ void main() {
     await expectLater(
       services.importLanTransferBackupJson(
         backupJson: oversizedBackup,
-        sourceMasterPassword: 'source-master',
+        lanPackagePassword: 'lan-package-secret',
       ),
       throwsA(isA<FormatException>()),
     );
@@ -2388,6 +2415,65 @@ void main() {
       expect(merged.password, 'rotated-password');
       expect(merged.notes, 'updated remotely');
       expect(localOnly.password, 'local-password');
+    },
+  );
+
+  test(
+    'importBackup merge blob-only change rejects tampered target before accepting manifest',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final itemId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'GitHub',
+          website: 'https://github.com',
+          username: 'user@example.com',
+          password: 'secret-password',
+          notes: 'private note',
+          tags: const ['dev'],
+        ),
+      );
+      final initialBackup = await source.backupService.exportBackup();
+
+      final target = await _buildHarness();
+      await target.backupService.importBackup(
+        json: initialBackup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+      await target.vaultService.unlock(masterPassword: 'source-master');
+
+      await source.vaultService.addBlob(
+        itemId: itemId,
+        displayName: 'recovery-codes.txt',
+        mediaType: 'text/plain',
+        bytes: Uint8List.fromList(utf8.encode('recovery codes')),
+      );
+      final fullBackupWithBlob = await source.backupService.exportBackup();
+      final blobOnlyBackup = await _blobOnlyBackupFrom(
+        harness: source,
+        backup: fullBackupWithBlob,
+        masterPassword: 'source-master',
+      );
+
+      await target.repository.itemsDao.executor.update(
+        'vault_items',
+        {'ciphertext': _tamperBase64(initialBackup.items.single.ciphertext)},
+        where: 'id = ?',
+        whereArgs: [itemId],
+      );
+
+      await expectLater(
+        target.backupService.importBackup(
+          json: blobOnlyBackup.toJson(),
+          masterPassword: 'source-master',
+          mode: BackupImportMode.merge,
+        ),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(await target.repository.blobsDao.allForManifest(), isEmpty);
+      expect(target.vaultService.isUnlocked, isFalse);
     },
   );
 
@@ -2813,6 +2899,72 @@ void main() {
     },
   );
 
+  test(
+    'overwrite import clears stale target password history before accepting manifest',
+    () async {
+      final source = await _buildHarness();
+      await source.vaultService.createVault(masterPassword: 'source-master');
+      await source.vaultService.unlock(masterPassword: 'source-master');
+      final sourceId = await source.vaultService.createItem(
+        PasswordEntry(
+          title: 'Source',
+          website: 'https://source.example',
+          username: 'source@example.com',
+          password: 'source-password',
+          notes: 'backup without history',
+          tags: const ['source'],
+        ),
+      );
+      final backup = await source.backupService.exportBackup();
+      expect(backup.historyItems, isEmpty);
+
+      final target = await _buildHarness();
+      await target.vaultService.createVault(masterPassword: 'target-master');
+      await target.vaultService.unlock(masterPassword: 'target-master');
+      final staleId = await target.vaultService.createItem(
+        PasswordEntry(
+          title: 'Stale',
+          website: 'https://stale.example',
+          username: 'stale@example.com',
+          password: 'old-password',
+          notes: 'target-only history',
+          tags: const ['target'],
+        ),
+      );
+      await target.vaultService.updateItem(
+        staleId,
+        PasswordEntry(
+          title: 'Stale',
+          website: 'https://stale.example',
+          username: 'stale@example.com',
+          password: 'new-password',
+          notes: 'target-only history',
+          tags: const ['target'],
+        ),
+      );
+      expect(
+        await target.vaultService.listPasswordHistory(staleId),
+        isNotEmpty,
+      );
+
+      await target.backupService.importBackup(
+        json: backup.toJson(),
+        masterPassword: 'source-master',
+        mode: BackupImportMode.overwrite,
+      );
+
+      expect(await target.repository.historyDao!.allRowsForManifest(), isEmpty);
+      final unlock = await target.vaultService.unlock(
+        masterPassword: 'source-master',
+      );
+      expect(unlock.isUnlocked, isTrue);
+      expect(
+        (await target.vaultService.getItem(sourceId)).password,
+        'source-password',
+      );
+    },
+  );
+
   test('full backup overwrite restores encrypted password history', () async {
     final source = await _buildHarness();
     await source.vaultService.createVault(masterPassword: 'source-master');
@@ -2996,6 +3148,66 @@ Future<void> _createEmptyArgon2idVault(
   await harness.vaultService.acceptManifestForCurrentState(
     meta: meta,
     manifest: manifest,
+  );
+}
+
+Future<VaultBackup> _blobOnlyBackupFrom({
+  required _BackupHarness harness,
+  required VaultBackup backup,
+  required String masterPassword,
+}) async {
+  final meta = (await harness.repository.metaDao.get())!;
+  final blobs = backup.blobs
+      .map(
+        (blob) => EncryptedVaultBlob(
+          blobId: blob.blobId,
+          itemId: blob.itemId,
+          metadataNonce: blob.metadataNonce,
+          metadataCiphertext: blob.metadataCiphertext,
+          metadataMac: blob.metadataMac,
+          nonce: blob.nonce,
+          ciphertext: blob.ciphertext,
+          mac: blob.mac,
+          createdAt: blob.createdAt,
+          updatedAt: blob.updatedAt,
+          deletedAt: blob.deletedAt,
+        ),
+      )
+      .toList(growable: false);
+  final manifest = await harness.vaultService.createManifestForImportedVault(
+    masterPassword: masterPassword,
+    meta: meta,
+    items: const [],
+    blobs: blobs,
+    historyRecords: const [],
+    previous: null,
+    updatedAt: backup.createdAt!,
+  );
+  return VaultBackup(
+    version: backup.version,
+    magic: backup.magic,
+    createdAt: backup.createdAt,
+    scope: backup.scope,
+    itemCount: 0,
+    historyCount: 0,
+    blobCount: backup.blobs.length,
+    vaultId: backup.vaultId,
+    vaultCreatedAt: backup.vaultCreatedAt,
+    vaultUpdatedAt: backup.vaultUpdatedAt,
+    biometricEnabled: backup.biometricEnabled,
+    encryptedDekByBiometric: backup.encryptedDekByBiometric,
+    encryptedDekByBiometricNonce: backup.encryptedDekByBiometricNonce,
+    encryptedDekByBiometricMac: backup.encryptedDekByBiometricMac,
+    manifest: BackupManifest.fromVaultManifest(manifest),
+    kdf: backup.kdf,
+    kdfParams: backup.kdfParams,
+    salt: backup.salt,
+    encryptedDekByMaster: backup.encryptedDekByMaster,
+    encryptedDekByMasterNonce: backup.encryptedDekByMasterNonce,
+    encryptedDekByMasterMac: backup.encryptedDekByMasterMac,
+    items: const [],
+    blobs: backup.blobs,
+    historyItems: const [],
   );
 }
 

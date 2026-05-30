@@ -9,6 +9,7 @@ void main() {
       'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const validToken = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8';
   const validTransferKey = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
+  const validPackagePassword = 'AgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICE';
 
   LanTransferQrPayload validPayload({
     DateTime? expiresAt,
@@ -17,6 +18,7 @@ void main() {
     String sessionId = 'session-123',
     String token = validToken,
     String transferKey = validTransferKey,
+    String packagePassword = validPackagePassword,
     String senderName = 'Alice Laptop',
     int selectedCount = 3,
     String packageSha256 = packageHash,
@@ -27,6 +29,7 @@ void main() {
       sessionId: sessionId,
       token: token,
       transferKey: transferKey,
+      packagePassword: packagePassword,
       packageSha256: packageSha256,
       selectedCount: selectedCount,
       expiresAt: expiresAt ?? DateTime.utc(2099, 5, 25, 12, 30),
@@ -46,6 +49,7 @@ void main() {
       expect(decoded.sessionId, payload.sessionId);
       expect(decoded.token, payload.token);
       expect(decoded.transferKey, payload.transferKey);
+      expect(decoded.packagePassword, payload.packagePassword);
       expect(decoded.packageSha256, payload.packageSha256);
       expect(decoded.selectedCount, payload.selectedCount);
       expect(decoded.expiresAt, payload.expiresAt);
@@ -62,6 +66,7 @@ void main() {
       expect(json['sessionId'], payload.sessionId);
       expect(json['token'], payload.token);
       expect(json['transferKey'], payload.transferKey);
+      expect(json['packagePassword'], payload.packagePassword);
       expect(json['packageSha256'], payload.packageSha256);
       expect(json['selectedCount'], payload.selectedCount);
       expect(json['expiresAt'], payload.expiresAt.toUtc().toIso8601String());

@@ -81,6 +81,7 @@ Future<void> main() async {
     backupService: backupService,
     server: LanTransferServer(crypto: lanTransferCrypto),
     client: LanTransferClient(crypto: lanTransferCrypto),
+    crypto: lanTransferCrypto,
   );
   late final AppServices services;
   services = AppServices(

@@ -12,6 +12,8 @@ namespace {
 
 constexpr UINT kTrayIconMessage = WM_APP + 1;
 constexpr UINT kTrayIconId = 1;
+constexpr UINT kTrayMenuRestore = 1001;
+constexpr UINT kTrayMenuExit = 1002;
 
 }  // namespace
 
@@ -67,6 +69,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
   if (message == WM_SIZE && wparam == SIZE_MINIMIZED) {
+    if (flutter_controller_) {
+      flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
+                                                    lparam);
+    }
     AddTrayIcon(hwnd);
     ShowWindow(hwnd, SW_HIDE);
     return 0;
@@ -76,6 +82,8 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     const auto tray_event = LOWORD(lparam);
     if (tray_event == WM_LBUTTONUP || tray_event == WM_LBUTTONDBLCLK) {
       RestoreFromTray(hwnd);
+    } else if (tray_event == WM_RBUTTONUP || tray_event == WM_CONTEXTMENU) {
+      ShowTrayMenu(hwnd);
     }
     return 0;
   }
@@ -112,7 +120,7 @@ void FlutterWindow::AddTrayIcon(HWND window) {
   tray_icon_data_.uCallbackMessage = kTrayIconMessage;
   tray_icon_data_.hIcon =
       LoadIcon(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON));
-  wcscpy_s(tray_icon_data_.szTip, L"Lockly");
+  wcscpy_s(tray_icon_data_.szTip, L"Lockly - Minimize to tray");
 
   tray_icon_added_ = Shell_NotifyIcon(NIM_ADD, &tray_icon_data_) == TRUE;
   if (tray_icon_added_) {
@@ -136,6 +144,33 @@ void FlutterWindow::RestoreFromTray(HWND window) {
   ShowWindow(window, SW_SHOWNORMAL);
   SetForegroundWindow(window);
   SetFocus(window);
+}
+
+void FlutterWindow::ShowTrayMenu(HWND window) {
+  HMENU menu = CreatePopupMenu();
+  if (!menu) {
+    return;
+  }
+
+  AppendMenuW(menu, MF_STRING, kTrayMenuRestore, L"Restore");
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, kTrayMenuExit, L"Exit");
+
+  POINT cursor;
+  GetCursorPos(&cursor);
+  SetForegroundWindow(window);
+  const UINT command = TrackPopupMenu(
+      menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, cursor.x, cursor.y,
+      0, window, nullptr);
+  DestroyMenu(menu);
+  PostMessage(window, WM_NULL, 0, 0);
+
+  if (command == kTrayMenuRestore) {
+    RestoreFromTray(window);
+  } else if (command == kTrayMenuExit) {
+    RemoveTrayIcon();
+    PostMessage(window, WM_CLOSE, 0, 0);
+  }
 }
 
 void FlutterWindow::RegisterWindowMethodChannel() {

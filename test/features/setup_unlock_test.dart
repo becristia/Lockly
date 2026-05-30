@@ -4,6 +4,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/features/setup/setup_page.dart';
 import 'package:secure_box/features/unlock/unlock_page.dart';
+import 'package:secure_box/shared/i18n/app_strings_zh.dart';
 import 'package:secure_box/shared/theme/app_theme.dart';
 
 void main() {
@@ -126,7 +127,7 @@ void main() {
         home: SetupPage(services: services),
       );
 
-      expect(find.text('主密码不会上传，也无法找回。请务必牢记。'), findsOneWidget);
+      expect(find.text('Lockly 不保存主密码，主密码也无法恢复。请务必牢记。'), findsOneWidget);
       expect(find.text('启用生物识别快速解锁'), findsOneWidget);
 
       await tester.enterText(
@@ -215,7 +216,7 @@ void main() {
       await tester.pump();
 
       expect(services.fakeCreateVaultCalls, 1);
-      expect(services.fakeLastCreateVaultPassword, 'very-secure-password');
+      expect(services.fakeLastCreateVaultPassword, isNull);
       expect(services.fakeLastCreateVaultBiometricEnabled, isTrue);
       expect(services.shellState.value, AppShellState.locked);
     });
@@ -323,7 +324,10 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.text('使用生物识别'), findsOneWidget);
+        expect(
+          find.text(const AppStringsZh().text('useBiometric')),
+          findsOneWidget,
+        );
 
         await tester.enterText(
           find.widgetWithText(TextFormField, '主密码'),

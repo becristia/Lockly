@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:secure_box/app/app_services.dart';
 import 'package:secure_box/core/security/password_health_service.dart';
+import 'package:secure_box/features/migration/backup_export_wizard_page.dart';
+import 'package:secure_box/features/migration/migration_wizard_page.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
 import 'package:secure_box/shared/widgets/secure_panel.dart';
 import 'package:secure_box/shared/widgets/secure_visuals.dart';
@@ -60,6 +62,31 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
     }
   }
 
+  Future<void> _openBackupExport() async {
+    widget.services.recordActivity();
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => BackupExportWizardPage(services: widget.services),
+      ),
+    );
+  }
+
+  Future<void> _openMigrationImport() async {
+    widget.services.recordActivity();
+    final imported = await Navigator.of(context).push<int>(
+      MaterialPageRoute(
+        builder: (context) => MigrationWizardPage(services: widget.services),
+      ),
+    );
+    if (imported == null || !mounted) {
+      return;
+    }
+    final message = '$imported ${AppStrings.of(context).text('import')}';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = AppStrings.of(context);
@@ -79,12 +106,17 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
                 SecureReplicaHeader(
                   title: strings.text('securityCenterTitle'),
                   subtitle: strings.text('securityCenterSubtitle'),
-                  trailing: IconButton(
-                    tooltip: strings.text('refresh'),
-                    onPressed: snapshot.connectionState == ConnectionState.done
-                        ? _refresh
-                        : null,
-                    icon: const Icon(Icons.refresh_rounded),
+                  trailing: Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 56),
+                    child: IconButton(
+                      key: const ValueKey('security-center-refresh'),
+                      tooltip: strings.text('refresh'),
+                      onPressed:
+                          snapshot.connectionState == ConnectionState.done
+                          ? _refresh
+                          : null,
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -100,6 +132,8 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
                   ),
                   const SizedBox(height: 12),
                   _LocalExchangeCard(
+                    onExport: _openBackupExport,
+                    onImport: _openMigrationImport,
                     onSend: () {
                       widget.services.recordActivity();
                       Navigator.of(context).pushNamed(AppServices.routeLanSend);
@@ -150,8 +184,15 @@ class _LoadingCard extends StatelessWidget {
 }
 
 class _LocalExchangeCard extends StatelessWidget {
-  const _LocalExchangeCard({required this.onSend, required this.onReceive});
+  const _LocalExchangeCard({
+    required this.onExport,
+    required this.onImport,
+    required this.onSend,
+    required this.onReceive,
+  });
 
+  final VoidCallback onExport;
+  final VoidCallback onImport;
   final VoidCallback onSend;
   final VoidCallback onReceive;
 
@@ -198,6 +239,22 @@ class _LocalExchangeCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          const Divider(height: 1),
+          _LocalExchangeActionTile(
+            keyValue: 'security-center-export-backup',
+            icon: Icons.file_upload_outlined,
+            title: strings.text('exportEncryptedBackup'),
+            subtitle: strings.text('exportEncryptedBackupSubtitle'),
+            onTap: onExport,
+          ),
+          const Divider(height: 1),
+          _LocalExchangeActionTile(
+            keyValue: 'security-center-migration-import',
+            icon: Icons.move_up_rounded,
+            title: strings.text('migrationImport'),
+            subtitle: strings.text('migrationImportSubtitle'),
+            onTap: onImport,
           ),
           const Divider(height: 1),
           _LocalExchangeActionTile(

@@ -54,9 +54,9 @@ void main() {
 
     test('parseOtpauthUrl handles url without issuer', () {
       final result = TotpService.parseOtpauthUrl(
-        'otpauth://totp/MyApp?secret=ABCDEFGH234567',
+        'otpauth://totp/MyApp?secret=ABCDEFGH234567AB',
       );
-      expect(result.secret, 'ABCDEFGH234567');
+      expect(result.secret, 'ABCDEFGH234567AB');
       expect(result.label, 'MyApp');
       expect(result.issuer, isNull);
     });

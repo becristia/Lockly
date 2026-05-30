@@ -28,7 +28,7 @@ constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
 constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
 
 constexpr UINT_PTR kTopRightAutoHideTimerId = 0x4c01;
-constexpr UINT kAutoHidePollMs = 50;
+constexpr UINT kAutoHidePollMs = 250;
 constexpr ULONGLONG kAutoHideDelayMs = 700;
 constexpr ULONGLONG kSlideAnimationMs = 180;
 constexpr int kHiddenGripWidth = 6;
@@ -164,7 +164,6 @@ bool Win32Window::Create(const std::wstring& title,
 
 bool Win32Window::Show() {
   AlignToTopRightWorkArea();
-  StartTopRightAutoHideTimer();
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 
@@ -312,6 +311,15 @@ void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
 }
 
+void Win32Window::SetTopRightAutoHideEnabled(bool enabled) {
+  top_right_auto_hide_enabled_ = enabled;
+  if (enabled) {
+    StartTopRightAutoHideTimer();
+  } else {
+    StopTopRightAutoHideTimer();
+  }
+}
+
 void Win32Window::AlignToTopRightWorkArea() {
   if (!window_handle_) {
     return;
@@ -341,7 +349,7 @@ void Win32Window::AlignToTopRightWorkArea() {
 }
 
 void Win32Window::StartTopRightAutoHideTimer() {
-  if (!window_handle_) {
+  if (!window_handle_ || !top_right_auto_hide_enabled_) {
     return;
   }
 

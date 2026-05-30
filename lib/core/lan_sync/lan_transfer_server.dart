@@ -30,6 +30,7 @@ class LanTransferServer {
     required Uint8List packageBytes,
     required int selectedCount,
     required String senderName,
+    required String packagePassword,
     Duration ttl = const Duration(minutes: 5),
     String bindHost = '0.0.0.0',
     String? advertisedHost,
@@ -40,6 +41,7 @@ class LanTransferServer {
       packageBytes: packageBytes,
       selectedCount: selectedCount,
       senderName: senderName,
+      packagePassword: packagePassword,
       ttl: ttl,
       bindHost: bindHost,
       advertisedHost: advertisedHost,
@@ -67,6 +69,7 @@ class LanTransferServer {
         sessionId: sessionId,
         token: token,
         transferKey: _crypto.encodeTransferKey(transferKey),
+        packagePassword: packagePassword,
         packageSha256: envelope.packageSha256,
         selectedCount: selectedCount,
         expiresAt: expiresAt,
@@ -145,13 +148,16 @@ class LanTransferServer {
 
     _session = null;
     final responseBytes = utf8.encode(jsonEncode(session.envelope.toJson()));
-    request.response
-      ..statusCode = HttpStatus.ok
-      ..headers.contentType = ContentType.json
-      ..headers.contentLength = responseBytes.length
-      ..add(responseBytes);
-    await request.response.close();
-    await close();
+    try {
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.json
+        ..headers.contentLength = responseBytes.length
+        ..add(responseBytes);
+      await request.response.close();
+    } finally {
+      await close();
+    }
   }
 
   Future<void> _sendEmpty(HttpRequest request, int statusCode) async {
@@ -163,6 +169,7 @@ class LanTransferServer {
     required Uint8List packageBytes,
     required int selectedCount,
     required String senderName,
+    required String packagePassword,
     required Duration ttl,
     required String bindHost,
     required String? advertisedHost,
@@ -176,6 +183,7 @@ class LanTransferServer {
     if (senderName.trim().isEmpty) {
       throw const LanTransferFormatException('Sender name must not be blank');
     }
+    _crypto.decodeTransferKey(packagePassword);
     if (ttl <= Duration.zero) {
       throw const LanTransferFormatException('TTL must be positive');
     }

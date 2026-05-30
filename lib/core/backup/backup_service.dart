@@ -760,12 +760,14 @@ class BackupService {
   ///
   /// The source vault DEK and its persisted wrapping material are never
   /// serialized; selected data is re-encrypted under the transfer DEK, which is
-  /// wrapped with the source master password for the receiver.
+  /// wrapped with a one-time LAN package password for the receiver. The source
+  /// master password is used only to reauthenticate this local export.
   Future<VaultBackup> exportLanTransferBackup({
     required List<String> itemIds,
     bool includeBlobs = true,
     bool includeHistory = false,
     required String sourceMasterPassword,
+    required String lanPackagePassword,
   }) async {
     if (itemIds.isEmpty) {
       throw ArgumentError.value(
@@ -806,7 +808,8 @@ class BackupService {
         : const <BackupHistoryItem>[];
     final now = DateTime.now().millisecondsSinceEpoch;
     final export = await vaultService.createPasswordWrappedExport(
-      exportPassword: sourceMasterPassword,
+      exportPassword: lanPackagePassword,
+      verificationPassword: sourceMasterPassword,
       items: items,
       blobs: blobs,
       historyRecords: historyItems
@@ -990,327 +993,342 @@ class BackupService {
       );
     }
 
-    final result = await repository.transaction<_BackupImportResult>((
-      txn,
-    ) async {
-      final existingMeta = await txn.metaDao.get();
-      final existingManifest = await txn.manifestDao.get();
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final hasExistingVault = existingMeta != null;
-      final preserveExistingMeta =
-          mode != BackupImportMode.overwrite && hasExistingVault;
-      final needsReencryption =
-          preserveExistingMeta &&
-          !_hasSameEncryptionEnvelope(existingMeta, backupMeta);
+    final result = await vaultService.runSerializedManifestCommit(() async {
+      final transactionResult = await repository.transaction<_BackupImportResult>((
+        txn,
+      ) async {
+        final existingMeta = await txn.metaDao.get();
+        final existingManifest = await txn.manifestDao.get();
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final hasExistingVault = existingMeta != null;
+        final preserveExistingMeta =
+            mode != BackupImportMode.overwrite && hasExistingVault;
+        final needsReencryption =
+            preserveExistingMeta &&
+            !_hasSameEncryptionEnvelope(existingMeta, backupMeta);
 
-      final importedMeta = _buildImportedMeta(
-        backup: backup,
-        existingMeta: existingMeta,
-        preserveExistingId: preserveExistingMeta,
-        now: now,
-      );
+        final importedMeta = _buildImportedMeta(
+          backup: backup,
+          existingMeta: existingMeta,
+          preserveExistingId: preserveExistingMeta,
+          now: now,
+        );
 
-      switch (mode) {
-        case BackupImportMode.overwrite:
-          if (hasExistingVault) {
-            await _verifyExistingManifestBeforeImportMutation(
-              txn: txn,
-              masterPassword: masterPassword,
-              meta: existingMeta,
-              manifest: existingManifest,
-            );
-          }
-          final importedItems = backup.items
-              .map(
-                (item) => _buildImportedItem(
-                  item,
-                  createdAt: item.createdAt ?? now,
-                  updatedAt: item.updatedAt ?? now,
-                ),
-              )
-              .toList(growable: false);
-          final importedBlobs = backup.blobs
-              .map(
-                (blob) => _buildImportedBlob(
-                  blob,
-                  createdAt: blob.createdAt,
-                  updatedAt: blob.updatedAt,
-                ),
-              )
-              .toList(growable: false);
-          final manifest = await vaultService.createManifestForImportedVault(
-            masterPassword: masterPassword,
-            meta: importedMeta,
-            items: importedItems,
-            blobs: importedBlobs,
-            historyRecords: _manifestHistoryFromBackup(backup.historyItems),
-            previous: null,
-            updatedAt: now,
-          );
-          await vaultService.verifyManifestAgainstAnchor(
-            meta: importedMeta,
-            manifest: manifest,
-            allowMissingAnchor: true,
-            allowNewerManifest: true,
-          );
-          await txn.metaDao.save(importedMeta);
-          await txn.blobsDao.deleteAll();
-          await txn.itemsDao.deleteAll();
-          for (final importedItem in importedItems) {
-            await txn.itemsDao.upsert(importedItem);
-          }
-          for (final importedBlob in importedBlobs) {
-            await txn.blobsDao.upsert(importedBlob);
-          }
-          for (final historyItem in backup.historyItems) {
-            await txn.historyDao?.insertRaw(historyItem.toJson());
-          }
-          await txn.manifestDao.save(manifest);
-          vaultService.lock();
-          return _BackupImportResult(
-            importedCount: backup.items.length,
-            dataChanged: true,
-            meta: importedMeta,
-            manifest: manifest,
-          );
-        case BackupImportMode.skip:
-          if (!preserveExistingMeta) {
-            await txn.metaDao.save(importedMeta);
-          }
-          final pendingItems = <EncryptedVaultItem>[];
-          for (final item in backup.items) {
-            final existingItem = await txn.itemsDao.byId(item.id);
-            if (existingItem != null) {
-              continue;
-            }
-            pendingItems.add(
-              _buildImportedItem(
-                item,
-                createdAt: existingItem?.createdAt ?? item.createdAt ?? now,
-                updatedAt: item.updatedAt ?? now,
-              ),
-            );
-          }
-          final pendingItemIds = pendingItems.map((item) => item.id).toSet();
-          final existingActiveItemIds =
-              (await txn.itemsDao.allItemsForManifest())
-                  .where((item) => item.deletedAt == null)
-                  .map((item) => item.id)
-                  .toSet();
-          final importableBlobItemIds = {
-            ...existingActiveItemIds,
-            ...pendingItemIds,
-          };
-          final pendingBlobs = <EncryptedVaultBlob>[];
-          for (final blob in backup.blobs) {
-            if (!importableBlobItemIds.contains(blob.itemId)) {
-              continue;
-            }
-            final existingBlob = await txn.blobsDao.byBlobId(blob.blobId);
-            if (existingBlob != null) {
-              continue;
-            }
-            pendingBlobs.add(
-              _buildImportedBlob(
-                blob,
-                createdAt: blob.createdAt,
-                updatedAt: blob.updatedAt,
-              ),
-            );
-          }
-          final needsPendingReencryption =
-              needsReencryption &&
-              (pendingItems.isNotEmpty || pendingBlobs.isNotEmpty);
-          if (needsPendingReencryption && !vaultService.isUnlocked) {
-            throw StateError(
-              'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
-            );
-          }
-          if (preserveExistingMeta) {
-            if (pendingItems.isNotEmpty) {
+        switch (mode) {
+          case BackupImportMode.overwrite:
+            if (hasExistingVault) {
               await _verifyExistingManifestBeforeImportMutation(
                 txn: txn,
                 masterPassword: masterPassword,
                 meta: existingMeta,
                 manifest: existingManifest,
               );
-            } else {
-              if (vaultService.isUnlocked) {
-                await vaultService.verifyCurrentManifestForImport(txn: txn);
-              } else if (needsReencryption) {
-                throw StateError(
-                  'Skip imports into an existing vault with a different encrypted DEK envelope must already be unlocked so the current vault integrity can be verified.',
-                );
-              } else {
+            }
+            final importedItems = backup.items
+                .map(
+                  (item) => _buildImportedItem(
+                    item,
+                    createdAt: item.createdAt ?? now,
+                    updatedAt: item.updatedAt ?? now,
+                  ),
+                )
+                .toList(growable: false);
+            final importedBlobs = backup.blobs
+                .map(
+                  (blob) => _buildImportedBlob(
+                    blob,
+                    createdAt: blob.createdAt,
+                    updatedAt: blob.updatedAt,
+                  ),
+                )
+                .toList(growable: false);
+            final manifest = await vaultService.createManifestForImportedVault(
+              masterPassword: masterPassword,
+              meta: importedMeta,
+              items: importedItems,
+              blobs: importedBlobs,
+              historyRecords: _manifestHistoryFromBackup(backup.historyItems),
+              previous: null,
+              updatedAt: now,
+            );
+            await vaultService.verifyManifestAgainstAnchor(
+              meta: importedMeta,
+              manifest: manifest,
+              allowMissingAnchor: true,
+              allowNewerManifest: true,
+            );
+            await txn.metaDao.save(importedMeta);
+            await txn.historyDao?.deleteAll();
+            await txn.blobsDao.deleteAll();
+            await txn.itemsDao.deleteAll();
+            for (final importedItem in importedItems) {
+              await txn.itemsDao.upsert(importedItem);
+            }
+            for (final importedBlob in importedBlobs) {
+              await txn.blobsDao.upsert(importedBlob);
+            }
+            for (final historyItem in backup.historyItems) {
+              await txn.historyDao?.insertRaw(historyItem.toJson());
+            }
+            await vaultService.stagePendingAnchorForImportedManifest(
+              repository: txn,
+              meta: importedMeta,
+              manifest: manifest,
+            );
+            await txn.manifestDao.save(manifest);
+            vaultService.lock();
+            return _BackupImportResult(
+              importedCount: backup.items.length,
+              dataChanged: true,
+              meta: importedMeta,
+              manifest: manifest,
+            );
+          case BackupImportMode.skip:
+            if (!preserveExistingMeta) {
+              await txn.metaDao.save(importedMeta);
+            }
+            final pendingItems = <EncryptedVaultItem>[];
+            for (final item in backup.items) {
+              final existingItem = await txn.itemsDao.byId(item.id);
+              if (existingItem != null) {
+                continue;
+              }
+              pendingItems.add(
+                _buildImportedItem(
+                  item,
+                  createdAt: existingItem?.createdAt ?? item.createdAt ?? now,
+                  updatedAt: item.updatedAt ?? now,
+                ),
+              );
+            }
+            final pendingItemIds = pendingItems.map((item) => item.id).toSet();
+            final existingActiveItemIds =
+                (await txn.itemsDao.allItemsForManifest())
+                    .where((item) => item.deletedAt == null)
+                    .map((item) => item.id)
+                    .toSet();
+            final importableBlobItemIds = {
+              ...existingActiveItemIds,
+              ...pendingItemIds,
+            };
+            final pendingBlobs = <EncryptedVaultBlob>[];
+            for (final blob in backup.blobs) {
+              if (!importableBlobItemIds.contains(blob.itemId)) {
+                continue;
+              }
+              final existingBlob = await txn.blobsDao.byBlobId(blob.blobId);
+              if (existingBlob != null) {
+                continue;
+              }
+              pendingBlobs.add(
+                _buildImportedBlob(
+                  blob,
+                  createdAt: blob.createdAt,
+                  updatedAt: blob.updatedAt,
+                ),
+              );
+            }
+            final needsPendingReencryption =
+                needsReencryption &&
+                (pendingItems.isNotEmpty || pendingBlobs.isNotEmpty);
+            if (needsPendingReencryption && !vaultService.isUnlocked) {
+              throw StateError(
+                'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+              );
+            }
+            if (preserveExistingMeta) {
+              if (pendingItems.isNotEmpty) {
                 await _verifyExistingManifestBeforeImportMutation(
                   txn: txn,
                   masterPassword: masterPassword,
                   meta: existingMeta,
                   manifest: existingManifest,
                 );
+              } else {
+                if (vaultService.isUnlocked) {
+                  await vaultService.verifyCurrentManifestForImport(txn: txn);
+                } else if (needsReencryption) {
+                  throw StateError(
+                    'Skip imports into an existing vault with a different encrypted DEK envelope must already be unlocked so the current vault integrity can be verified.',
+                  );
+                } else {
+                  await _verifyExistingManifestBeforeImportMutation(
+                    txn: txn,
+                    masterPassword: masterPassword,
+                    meta: existingMeta,
+                    manifest: existingManifest,
+                  );
+                }
               }
             }
-          }
-          final itemsToInsert = await _prepareImportedItems(
-            items: pendingItems,
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-          );
-          final blobsToInsert = await _prepareImportedBlobs(
-            blobs: pendingBlobs,
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-          );
-          final historyToInsert = await _prepareImportedHistoryRows(
-            historyItems: backup.historyItems,
-            entryIds: itemsToInsert.map((item) => item.id).toSet(),
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-          );
-          for (final item in itemsToInsert) {
-            await txn.itemsDao.upsert(item);
-          }
-          for (final blob in blobsToInsert) {
-            await txn.blobsDao.upsert(blob);
-          }
-          for (final historyItem in historyToInsert) {
-            await txn.historyDao?.insertRaw(
-              historyItem,
-              preserveId: !preserveExistingMeta,
-            );
-          }
-          final manifest = await _rewriteManifestAfterImport(
-            txn: txn,
-            backup: backup,
-            masterPassword: masterPassword,
-            preserveExistingMeta: preserveExistingMeta,
-            dataChanged:
-                itemsToInsert.isNotEmpty ||
-                blobsToInsert.isNotEmpty ||
-                historyToInsert.isNotEmpty,
-            previous: existingManifest,
-            updatedAt: now,
-          );
-          final targetMeta = await txn.metaDao.get();
-          return _BackupImportResult(
-            importedCount: itemsToInsert.length,
-            dataChanged: manifest != null,
-            meta: targetMeta,
-            manifest: manifest,
-          );
-        case BackupImportMode.merge:
-          if (!preserveExistingMeta) {
-            await txn.metaDao.save(importedMeta);
-          }
-          final pendingItems = <EncryptedVaultItem>[];
-          for (final item in backup.items) {
-            final existingItem = await txn.itemsDao.byId(item.id);
-            pendingItems.add(
-              _buildImportedItem(
-                item,
-                createdAt: existingItem?.createdAt ?? item.createdAt ?? now,
-                updatedAt: item.updatedAt ?? now,
-              ),
-            );
-          }
-          final pendingBlobs = backup.blobs
-              .map(
-                (blob) => _buildImportedBlob(
-                  blob,
-                  createdAt: blob.createdAt,
-                  updatedAt: blob.updatedAt,
-                ),
-              )
-              .toList(growable: false);
-          final needsPendingReencryption =
-              needsReencryption &&
-              (pendingItems.isNotEmpty || pendingBlobs.isNotEmpty);
-          if (needsPendingReencryption && !vaultService.isUnlocked) {
-            throw StateError(
-              'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
-            );
-          }
-          if (preserveExistingMeta && pendingItems.isNotEmpty) {
-            await _verifyExistingManifestBeforeImportMutation(
-              txn: txn,
+            final itemsToInsert = await _prepareImportedItems(
+              items: pendingItems,
+              backupMeta: backupMeta,
               masterPassword: masterPassword,
-              meta: existingMeta,
-              manifest: existingManifest,
+              needsReencryption: needsPendingReencryption,
             );
-          }
-          final itemsToInsert = await _prepareImportedItems(
-            items: pendingItems,
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-          );
-          final blobsToInsert = await _prepareImportedBlobs(
-            blobs: pendingBlobs,
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-          );
-          final existingIds = <String>{};
-          for (final item in backup.items) {
-            final existingItem = await txn.itemsDao.byId(item.id);
-            if (existingItem != null) {
-              existingIds.add(item.id);
+            final blobsToInsert = await _prepareImportedBlobs(
+              blobs: pendingBlobs,
+              backupMeta: backupMeta,
+              masterPassword: masterPassword,
+              needsReencryption: needsPendingReencryption,
+            );
+            final historyToInsert = await _prepareImportedHistoryRows(
+              historyItems: backup.historyItems,
+              entryIds: itemsToInsert.map((item) => item.id).toSet(),
+              backupMeta: backupMeta,
+              masterPassword: masterPassword,
+              needsReencryption: needsPendingReencryption,
+            );
+            for (final item in itemsToInsert) {
+              await txn.itemsDao.upsert(item);
             }
-          }
-          final historyToInsert = await _prepareImportedHistoryRows(
-            historyItems: backup.historyItems,
-            entryIds: itemsToInsert
-                .map((item) => item.id)
-                .where((id) => !existingIds.contains(id))
-                .toSet(),
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-          );
-          for (final item in itemsToInsert) {
-            await txn.itemsDao.upsert(item);
-          }
-          for (final blob in blobsToInsert) {
-            await txn.blobsDao.upsert(blob);
-          }
-          for (final historyItem in historyToInsert) {
-            await txn.historyDao?.insertRaw(
-              historyItem,
-              preserveId: !preserveExistingMeta,
+            for (final blob in blobsToInsert) {
+              await txn.blobsDao.upsert(blob);
+            }
+            for (final historyItem in historyToInsert) {
+              await txn.historyDao?.insertRaw(
+                historyItem,
+                preserveId: !preserveExistingMeta,
+              );
+            }
+            final manifest = await _rewriteManifestAfterImport(
+              txn: txn,
+              backup: backup,
+              masterPassword: masterPassword,
+              preserveExistingMeta: preserveExistingMeta,
+              dataChanged:
+                  itemsToInsert.isNotEmpty ||
+                  blobsToInsert.isNotEmpty ||
+                  historyToInsert.isNotEmpty,
+              previous: existingManifest,
+              updatedAt: now,
             );
-          }
-          final manifest = await _rewriteManifestAfterImport(
-            txn: txn,
-            backup: backup,
-            masterPassword: masterPassword,
-            preserveExistingMeta: preserveExistingMeta,
-            dataChanged:
-                itemsToInsert.isNotEmpty ||
-                blobsToInsert.isNotEmpty ||
-                historyToInsert.isNotEmpty,
-            previous: existingManifest,
-            updatedAt: now,
-          );
-          final targetMeta = await txn.metaDao.get();
-          return _BackupImportResult(
-            importedCount: backup.items.length,
-            dataChanged: manifest != null,
-            meta: targetMeta,
-            manifest: manifest,
-          );
+            final targetMeta = await txn.metaDao.get();
+            return _BackupImportResult(
+              importedCount: itemsToInsert.length,
+              dataChanged: manifest != null,
+              meta: targetMeta,
+              manifest: manifest,
+            );
+          case BackupImportMode.merge:
+            if (!preserveExistingMeta) {
+              await txn.metaDao.save(importedMeta);
+            }
+            final pendingItems = <EncryptedVaultItem>[];
+            for (final item in backup.items) {
+              final existingItem = await txn.itemsDao.byId(item.id);
+              pendingItems.add(
+                _buildImportedItem(
+                  item,
+                  createdAt: existingItem?.createdAt ?? item.createdAt ?? now,
+                  updatedAt: item.updatedAt ?? now,
+                ),
+              );
+            }
+            final pendingBlobs = backup.blobs
+                .map(
+                  (blob) => _buildImportedBlob(
+                    blob,
+                    createdAt: blob.createdAt,
+                    updatedAt: blob.updatedAt,
+                  ),
+                )
+                .toList(growable: false);
+            final needsPendingReencryption =
+                needsReencryption &&
+                (pendingItems.isNotEmpty || pendingBlobs.isNotEmpty);
+            if (needsPendingReencryption && !vaultService.isUnlocked) {
+              throw StateError(
+                'Skip and merge imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+              );
+            }
+            if (preserveExistingMeta &&
+                (pendingItems.isNotEmpty ||
+                    pendingBlobs.isNotEmpty ||
+                    backup.historyItems.isNotEmpty)) {
+              await _verifyExistingManifestBeforeImportMutation(
+                txn: txn,
+                masterPassword: masterPassword,
+                meta: existingMeta,
+                manifest: existingManifest,
+              );
+            }
+            final itemsToInsert = await _prepareImportedItems(
+              items: pendingItems,
+              backupMeta: backupMeta,
+              masterPassword: masterPassword,
+              needsReencryption: needsPendingReencryption,
+            );
+            final blobsToInsert = await _prepareImportedBlobs(
+              blobs: pendingBlobs,
+              backupMeta: backupMeta,
+              masterPassword: masterPassword,
+              needsReencryption: needsPendingReencryption,
+            );
+            final existingIds = <String>{};
+            for (final item in backup.items) {
+              final existingItem = await txn.itemsDao.byId(item.id);
+              if (existingItem != null) {
+                existingIds.add(item.id);
+              }
+            }
+            final historyToInsert = await _prepareImportedHistoryRows(
+              historyItems: backup.historyItems,
+              entryIds: itemsToInsert
+                  .map((item) => item.id)
+                  .where((id) => !existingIds.contains(id))
+                  .toSet(),
+              backupMeta: backupMeta,
+              masterPassword: masterPassword,
+              needsReencryption: needsPendingReencryption,
+            );
+            for (final item in itemsToInsert) {
+              await txn.itemsDao.upsert(item);
+            }
+            for (final blob in blobsToInsert) {
+              await txn.blobsDao.upsert(blob);
+            }
+            for (final historyItem in historyToInsert) {
+              await txn.historyDao?.insertRaw(
+                historyItem,
+                preserveId: !preserveExistingMeta,
+              );
+            }
+            final manifest = await _rewriteManifestAfterImport(
+              txn: txn,
+              backup: backup,
+              masterPassword: masterPassword,
+              preserveExistingMeta: preserveExistingMeta,
+              dataChanged:
+                  itemsToInsert.isNotEmpty ||
+                  blobsToInsert.isNotEmpty ||
+                  historyToInsert.isNotEmpty,
+              previous: existingManifest,
+              updatedAt: now,
+            );
+            final targetMeta = await txn.metaDao.get();
+            return _BackupImportResult(
+              importedCount: backup.items.length,
+              dataChanged: manifest != null,
+              meta: targetMeta,
+              manifest: manifest,
+            );
+        }
+      });
+      final targetMeta = transactionResult.meta;
+      final targetManifest = transactionResult.manifest;
+      if (transactionResult.dataChanged &&
+          targetMeta != null &&
+          targetManifest != null) {
+        await vaultService.acceptManifestForCurrentStateDuringSerializedCommit(
+          meta: targetMeta,
+          manifest: targetManifest,
+          pendingAnchorAlreadyStaged: true,
+        );
       }
+      return transactionResult;
     });
-    final targetMeta = result.meta;
-    final targetManifest = result.manifest;
-    if (result.dataChanged && targetMeta != null && targetManifest != null) {
-      await vaultService.acceptManifestForCurrentState(
-        meta: targetMeta,
-        manifest: targetManifest,
-      );
-    }
     return result.importedCount;
   }
 
@@ -1424,176 +1442,185 @@ class BackupService {
       seenItemIds.add(identity.id);
     }
 
-    final transactionResult = await repository
-        .transaction<_ConflictAwareImportTransactionResult>((txn) async {
-          cancellationToken?.throwIfCancelled();
-          final existingMeta = await txn.metaDao.get();
-          final existingManifest = await txn.manifestDao.get();
-          final now = DateTime.now().millisecondsSinceEpoch;
-          if (existingMeta == null) {
-            throw StateError(
-              'Conflict-aware imports require an existing target vault.',
-            );
-          }
-          final needsReencryption = !_hasSameEncryptionEnvelope(
-            existingMeta,
-            backupMeta,
-          );
-          if (needsReencryption && !vaultService.isUnlocked) {
-            throw StateError(
-              'Conflict-aware imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
-            );
-          }
-
-          await _verifyExistingManifestBeforeImportMutation(
-            txn: txn,
-            masterPassword: masterPassword,
-            meta: existingMeta,
-            manifest: existingManifest,
-          );
-
-          final existingIds = <String>{};
-          for (final entry in backup.items.asMap().entries) {
-            final index = entry.key;
-            final item = entry.value;
-            if (!acceptedItemIndexes.contains(index)) {
-              continue;
-            }
-            final existingItem = await txn.itemsDao.byId(item.id);
-            if (existingItem != null) {
-              acceptedItemIndexes.remove(index);
-              existingIds.add(item.id);
-              final identity = incomingIdentities[index];
-              conflicts.add(
-                BackupImportConflict(
-                  itemId: identity.id,
-                  title: identity.title,
-                  website: identity.website,
-                  username: identity.username,
-                  reason: BackupImportConflictReason.existingLocalEntry,
-                ),
+    final transactionResult = await vaultService.runSerializedManifestCommit(
+      () async {
+        final transactionResult = await repository
+            .transaction<_ConflictAwareImportTransactionResult>((txn) async {
+              cancellationToken?.throwIfCancelled();
+              final existingMeta = await txn.metaDao.get();
+              final existingManifest = await txn.manifestDao.get();
+              final now = DateTime.now().millisecondsSinceEpoch;
+              if (existingMeta == null) {
+                throw StateError(
+                  'Conflict-aware imports require an existing target vault.',
+                );
+              }
+              final needsReencryption = !_hasSameEncryptionEnvelope(
+                existingMeta,
+                backupMeta,
               );
-            }
-          }
+              if (needsReencryption && !vaultService.isUnlocked) {
+                throw StateError(
+                  'Conflict-aware imports into an existing vault with a different encrypted DEK envelope must already be unlocked so imported items can be re-encrypted under the current vault key.',
+                );
+              }
 
-          final pendingItems = <EncryptedVaultItem>[];
-          for (final entry in backup.items.asMap().entries) {
-            if (!acceptedItemIndexes.contains(entry.key)) {
-              continue;
-            }
-            final item = entry.value;
-            pendingItems.add(
-              _buildImportedItem(
-                item,
-                createdAt: item.createdAt ?? now,
-                updatedAt: item.updatedAt ?? now,
-              ),
-            );
-          }
-          final pendingItemIds = pendingItems.map((item) => item.id).toSet();
-          final pendingChildItemIds = pendingItemIds.difference(
-            ambiguousIncomingItemIds,
-          );
-          final pendingBlobs = backup.blobs
-              .where((blob) => pendingChildItemIds.contains(blob.itemId))
-              .map(
-                (blob) => _buildImportedBlob(
-                  blob,
-                  createdAt: blob.createdAt,
-                  updatedAt: blob.updatedAt,
+              await _verifyExistingManifestBeforeImportMutation(
+                txn: txn,
+                masterPassword: masterPassword,
+                meta: existingMeta,
+                manifest: existingManifest,
+              );
+
+              final existingIds = <String>{};
+              for (final entry in backup.items.asMap().entries) {
+                final index = entry.key;
+                final item = entry.value;
+                if (!acceptedItemIndexes.contains(index)) {
+                  continue;
+                }
+                final existingItem = await txn.itemsDao.byId(item.id);
+                if (existingItem != null) {
+                  acceptedItemIndexes.remove(index);
+                  existingIds.add(item.id);
+                  final identity = incomingIdentities[index];
+                  conflicts.add(
+                    BackupImportConflict(
+                      itemId: identity.id,
+                      title: identity.title,
+                      website: identity.website,
+                      username: identity.username,
+                      reason: BackupImportConflictReason.existingLocalEntry,
+                    ),
+                  );
+                }
+              }
+
+              final pendingItems = <EncryptedVaultItem>[];
+              for (final entry in backup.items.asMap().entries) {
+                if (!acceptedItemIndexes.contains(entry.key)) {
+                  continue;
+                }
+                final item = entry.value;
+                pendingItems.add(
+                  _buildImportedItem(
+                    item,
+                    createdAt: item.createdAt ?? now,
+                    updatedAt: item.updatedAt ?? now,
+                  ),
+                );
+              }
+              final pendingItemIds = pendingItems
+                  .map((item) => item.id)
+                  .toSet();
+              final pendingChildItemIds = pendingItemIds.difference(
+                ambiguousIncomingItemIds,
+              );
+              final pendingBlobs = backup.blobs
+                  .where((blob) => pendingChildItemIds.contains(blob.itemId))
+                  .map(
+                    (blob) => _buildImportedBlob(
+                      blob,
+                      createdAt: blob.createdAt,
+                      updatedAt: blob.updatedAt,
+                    ),
+                  )
+                  .toList(growable: false);
+              final pendingBlobIds = <String>{};
+              final uniquePendingBlobs = <EncryptedVaultBlob>[];
+              for (final blob in pendingBlobs) {
+                if (!pendingBlobIds.add(blob.blobId)) {
+                  continue;
+                }
+                if ((await txn.blobsDao.byBlobId(blob.blobId)) != null) {
+                  continue;
+                }
+                uniquePendingBlobs.add(blob);
+              }
+
+              final needsPendingReencryption =
+                  needsReencryption &&
+                  (pendingItems.isNotEmpty || uniquePendingBlobs.isNotEmpty);
+              final itemsToInsert = await _prepareImportedItems(
+                items: pendingItems,
+                backupMeta: backupMeta,
+                masterPassword: masterPassword,
+                needsReencryption: needsPendingReencryption,
+                cancellationToken: cancellationToken,
+              );
+              cancellationToken?.throwIfCancelled();
+              final blobsToInsert = await _prepareImportedBlobs(
+                blobs: uniquePendingBlobs,
+                backupMeta: backupMeta,
+                masterPassword: masterPassword,
+                needsReencryption: needsPendingReencryption,
+                cancellationToken: cancellationToken,
+              );
+              cancellationToken?.throwIfCancelled();
+              final historyToInsert = await _prepareImportedHistoryRows(
+                historyItems: backup.historyItems,
+                entryIds: pendingChildItemIds.difference(existingIds),
+                backupMeta: backupMeta,
+                masterPassword: masterPassword,
+                needsReencryption: needsPendingReencryption,
+                cancellationToken: cancellationToken,
+              );
+              cancellationToken?.throwIfCancelled();
+
+              for (final item in itemsToInsert) {
+                cancellationToken?.throwIfCancelled();
+                await txn.itemsDao.upsert(item);
+              }
+              for (final blob in blobsToInsert) {
+                cancellationToken?.throwIfCancelled();
+                await txn.blobsDao.upsert(blob);
+              }
+              for (final historyItem in historyToInsert) {
+                cancellationToken?.throwIfCancelled();
+                await txn.historyDao?.insertRaw(historyItem, preserveId: false);
+              }
+
+              final manifest = await _rewriteManifestAfterImport(
+                txn: txn,
+                backup: backup,
+                masterPassword: masterPassword,
+                preserveExistingMeta: true,
+                dataChanged:
+                    itemsToInsert.isNotEmpty ||
+                    blobsToInsert.isNotEmpty ||
+                    historyToInsert.isNotEmpty,
+                previous: existingManifest,
+                updatedAt: now,
+              );
+              cancellationToken?.throwIfCancelled();
+              final targetMeta = await txn.metaDao.get();
+              return _ConflictAwareImportTransactionResult(
+                result: ConflictAwareBackupImportResult(
+                  importedCount: itemsToInsert.length,
+                  skippedCount: conflicts.length,
+                  conflicts: List.unmodifiable(conflicts),
                 ),
-              )
-              .toList(growable: false);
-          final pendingBlobIds = <String>{};
-          final uniquePendingBlobs = <EncryptedVaultBlob>[];
-          for (final blob in pendingBlobs) {
-            if (!pendingBlobIds.add(blob.blobId)) {
-              continue;
-            }
-            if ((await txn.blobsDao.byBlobId(blob.blobId)) != null) {
-              continue;
-            }
-            uniquePendingBlobs.add(blob);
-          }
+                dataChanged: manifest != null,
+                meta: targetMeta,
+                manifest: manifest,
+              );
+            });
 
-          final needsPendingReencryption =
-              needsReencryption &&
-              (pendingItems.isNotEmpty || uniquePendingBlobs.isNotEmpty);
-          final itemsToInsert = await _prepareImportedItems(
-            items: pendingItems,
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-            cancellationToken: cancellationToken,
-          );
-          cancellationToken?.throwIfCancelled();
-          final blobsToInsert = await _prepareImportedBlobs(
-            blobs: uniquePendingBlobs,
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-            cancellationToken: cancellationToken,
-          );
-          cancellationToken?.throwIfCancelled();
-          final historyToInsert = await _prepareImportedHistoryRows(
-            historyItems: backup.historyItems,
-            entryIds: pendingChildItemIds.difference(existingIds),
-            backupMeta: backupMeta,
-            masterPassword: masterPassword,
-            needsReencryption: needsPendingReencryption,
-            cancellationToken: cancellationToken,
-          );
-          cancellationToken?.throwIfCancelled();
-
-          for (final item in itemsToInsert) {
-            cancellationToken?.throwIfCancelled();
-            await txn.itemsDao.upsert(item);
-          }
-          for (final blob in blobsToInsert) {
-            cancellationToken?.throwIfCancelled();
-            await txn.blobsDao.upsert(blob);
-          }
-          for (final historyItem in historyToInsert) {
-            cancellationToken?.throwIfCancelled();
-            await txn.historyDao?.insertRaw(historyItem, preserveId: false);
-          }
-
-          final manifest = await _rewriteManifestAfterImport(
-            txn: txn,
-            backup: backup,
-            masterPassword: masterPassword,
-            preserveExistingMeta: true,
-            dataChanged:
-                itemsToInsert.isNotEmpty ||
-                blobsToInsert.isNotEmpty ||
-                historyToInsert.isNotEmpty,
-            previous: existingManifest,
-            updatedAt: now,
-          );
-          cancellationToken?.throwIfCancelled();
-          final targetMeta = await txn.metaDao.get();
-          return _ConflictAwareImportTransactionResult(
-            result: ConflictAwareBackupImportResult(
-              importedCount: itemsToInsert.length,
-              skippedCount: conflicts.length,
-              conflicts: List.unmodifiable(conflicts),
-            ),
-            dataChanged: manifest != null,
-            meta: targetMeta,
-            manifest: manifest,
-          );
-        });
-
-    final targetMeta = transactionResult.meta;
-    final targetManifest = transactionResult.manifest;
-    if (transactionResult.dataChanged &&
-        targetMeta != null &&
-        targetManifest != null) {
-      await vaultService.acceptManifestForCurrentState(
-        meta: targetMeta,
-        manifest: targetManifest,
-      );
-    }
+        final targetMeta = transactionResult.meta;
+        final targetManifest = transactionResult.manifest;
+        if (transactionResult.dataChanged &&
+            targetMeta != null &&
+            targetManifest != null) {
+          await vaultService
+              .acceptManifestForCurrentStateDuringSerializedCommit(
+                meta: targetMeta,
+                manifest: targetManifest,
+                pendingAnchorAlreadyStaged: true,
+              );
+        }
+        return transactionResult;
+      },
+    );
     return transactionResult.result;
   }
 
@@ -1765,6 +1792,11 @@ class BackupService {
       previous: previous,
       updatedAt: updatedAt,
     );
+    await vaultService.stagePendingAnchorForImportedManifest(
+      repository: txn,
+      meta: meta,
+      manifest: manifest,
+    );
     await txn.manifestDao.save(manifest);
     return manifest;
   }
@@ -1826,6 +1858,11 @@ class BackupService {
       historyRecords: historyRecords,
       previous: previous,
       updatedAt: updatedAt,
+    );
+    await vaultService.stagePendingAnchorForImportedManifest(
+      repository: txn,
+      meta: meta,
+      manifest: manifest,
     );
     await txn.manifestDao.save(manifest);
     return manifest;

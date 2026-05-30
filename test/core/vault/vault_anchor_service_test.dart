@@ -133,7 +133,7 @@ void main() {
         allowNewerManifest: true,
       );
 
-      expect(result, VaultAnchorVerificationResult.matched);
+      expect(result, VaultAnchorVerificationResult.newerThanAnchor);
     },
   );
 

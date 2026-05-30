@@ -7,7 +7,7 @@ import 'package:secure_box/core/vault/vault_anchor.dart';
 import 'package:secure_box/core/vault/vault_anchor_store.dart';
 import 'package:secure_box/data/models/vault_manifest.dart';
 
-enum VaultAnchorVerificationResult { matched, missing }
+enum VaultAnchorVerificationResult { matched, missing, newerThanAnchor }
 
 class VaultAnchorException implements Exception {
   const VaultAnchorException([this.message = 'Vault anchor check failed']);
@@ -20,6 +20,8 @@ class VaultAnchorException implements Exception {
 
 class VaultAnchorService {
   VaultAnchorService({required VaultAnchorStore store}) : _store = store;
+
+  static const _pendingAnchorVaultIdSuffix = ':pending';
 
   final VaultAnchorStore _store;
   final Sha256 _sha256 = Sha256();
@@ -51,7 +53,7 @@ class VaultAnchorService {
     }
     if (_isManifestNewerThanAnchor(manifest: manifest, anchor: anchor)) {
       if (allowNewerManifest) {
-        return VaultAnchorVerificationResult.matched;
+        return VaultAnchorVerificationResult.newerThanAnchor;
       }
       throw const VaultAnchorException();
     }
@@ -71,8 +73,64 @@ class VaultAnchorService {
     required VaultManifest manifest,
     required int updatedAt,
   }) async {
+    await _writeAnchorForManifest(
+      storedVaultId: vaultId,
+      manifest: manifest,
+      updatedAt: updatedAt,
+    );
+  }
+
+  Future<void> writePendingManifest({
+    required String vaultId,
+    required VaultManifest manifest,
+    required int updatedAt,
+  }) async {
+    await _writeAnchorForManifest(
+      storedVaultId: _pendingAnchorVaultId(vaultId),
+      manifest: manifest,
+      updatedAt: updatedAt,
+    );
+  }
+
+  Future<bool> matchesPendingManifest({
+    required String vaultId,
+    required VaultManifest manifest,
+  }) async {
+    final pendingVaultId = _pendingAnchorVaultId(vaultId);
+    final VaultAnchor? anchor;
+    try {
+      anchor = await _store.read(vaultId: pendingVaultId);
+    } catch (error, stackTrace) {
+      if (error is Error) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      throw const VaultAnchorException();
+    }
+    if (anchor == null) {
+      return false;
+    }
+    if (anchor.vaultId != pendingVaultId ||
+        anchor.schemaVersion != VaultAnchor.currentSchemaVersion) {
+      throw const VaultAnchorException();
+    }
+    if (anchor.manifestEpoch != manifest.epoch ||
+        anchor.manifestCounter != manifest.counter) {
+      return false;
+    }
+    return anchor.manifestDigest == await digestManifest(manifest);
+  }
+
+  Future<void> deletePendingManifest({required String vaultId}) {
+    return deleteAnchor(vaultId: _pendingAnchorVaultId(vaultId));
+  }
+
+  Future<void> _writeAnchorForManifest({
+    required String storedVaultId,
+    required VaultManifest manifest,
+    required int updatedAt,
+  }) async {
     final anchor = VaultAnchor(
-      vaultId: vaultId,
+      vaultId: storedVaultId,
       schemaVersion: VaultAnchor.currentSchemaVersion,
       manifestEpoch: manifest.epoch,
       manifestCounter: manifest.counter,
@@ -88,6 +146,9 @@ class VaultAnchorService {
       throw const VaultAnchorException();
     }
   }
+
+  String _pendingAnchorVaultId(String vaultId) =>
+      '$vaultId$_pendingAnchorVaultIdSuffix';
 
   Future<void> deleteAnchor({required String vaultId}) async {
     try {

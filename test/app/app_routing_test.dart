@@ -14,7 +14,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('创建主密码'), findsOneWidget);
-    expect(find.textContaining('无法找回'), findsOneWidget);
+    expect(find.textContaining('无法恢复'), findsOneWidget);
   });
 
   testWidgets('existing locked vault shows unlock page with master password', (
@@ -61,6 +61,23 @@ void main() {
     expect(find.text('密码生成器'), findsNothing);
   });
 
+  testWidgets('unlocked shell exposes an immediate lock action', (
+    tester,
+  ) async {
+    final services = AppServices.fake(hasVault: true, unlocked: true);
+
+    await tester.pumpWidget(SecureBoxApp(services: services));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('vault-shell-lock-now')), findsOneWidget);
+    expect(find.byTooltip('立即锁定'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('vault-shell-lock-now')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('解锁密码库'), findsOneWidget);
+  });
+
   test('health route falls back to vault shell when unlocked', () {
     final services = AppServices.fake(hasVault: true, unlocked: true);
     addTearDown(services.dispose);
@@ -93,7 +110,7 @@ void main() {
     expect(find.byType(SelectableText), findsNothing);
   });
 
-  testWidgets('unlocked shell exposes four primary tabs without security', (
+  testWidgets('unlocked shell exposes security center as a primary tab', (
     tester,
   ) async {
     final services = AppServices.fake(hasVault: true, unlocked: true);
@@ -113,9 +130,14 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('vault-shell-security-tab')),
-      findsNothing,
+      findsOneWidget,
     );
-    expect(find.byType(NavigationDestination), findsNWidgets(4));
+    expect(find.byType(NavigationDestination), findsNWidgets(5));
+
+    await tester.tap(find.byKey(const ValueKey('vault-shell-security-tab')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('security-center-page')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('vault-shell-generator-tab')));
     await tester.pumpAndSettle();

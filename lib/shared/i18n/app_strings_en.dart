@@ -7,8 +7,9 @@ class AppStringsEn extends AppStrings {
     'back': 'Back',
     'cancel': 'Cancel',
     'close': 'Close',
-    'windowMinimize': 'Minimize',
+    'windowMinimize': 'Minimize to tray',
     'windowExit': 'Exit',
+    'lockNow': 'Lock now',
     'confirm': 'Confirm',
     'copy': 'Copy',
     'delete': 'Delete',
@@ -34,7 +35,7 @@ class AppStringsEn extends AppStrings {
     'passwordMismatch': 'The master passwords do not match',
     'setupTitle': 'Create master password',
     'setupSubtitle':
-        'Your master password is never uploaded and cannot be recovered. Keep it safe.',
+        'Your master password is not saved by Lockly and cannot be recovered. Keep it safe.',
     'confirmMasterPassword': 'Confirm master password',
     'passwordMinLength': 'At least 12 characters',
     'showConfirmPassword': 'Show confirmation password',
@@ -44,7 +45,7 @@ class AppStringsEn extends AppStrings {
         'Biometrics only unlock the local vault quickly. The master password is still required if biometric unlock fails.',
     'createVault': 'Create vault',
     'creatingVault': 'Creating...',
-    'setupLocalOnly': 'Master password stays on this device',
+    'setupLocalOnly': 'Master password is not saved by Lockly',
     'setupCannotRecover': 'Your master password cannot be viewed or recovered',
     'setupEncrypted': 'Data is protected with end-to-end encryption',
     'privacyAgreementPrefix': 'By continuing, you have read and agree to the ',
@@ -142,11 +143,13 @@ class AppStringsEn extends AppStrings {
     'tagManagementSubtitleShort': 'Manage vault tags',
     'lanExchangeTitle': 'LAN exchange',
     'lanExchangeSubtitle':
-        'Move encrypted vault data directly between nearby devices.',
+        'One-time LAN transfer between nearby devices. This is not continuous sync.',
     'lanSendData': 'Send data',
-    'lanSendDataSubtitle': 'Create a local transfer QR code for this vault.',
+    'lanSendDataSubtitle':
+        'Create a one-time local transfer QR code for this vault.',
     'lanReceiveData': 'Receive data',
-    'lanReceiveDataSubtitle': 'Scan or paste a local transfer payload.',
+    'lanReceiveDataSubtitle':
+        'Scan or paste a one-time local transfer payload.',
     'lanSelectRecords': 'Select records',
     'lanSearchRecords': 'Search records',
     'lanIncludeAttachments': 'Include attachments',
@@ -164,6 +167,11 @@ class AppStringsEn extends AppStrings {
     'lanSourceMasterPasswordSubtitle':
         'Enter the master password from the sending device.',
     'lanSourcePasswordTitle': 'Source master password for {sender}',
+    'lanImportFromSenderTitle': 'Import from {sender}',
+    'lanOneTimeImportSubtitle':
+        'This one-time transfer is already protected by the QR session key. Your local master password is not changed, and the sending device is not deleted.',
+    'lanPackageUnlockFailed':
+        'This transfer package could not be unlocked. Ask the sender to create a new QR code.',
     'lanImporting': 'Importing',
     'lanImportComplete': 'Import complete',
     'lanImportedCount': '{count} imported',
@@ -209,12 +217,26 @@ class AppStringsEn extends AppStrings {
         'Master password change failed. Confirm the current master password.',
     'biometricPromptSubtitle':
         'After enabling, fingerprints or face unlock can quickly unlock\nsettings management still requires the master password',
-    'localOnlyInfo': 'Information is stored only on this device',
+    'localOnlyInfo':
+        'Master password is not saved by Lockly and cannot be recovered',
+    'settingsLoadFailed': 'Settings failed to load. Try again.',
     'backupCopied':
         'Encrypted backup copied. Clipboard will clear in 30 seconds.',
     'backupExportTitle': 'Export encrypted backup',
     'backupExportSubtitle':
         'The backup is encrypted and still requires the matching master password to restore.',
+    'backupExportWizardSubtitle':
+        'Prepare, verify, and copy a local encrypted backup.',
+    'backupExportPrepareDetail':
+        'Enter the local master password to prepare the encrypted backup. The full JSON stays hidden until you explicitly copy it.',
+    'backupExportPrepare': 'Prepare backup',
+    'backupExportPreparing': 'Preparing backup',
+    'backupExportReadyDetail':
+        'Encrypted backup is verified and ready to copy. Store it somewhere private and separate from this device.',
+    'backupExportItems': 'Passwords',
+    'backupExportAttachments': 'Attachments',
+    'backupExportHistory': 'Password history',
+    'backupExportSize': 'Backup size',
     'reauthenticateExportSubtitle':
         'Enter the master password before exporting encrypted backup material.',
     'reauthenticateClearVaultSubtitle':
@@ -250,6 +272,8 @@ class AppStringsEn extends AppStrings {
     'plaintextCsvWarning':
         'CSV import temporarily processes plaintext passwords and is only for migration from another password manager. The input is cleared after preview; confirm the source is trusted and delete the original CSV after import.',
     'encryptedBackupJson': 'Encrypted backup JSON',
+    'requiredEncryptedBackupJson': 'Paste encrypted backup JSON',
+    'requiredBackupMasterPassword': 'Enter the backup master password',
     'csvParseFailed': 'CSV import could not be parsed locally.',
     'csvImportTooLarge': 'CSV import is too large. Maximum size is {max}.',
     'csvImportEmpty': 'CSV import is empty.',
@@ -367,6 +391,8 @@ class AppStringsEn extends AppStrings {
     'addAttachment': 'Add attachment',
     'openAttachment': 'Open attachment',
     'deleteAttachment': 'Delete attachment',
+    'deleteAttachmentMessage':
+        'Delete attachment "{name}"? This cannot be undone.',
     'attachmentOpenFailed': 'Attachment open failed',
     'attachmentDeleteFailed': 'Attachment delete failed',
     'attachmentAddFailed': 'Attachment add failed',

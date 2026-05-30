@@ -52,6 +52,10 @@ class Win32Window {
   // If true, closing this window will quit the application.
   void SetQuitOnClose(bool quit_on_close);
 
+  // Enables the legacy right-edge auto-hide behavior. It is off by default so
+  // the window cannot appear to disappear immediately after startup.
+  void SetTopRightAutoHideEnabled(bool enabled);
+
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
@@ -109,6 +113,7 @@ class Win32Window {
   bool IsCursorInRevealHotZone(const POINT& cursor) const;
 
   bool quit_on_close_ = false;
+  bool top_right_auto_hide_enabled_ = false;
   bool is_auto_hidden_ = false;
   bool is_right_docked_ = false;
   bool is_sliding_ = false;

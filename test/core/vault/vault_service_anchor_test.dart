@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -31,6 +33,7 @@ void main() {
     String? path,
     MemoryVaultAnchorStore? anchorStore,
     bool autoClose = true,
+    VaultRepository Function(Database db)? repositoryBuilder,
   }) async {
     final db = path == null
         ? await AppDatabase.openInMemory()
@@ -39,13 +42,16 @@ void main() {
       addTearDown(db.close);
     }
     final store = anchorStore ?? MemoryVaultAnchorStore();
+    final repository =
+        repositoryBuilder?.call(db) ??
+        VaultRepository(
+          metaDao: VaultMetaDao(db),
+          itemsDao: VaultItemsDao(db),
+          manifestDao: VaultManifestDao(db),
+          settingsDao: SettingsDao(db),
+        );
     final service = VaultService(
-      repository: VaultRepository(
-        metaDao: VaultMetaDao(db),
-        itemsDao: VaultItemsDao(db),
-        manifestDao: VaultManifestDao(db),
-        settingsDao: SettingsDao(db),
-      ),
+      repository: repository,
       random: SecureRandom(),
       kdf: KdfService(),
       crypto: CryptoService(random: SecureRandom()),
@@ -295,7 +301,7 @@ void main() {
       await harness.service.unlock(masterPassword: 'master-passphrase');
       final meta = await harness.service.repository.metaDao.get();
       final before = await harness.anchorStore.read(vaultId: meta!.id);
-      anchorStore.failNextWrite = true;
+      anchorStore.failNextAcceptedWrite = true;
 
       await expectLater(
         harness.service.createItem(_entry('Anchor failure')),
@@ -307,6 +313,108 @@ void main() {
       expect(after!.manifestCounter, before!.manifestCounter);
       final manifest = await harness.service.repository.manifestDao.get();
       expect(manifest!.counter, greaterThan(after.manifestCounter));
+    },
+  );
+
+  test(
+    'item mutation rolls back database when pending anchor write fails',
+    () async {
+      final anchorStore = _FailingAnchorWriteStore();
+      final harness = await buildHarness(anchorStore: anchorStore);
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+      final meta = await harness.service.repository.metaDao.get();
+      final beforeAnchor = await harness.anchorStore.read(vaultId: meta!.id);
+      final beforeManifest = await harness.service.repository.manifestDao.get();
+      anchorStore.failNextWrite = true;
+
+      await expectLater(
+        harness.service.createItem(_entry('Pending anchor failure')),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+
+      expect(harness.service.isUnlocked, isFalse);
+      expect(
+        await harness.service.repository.itemsDao.rawRowsForTest(),
+        isEmpty,
+      );
+      final afterManifest = await harness.service.repository.manifestDao.get();
+      expect(afterManifest!.counter, beforeManifest!.counter);
+      final afterAnchor = await harness.anchorStore.read(vaultId: meta.id);
+      expect(afterAnchor!.manifestCounter, beforeAnchor!.manifestCounter);
+
+      final session = await harness.service.unlock(
+        masterPassword: 'master-passphrase',
+      );
+      expect(session.isUnlocked, isTrue);
+    },
+  );
+
+  test(
+    'master unlock repairs verified pending manifest after anchor write failure',
+    () async {
+      final anchorStore = _FailingAnchorWriteStore();
+      final harness = await buildHarness(anchorStore: anchorStore);
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+      final meta = await harness.service.repository.metaDao.get();
+      final before = await harness.anchorStore.read(vaultId: meta!.id);
+      anchorStore.failNextAcceptedWrite = true;
+
+      await expectLater(
+        harness.service.createItem(_entry('Anchor failure')),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(harness.service.isUnlocked, isFalse);
+
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+
+      expect(harness.service.isUnlocked, isTrue);
+      final after = await harness.anchorStore.read(vaultId: meta.id);
+      final manifest = await harness.service.repository.manifestDao.get();
+      expect(after!.manifestCounter, greaterThan(before!.manifestCounter));
+      expect(after.manifestCounter, manifest!.counter);
+    },
+  );
+
+  test(
+    'biometric unlock repairs verified pending manifest after anchor write failure',
+    () async {
+      final anchorStore = _FailingAnchorWriteStore();
+      final harness = await buildHarness(anchorStore: anchorStore);
+      final biometric = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: MemorySecureDekStore(),
+      );
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.enableBiometricUnlock(
+        masterPassword: 'master-passphrase',
+        biometricService: biometric,
+      );
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+      final meta = await harness.service.repository.metaDao.get();
+      final before = await harness.anchorStore.read(vaultId: meta!.id);
+      anchorStore.failNextAcceptedWrite = true;
+
+      await expectLater(
+        harness.service.createItem(_entry('Anchor failure')),
+        throwsA(isA<VaultIntegrityException>()),
+      );
+      expect(harness.service.isUnlocked, isFalse);
+
+      final unlocked = await harness.service.unlockWithBiometrics(
+        biometricService: biometric,
+      );
+
+      expect(unlocked, isTrue);
+      expect(harness.service.isUnlocked, isTrue);
+      final after = await harness.anchorStore.read(vaultId: meta.id);
+      final manifest = await harness.service.repository.manifestDao.get();
+      expect(after!.manifestCounter, greaterThan(before!.manifestCounter));
+      expect(after.manifestCounter, manifest!.counter);
     },
   );
 
@@ -322,6 +430,39 @@ void main() {
       vaultId: meta!.id,
       manifest: initialManifest!,
       updatedAt: initialManifest.updatedAt,
+    );
+    harness.service.lock();
+
+    await expectLater(
+      harness.service.unlock(masterPassword: 'master-passphrase'),
+      throwsA(isA<VaultIntegrityException>()),
+    );
+    expect(harness.service.isUnlocked, isFalse);
+  });
+
+  test('master unlock rejects forged SQLite pending anchor marker', () async {
+    final harness = await buildHarness();
+    await harness.service.createVault(masterPassword: 'master-passphrase');
+    await harness.service.unlock(masterPassword: 'master-passphrase');
+    final meta = await harness.service.repository.metaDao.get();
+    final initialManifest = await harness.service.repository.manifestDao.get();
+
+    await harness.service.createItem(_entry('Forged pending marker'));
+    final advancedManifest = await harness.service.repository.manifestDao.get();
+    final anchorService = VaultAnchorService(store: harness.anchorStore);
+    await anchorService.writeAcceptedManifest(
+      vaultId: meta!.id,
+      manifest: initialManifest!,
+      updatedAt: initialManifest.updatedAt,
+    );
+    await harness.service.repository.settingsDao.setValue(
+      '_lockly_pending_anchor_v1',
+      jsonEncode({
+        'vault_id': meta.id,
+        'epoch': advancedManifest!.epoch,
+        'counter': advancedManifest.counter,
+        'digest': await anchorService.digestManifest(advancedManifest),
+      }),
     );
     harness.service.lock();
 
@@ -412,6 +553,56 @@ void main() {
         .get();
     expect(afterDisable!.manifestCounter, manifestAfterDisable!.counter);
   });
+
+  test(
+    'biometric metadata commit serializes concurrent item mutation through anchor write',
+    () async {
+      final anchorStore = _BlockingAnchorWriteStore(blockOnWriteNumber: 5);
+      late _SignalingTransactionRepository signalingRepository;
+      final harness = await buildHarness(
+        anchorStore: anchorStore,
+        repositoryBuilder: (db) {
+          signalingRepository = _SignalingTransactionRepository(
+            db,
+            signalOnTransactionNumber: 3,
+          );
+          return signalingRepository;
+        },
+      );
+      final biometric = BiometricService(
+        authenticator: FakeBiometricAuthenticator(
+          canAuthenticate: true,
+          succeeds: true,
+        ),
+        store: MemorySecureDekStore(),
+      );
+      await harness.service.createVault(masterPassword: 'master-passphrase');
+      await harness.service.unlock(masterPassword: 'master-passphrase');
+
+      final enableFuture = harness.service.enableBiometricUnlock(
+        masterPassword: 'master-passphrase',
+        biometricService: biometric,
+      );
+      await anchorStore.waitUntilBlocked();
+
+      final createResult = harness.service
+          .createItem(_entry('During biometric enable'))
+          .then<Object?>(
+            (_) => 'created',
+            onError: (error, stackTrace) => error,
+          );
+      final startedBeforeAnchorWriteFinished = await signalingRepository
+          .targetTransactionStarted
+          .then((_) => true)
+          .timeout(const Duration(milliseconds: 200), onTimeout: () => false);
+      anchorStore.release();
+
+      await expectLater(enableFuture, completes);
+      expect(startedBeforeAnchorWriteFinished, isFalse);
+      expect(await createResult, 'created');
+      expect(harness.service.isUnlocked, isTrue);
+    },
+  );
 
   test('master password rotation rewrites update anchor counter', () async {
     final harness = await buildHarness();
@@ -548,14 +739,86 @@ class _RollbackAfterTransactionActionRepository extends VaultRepository {
   }
 }
 
+class _SignalingTransactionRepository extends VaultRepository {
+  _SignalingTransactionRepository(
+    Database db, {
+    required this.signalOnTransactionNumber,
+  }) : _db = db,
+       super(
+         metaDao: VaultMetaDao(db),
+         itemsDao: VaultItemsDao(db),
+         manifestDao: VaultManifestDao(db),
+         settingsDao: SettingsDao(db),
+       );
+
+  final Database _db;
+  final int signalOnTransactionNumber;
+  var _transactionCount = 0;
+  final _targetTransactionStarted = Completer<void>();
+
+  Future<void> get targetTransactionStarted => _targetTransactionStarted.future;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(VaultRepository repository) action,
+  ) async {
+    _transactionCount += 1;
+    if (_transactionCount == signalOnTransactionNumber &&
+        !_targetTransactionStarted.isCompleted) {
+      _targetTransactionStarted.complete();
+    }
+    return _db.transaction((txn) async {
+      return action(
+        VaultRepository(
+          metaDao: VaultMetaDao(txn),
+          itemsDao: VaultItemsDao(txn),
+          manifestDao: VaultManifestDao(txn),
+          settingsDao: SettingsDao(txn),
+        ),
+      );
+    });
+  }
+}
+
 class _FailingAnchorWriteStore extends MemoryVaultAnchorStore {
   var failNextWrite = false;
+  var failNextAcceptedWrite = false;
 
   @override
   Future<void> write(VaultAnchor anchor) {
-    if (failNextWrite) {
+    final failAccepted =
+        failNextAcceptedWrite && !anchor.vaultId.endsWith(':pending');
+    if (failNextWrite || failAccepted) {
       failNextWrite = false;
+      failNextAcceptedWrite = false;
       throw const VaultAnchorException();
+    }
+    return super.write(anchor);
+  }
+}
+
+class _BlockingAnchorWriteStore extends MemoryVaultAnchorStore {
+  _BlockingAnchorWriteStore({required this.blockOnWriteNumber});
+
+  final int blockOnWriteNumber;
+  var _writeCount = 0;
+  final _blocked = Completer<void>();
+  final _release = Completer<void>();
+
+  Future<void> waitUntilBlocked() => _blocked.future;
+
+  void release() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
+  }
+
+  @override
+  Future<void> write(VaultAnchor anchor) async {
+    _writeCount += 1;
+    if (_writeCount == blockOnWriteNumber) {
+      _blocked.complete();
+      await _release.future;
     }
     return super.write(anchor);
   }

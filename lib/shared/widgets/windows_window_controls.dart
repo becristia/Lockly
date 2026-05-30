@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:secure_box/shared/i18n/app_strings.dart';
 
-class WindowsWindowFrame extends StatelessWidget {
+class WindowsWindowFrame extends StatefulWidget {
   const WindowsWindowFrame({super.key, required this.child});
 
   static const double chromeHeight = 34;
@@ -11,26 +11,51 @@ class WindowsWindowFrame extends StatelessWidget {
   final Widget child;
 
   @override
+  State<WindowsWindowFrame> createState() => _WindowsWindowFrameState();
+}
+
+class _WindowsWindowFrameState extends State<WindowsWindowFrame> {
+  late final OverlayEntry _frameEntry = OverlayEntry(builder: _buildFrame);
+
+  @override
+  void didUpdateWidget(covariant WindowsWindowFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _frameEntry.markNeedsBuild();
+  }
+
+  @override
+  void dispose() {
+    if (_frameEntry.mounted) {
+      _frameEntry.remove();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (defaultTargetPlatform != TargetPlatform.windows) {
-      return child;
+      return widget.child;
     }
 
+    return Overlay(initialEntries: [_frameEntry]);
+  }
+
+  Widget _buildFrame(BuildContext context) {
     return Stack(
       key: const ValueKey('windows-window-frame'),
       fit: StackFit.expand,
       children: [
         Positioned.fill(
-          top: chromeHeight,
+          top: WindowsWindowFrame.chromeHeight,
           child: KeyedSubtree(
             key: const ValueKey('windows-window-content'),
-            child: child,
+            child: widget.child,
           ),
         ),
         const Positioned(
           top: 0,
           right: 0,
-          height: chromeHeight,
+          height: WindowsWindowFrame.chromeHeight,
           child: WindowsWindowControls(),
         ),
       ],
@@ -99,6 +124,7 @@ class _WindowChromeButton extends StatelessWidget {
         width: 42,
         height: WindowsWindowFrame.chromeHeight,
         child: IconButton(
+          tooltip: tooltip,
           padding: EdgeInsets.zero,
           style: IconButton.styleFrom(
             shape: const RoundedRectangleBorder(),

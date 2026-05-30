@@ -55,15 +55,16 @@ class _LanReceivePageState extends State<LanReceivePage> {
       _resumeScanner();
       return;
     }
+    _pasteController.clear();
     setState(() {
       _payload = payload;
       _errorKey = null;
     });
     _pauseScanner();
-    await _promptForSourcePassword(payload, strings);
+    await _confirmAndImportPayload(payload, strings);
   }
 
-  Future<void> _promptForSourcePassword(
+  Future<void> _confirmAndImportPayload(
     LanTransferQrPayload payload,
     AppStrings strings,
   ) async {
@@ -74,18 +75,16 @@ class _LanReceivePageState extends State<LanReceivePage> {
     final result = await showDialog<LanTransferImportResult>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _SourceMasterPasswordDialog(
+      builder: (context) => _LanTransferImportDialog(
         title: _formatWithSender(
           strings,
-          'lanSourcePasswordTitle',
+          'lanImportFromSenderTitle',
           payload.senderName,
         ),
-        onImport: (password, cancellationToken) =>
-            widget.services.receiveLanTransfer(
-              payload: payload,
-              sourceMasterPassword: password,
-              cancellationToken: cancellationToken,
-            ),
+        onImport: (cancellationToken) => widget.services.receiveLanTransfer(
+          payload: payload,
+          cancellationToken: cancellationToken,
+        ),
       ),
     );
     _dialogOpen = false;
@@ -291,28 +290,21 @@ bool isLanScannerPlatformSupported(TargetPlatform platform) {
   };
 }
 
-class _SourceMasterPasswordDialog extends StatefulWidget {
-  const _SourceMasterPasswordDialog({
-    required this.title,
-    required this.onImport,
-  });
+class _LanTransferImportDialog extends StatefulWidget {
+  const _LanTransferImportDialog({required this.title, required this.onImport});
 
   final String title;
   final Future<LanTransferImportResult> Function(
-    String password,
     CancellationToken cancellationToken,
   )
   onImport;
 
   @override
-  State<_SourceMasterPasswordDialog> createState() =>
-      _SourceMasterPasswordDialogState();
+  State<_LanTransferImportDialog> createState() =>
+      _LanTransferImportDialogState();
 }
 
-class _SourceMasterPasswordDialogState
-    extends State<_SourceMasterPasswordDialog> {
-  final TextEditingController _passwordController = TextEditingController();
-  bool _obscure = true;
+class _LanTransferImportDialogState extends State<_LanTransferImportDialog> {
   bool _importing = false;
   String? _errorKey;
   CancellationToken? _activeCancellationToken;
@@ -320,14 +312,11 @@ class _SourceMasterPasswordDialogState
   @override
   void dispose() {
     _activeCancellationToken?.cancel();
-    _passwordController.clear();
-    _passwordController.dispose();
     super.dispose();
   }
 
   void _cancel() {
     _activeCancellationToken?.cancel();
-    _passwordController.clear();
     Navigator.of(context).pop();
   }
 
@@ -335,20 +324,14 @@ class _SourceMasterPasswordDialogState
     if (_importing) {
       return;
     }
-    if (_passwordController.text.isEmpty) {
-      setState(() => _errorKey = 'requiredMasterPassword');
-      return;
-    }
-    final password = _passwordController.text;
     final cancellationToken = CancellationToken();
     _activeCancellationToken = cancellationToken;
-    _passwordController.clear();
     setState(() {
       _importing = true;
       _errorKey = null;
     });
     try {
-      final result = await widget.onImport(password, cancellationToken);
+      final result = await widget.onImport(cancellationToken);
       if (!mounted) {
         return;
       }
@@ -387,30 +370,7 @@ class _SourceMasterPasswordDialogState
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(strings.text('lanSourceMasterPasswordSubtitle')),
-          const SizedBox(height: 14),
-          TextFormField(
-            key: const ValueKey('lan-source-master-password-field'),
-            controller: _passwordController,
-            obscureText: _obscure,
-            enableSuggestions: false,
-            autocorrect: false,
-            decoration: InputDecoration(
-              labelText: strings.text('lanSourceMasterPassword'),
-              suffixIcon: IconButton(
-                tooltip: _obscure
-                    ? strings.text('showMasterPassword')
-                    : strings.text('hideMasterPassword'),
-                onPressed: () => setState(() => _obscure = !_obscure),
-                icon: Icon(
-                  _obscure
-                      ? Icons.visibility_rounded
-                      : Icons.visibility_off_rounded,
-                ),
-              ),
-            ),
-            onFieldSubmitted: (_) => _import(),
-          ),
+          Text(strings.text('lanOneTimeImportSubtitle')),
           if (_errorKey != null) ...[
             const SizedBox(height: 10),
             Text(
@@ -529,7 +489,7 @@ String _mapImportError(Object error) {
     return 'lanPackageIntegrityFailed';
   }
   if (error is VaultUnlockException) {
-    return 'lanSourcePasswordWrong';
+    return 'lanPackageUnlockFailed';
   }
   if (error is VaultLockedException) {
     return 'lanLocalVaultLocked';
